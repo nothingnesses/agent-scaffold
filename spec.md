@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`). The remaining steps (5 to 8) are all optional extras and none are started. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is the immediate next work; Steps 6 to 9 are optional extras. None of Steps 5 to 9 are started. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -38,7 +38,7 @@ No open questions remain. The earlier open questions (the tool's form, the owner
 Decisions carried from the resolved open questions:
 
 - **Form.** A standalone Rust binary (clap CLI plus a ratatui TUI) that runs without Nix; Nix is a development-only dependency (the dev shell). Distributed via `cargo install` or prebuilt binaries, with an optional flake app for Nix users. Runs from any working directory and writes to any target via `--output-dir`, defaulting to the current directory with a namespaced layout.
-- **Ownership (two-tier).** Tool-owned reference assets under `.agents/` are always refreshed; user working files (the root `AGENTS.md`, plans under `docs/plans/`) are create-if-absent, with `--force` to overwrite. An existing `AGENTS.md` is left untouched and the namespaced reference copy is refreshed for the user to merge from. Marked-block co-tenancy and a 3-way-merge `update` were considered and deferred (Step 8).
+- **Ownership (two-tier).** Tool-owned reference assets under `.agents/` are always refreshed; user working files (the root `AGENTS.md`, plans under `docs/plans/`) are create-if-absent, with `--force` to overwrite. An existing `AGENTS.md` is left untouched and the namespaced reference copy is refreshed for the user to merge from. Marked-block co-tenancy and a 3-way-merge `update` were considered and deferred (Step 9).
 - **Template source.** A built-in default pack, with optional `--template <ref>` (a local path or a git URL; the fetch must not depend on Nix, and a flake-ref is only an optional extra) for bring-your-own packs.
 - **Principle data.** Structured TOML (`pack/principles.toml`). Each principle has `id`, `name`, `summary`, `rationale`, `tags` (category tags plus applicability tags `universal`/`static-types`/`fp`/`oop`), `default_selected`, `default_order`, and optional `references`/`related`. The selected set renders as a numbered list ordered by `default_order`, at `name`, `summary`, or `full` detail. The default set is about 21 principles, applicability-tagged so it adapts to the project type; the shipped prompts and guidance stay principle-agnostic and defer to the selected set.
 - **Optional modules (not yet built).** A diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
@@ -61,7 +61,7 @@ Status: complete. The non-interactive path: `--principles default|all|none|<ids>
 
 The interactive TUI (ratatui, `src/tui.rs`) is built and launches on `--interactive`/`-i`, seeded from the resolved `--principles` set. First-pass design as built:
 
-- **Scope: principles only.** Toggle inclusion and reorder principles. Modules are out of this pass, since they are specified but not yet built (Step 5); a module pane or mode is added when modules exist, reusing this pass's interaction code.
+- **Scope: principles only.** Toggle inclusion and reorder principles. Modules are out of this pass, since they are specified but not yet built (Step 6); a module pane or mode is added when modules exist, reusing this pass's interaction code.
 - **Layout: two-pane.** Left pane lists available (not included) principles; right pane lists included principles (numbered) in their chosen order. The focused pane is marked by border colour and the cursor highlight; the cursor wraps at both ends of a pane.
 - **Key bindings.** `i`/`a` move the highlighted principle to the other pane, inserting it before (`i`) or after (`a`) that pane's cursor, with the cursor following the moved item. (This replaced an earlier Space/Shift+Space scheme: Shift+Space is not distinguishable from Space without the enhanced keyboard protocol, which is unreliable, for example on Alacritty; plain letter keys work everywhere and match vim's insert/append.) `Tab`/`BackTab`/left/right/`h`/`l` switch focus; up/down or `j`/`k` move the cursor; with the Included pane focused, Shift+up/down or `K`/`J` reorder the highlighted principle, overriding `default_order`. `u` undoes and `U` redoes. `Enter` opens the save modal; `q` aborts, and Esc aborts from editing but cancels the modal.
 - **Undo/redo.** `u`/`U` step through whole-state snapshots. Each editing action (`i`/`a` move, `K`/`J` reorder) checkpoints the pre-edit state before mutating; a fresh edit clears the redo stack. Navigation (cursor, focus) does not checkpoint, so undo steps through edits rather than movement. Snapshots are valid states, so undo/redo cannot break the disjoint-partition invariant.
@@ -72,19 +72,26 @@ The interactive TUI (ratatui, `src/tui.rs`) is built and launches on `--interact
 - **Concurrency (sync now, one seam for later).** A blocking loop over a small `enum Event { Key(KeyEvent), Resize }` fed by one `next_event()` that currently wraps `event::read()` (filtering to key-press and resize events). No async, no tokio, no channel. `next_event()` is the single upgrade point: if a real concurrent producer ever lands (for example an isolation step streaming progress, or a live preview pane), it becomes a `std::sync::mpsc` receiver merging sources, still synchronous, without touching `update`/`ui`. This is void-installer's event-source decoupling minus its async runtime; full async stays off the table for a scaffolder.
 - **Order round-trips (gap closed).** Reordering overrides `default_order`. `resolve_selection` was re-sorting every result through `ordered_by_default`, so an explicit id list lost the user's order; it now keeps the given order (only `default`/`all` sort by `default_order`), so the printed `--principles` line reproduces the TUI result. The `selection_modes_resolve` test asserts list order accordingly.
 
-### 5. Optional modules
+### 5. TUI polish (immediate next)
+
+Status: not started. Near-term selector improvements that build on the shipped TUI; none blocking, and each reuses the existing `App`/`update`/`ui` structure and the `next_event` seam.
+
+- Search/filter in the selector: a filter mode (for example `/`) that narrows the focused pane by name or tag substring, so a specific principle is reachable without scrolling. Deferred from Step 4 (48 principles scroll acceptably), now the top follow-up. Adds a text-input sub-state (a small mode enum alongside `confirming`); the reducer stays unit-testable.
+- Tag-based selection and filtering: filter the Available pane by applicability tag (`universal`/`static-types`/`fp`/`oop`) or category, and optionally a non-interactive `--principles <tag>` form, reusing the `tags` data the pack already carries.
+
+### 6. Optional modules
 
 Status: not started. Package the confirmed modules as opt-in selections, each self-contained, none complicating the core.
 
-### 6. Bring-your-own template support
+### 7. Bring-your-own template support
 
 Status: not started. Support `--template <ref>`, where `ref` is a local path or a git URL (a Nix flake-ref is an optional extra for Nix users, not required, and the fetch must not depend on Nix), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default.
 
-### 7. Optional greenfield flake template
+### 8. Optional greenfield flake template
 
 Status: not started. Expose a `nix flake new` template as a convenience for the new-project case, reusing the same core assets.
 
-### 8. Optional later enhancements
+### 9. Optional later enhancements
 
 Status: not started. Marked-block augmentation of an existing `AGENTS.md`, and an opt-in merge `update` command (3-way merge), if the create-or-overwrite model proves too blunt in practice.
 

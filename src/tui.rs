@@ -159,16 +159,25 @@ impl<'a> App<'a> {
 			return;
 		}
 		let state = self.focused_state();
-		let next = state.selected().map_or(0, |i| (i + 1).min(len - 1));
+		// Wrap past the bottom back to the top.
+		let next = match state.selected() {
+			Some(i) if i + 1 < len => i + 1,
+			_ => 0,
+		};
 		state.select(Some(next));
 	}
 
 	fn cursor_up(&mut self) {
-		if self.focused_len() == 0 {
+		let len = self.focused_len();
+		if len == 0 {
 			return;
 		}
 		let state = self.focused_state();
-		let prev = state.selected().map_or(0, |i| i.saturating_sub(1));
+		// Wrap past the top round to the bottom.
+		let prev = match state.selected() {
+			Some(i) if i > 0 => i - 1,
+			_ => len - 1,
+		};
 		state.select(Some(prev));
 	}
 
@@ -512,6 +521,21 @@ mod tests {
 		update(&mut app, key(KeyCode::Char('J')));
 		assert_eq!(app.included, vec![1, 0, 2]);
 		assert_eq!(app.included_state.selected(), Some(1));
+	}
+
+	#[test]
+	fn cursor_wraps_at_both_ends() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[]);
+		assert_eq!(app.available_state.selected(), Some(0));
+
+		// Up from the top wraps to the bottom.
+		update(&mut app, key(KeyCode::Up));
+		assert_eq!(app.available_state.selected(), Some(2));
+
+		// Down from the bottom wraps to the top.
+		update(&mut app, key(KeyCode::Down));
+		assert_eq!(app.available_state.selected(), Some(0));
 	}
 
 	#[test]

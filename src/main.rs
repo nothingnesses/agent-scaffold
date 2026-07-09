@@ -49,9 +49,11 @@ struct Asset {
 
 /// Build the asset set to drop. `AGENTS.md` is rendered from the pack; the root
 /// copy is a working file and the `.agents/` copy is a tool-owned reference.
-fn assets(detail: Detail) -> Vec<Asset> {
-	let principles = pack::default_principles();
-	let agents = pack::render_agents(AGENTS_TEMPLATE, &principles, detail);
+fn assets(
+	selected: &[&pack::Principle],
+	detail: Detail,
+) -> Vec<Asset> {
+	let agents = pack::render_agents(AGENTS_TEMPLATE, selected, detail);
 	vec![
 		Asset {
 			path: "AGENTS.md",
@@ -149,10 +151,11 @@ fn write_asset(
 /// Scaffold the whole asset set, returning each asset's path and outcome.
 fn scaffold(
 	root: &Path,
+	selected: &[&pack::Principle],
 	detail: Detail,
 	force: bool,
 ) -> io::Result<Vec<(&'static str, Outcome)>> {
-	assets(detail)
+	assets(selected, detail)
 		.into_iter()
 		.map(|asset| write_asset(root, &asset, force).map(|outcome| (asset.path, outcome)))
 		.collect()
@@ -168,6 +171,9 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
+	/// Which principles to include: default, all, none, or a comma-separated list of ids.
+	#[arg(long, default_value = "default")]
+	principles: String,
 	/// How much of each principle to render into the output.
 	#[arg(long, value_enum, default_value_t = Detail::Summary)]
 	principle_detail: Detail,
@@ -179,14 +185,21 @@ struct Cli {
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
 
+	let principles = pack::default_principles();
+	let selected = match pack::resolve_selection(&principles, &cli.principles) {
+		Ok(selected) => selected,
+		Err(error) => {
+			eprintln!("error: {error}");
+			std::process::exit(2);
+		}
+	};
+
 	if cli.list_principles {
-		let principles = pack::default_principles();
-		let selected = pack::selected_ordered(&principles);
 		println!("{}", pack::render_principles(&selected, cli.principle_detail));
 		return Ok(());
 	}
 
-	for (path, outcome) in scaffold(&cli.output_dir, cli.principle_detail, cli.force)? {
+	for (path, outcome) in scaffold(&cli.output_dir, &selected, cli.principle_detail, cli.force)? {
 		println!("{:>16}  {}", outcome.label(), path);
 	}
 	Ok(())
@@ -210,7 +223,9 @@ mod tests {
 	#[test]
 	fn first_run_creates_everything() {
 		let root = scratch("first-run");
-		let results = scaffold(&root, Detail::Summary, false).unwrap();
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let results = scaffold(&root, &selected, Detail::Summary, false).unwrap();
 		assert!(results.iter().all(|(_, o)| *o == Outcome::Created));
 		assert!(root.join("AGENTS.md").exists());
 		assert!(root.join(".agents/principles.toml").exists());
@@ -220,7 +235,9 @@ mod tests {
 	#[test]
 	fn generated_agents_has_principles_and_no_placeholder() {
 		let root = scratch("generated");
-		scaffold(&root, Detail::Summary, false).unwrap();
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		scaffold(&root, &selected, Detail::Summary, false).unwrap();
 		let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
 		assert!(!agents.contains("{{principles}}"));
 		assert!(agents.contains("1. "));
@@ -230,12 +247,14 @@ mod tests {
 	#[test]
 	fn rerun_refreshes_reference_but_skips_working() {
 		let root = scratch("rerun");
-		scaffold(&root, Detail::Summary, false).unwrap();
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		scaffold(&root, &selected, Detail::Summary, false).unwrap();
 
 		// A user edits a working file after the first run.
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
 
-		let results = scaffold(&root, Detail::Summary, false).unwrap();
+		let results = scaffold(&root, &selected, Detail::Summary, false).unwrap();
 		let outcome_of =
 			|p: &str| results.iter().find(|(path, _)| *path == p).map(|(_, o)| o).unwrap();
 
@@ -249,10 +268,12 @@ mod tests {
 	#[test]
 	fn force_overwrites_working_files() {
 		let root = scratch("force");
-		scaffold(&root, Detail::Summary, false).unwrap();
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		scaffold(&root, &selected, Detail::Summary, false).unwrap();
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
 
-		let results = scaffold(&root, Detail::Summary, true).unwrap();
+		let results = scaffold(&root, &selected, Detail::Summary, true).unwrap();
 		let agents = results.iter().find(|(path, _)| *path == "AGENTS.md").map(|(_, o)| o).unwrap();
 		assert_eq!(*agents, Outcome::Overwritten);
 		let contents = fs::read_to_string(root.join("AGENTS.md")).unwrap();

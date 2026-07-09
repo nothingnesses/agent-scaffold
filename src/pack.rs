@@ -60,11 +60,55 @@ pub fn default_principles() -> Vec<Principle> {
 	parse_principles(DEFAULT_PRINCIPLES_TOML).expect("built-in principles.toml must parse")
 }
 
-/// The default-selected principles, ordered by `default_order`.
-pub fn selected_ordered(principles: &[Principle]) -> Vec<&Principle> {
-	let mut selected: Vec<&Principle> = principles.iter().filter(|p| p.default_selected).collect();
-	selected.sort_by_key(|p| p.default_order);
-	selected
+/// Order a set of principle references by their `default_order`.
+pub fn ordered_by_default(mut principles: Vec<&Principle>) -> Vec<&Principle> {
+	principles.sort_by_key(|p| p.default_order);
+	principles
+}
+
+/// An error resolving a `--principles` selection.
+#[derive(Debug)]
+pub enum SelectionError {
+	/// A requested id is not present in the pack.
+	UnknownId(String),
+}
+
+impl std::fmt::Display for SelectionError {
+	fn fmt(
+		&self,
+		f: &mut std::fmt::Formatter<'_>,
+	) -> std::fmt::Result {
+		match self {
+			SelectionError::UnknownId(id) => write!(f, "unknown principle id: {id}"),
+		}
+	}
+}
+
+impl std::error::Error for SelectionError {}
+
+/// Resolve a `--principles` selection spec into an ordered principle list.
+///
+/// `spec` is `default`, `all`, `none`, or a comma-separated list of ids.
+pub fn resolve_selection<'a>(
+	principles: &'a [Principle],
+	spec: &str,
+) -> Result<Vec<&'a Principle>, SelectionError> {
+	let selected: Vec<&Principle> = match spec {
+		"default" => principles.iter().filter(|p| p.default_selected).collect(),
+		"all" => principles.iter().collect(),
+		"none" => Vec::new(),
+		list => {
+			let mut out = Vec::new();
+			for id in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+				match principles.iter().find(|p| p.id == id) {
+					Some(principle) => out.push(principle),
+					None => return Err(SelectionError::UnknownId(id.to_string())),
+				}
+			}
+			out
+		}
+	};
+	Ok(ordered_by_default(selected))
 }
 
 /// How much of each principle to render into the output.
@@ -115,11 +159,10 @@ pub fn render_principles(
 /// `{{principles}}` placeholder.
 pub fn render_agents(
 	template: &str,
-	principles: &[Principle],
+	selected: &[&Principle],
 	detail: Detail,
 ) -> String {
-	let selected = selected_ordered(principles);
-	template.replace("{{principles}}", &render_principles(&selected, detail))
+	template.replace("{{principles}}", &render_principles(selected, detail))
 }
 
 #[cfg(test)]
@@ -170,7 +213,7 @@ mod tests {
 	#[test]
 	fn selection_is_ordered_and_nonempty() {
 		let principles = default_principles();
-		let selected = selected_ordered(&principles);
+		let selected = resolve_selection(&principles, "default").unwrap();
 		assert!(!selected.is_empty());
 		let orders: Vec<i64> = selected.iter().map(|p| p.default_order).collect();
 		let mut sorted = orders.clone();
@@ -181,9 +224,30 @@ mod tests {
 	#[test]
 	fn rendering_substitutes_and_numbers() {
 		let principles = default_principles();
-		let out = render_agents("before\n{{principles}}\nafter", &principles, Detail::Summary);
+		let selected = resolve_selection(&principles, "default").unwrap();
+		let out = render_agents("before\n{{principles}}\nafter", &selected, Detail::Summary);
 		assert!(!out.contains("{{principles}}"), "placeholder must be replaced");
 		assert!(out.contains("1. ") && out.contains(" - "), "list must be numbered and formatted");
 		assert!(out.contains("before") && out.contains("after"), "surrounding text kept");
+	}
+
+	#[test]
+	fn selection_modes_resolve() {
+		let principles = default_principles();
+		assert_eq!(resolve_selection(&principles, "all").unwrap().len(), principles.len());
+		assert!(resolve_selection(&principles, "none").unwrap().is_empty());
+		assert_eq!(
+			resolve_selection(&principles, "default").unwrap().len(),
+			principles.iter().filter(|p| p.default_selected).count()
+		);
+
+		// A comma-separated id list, returned in default_order (kiss is 350,
+		// after verify-dont-trust at 60).
+		let two = resolve_selection(&principles, "kiss, verify-dont-trust").unwrap();
+		assert_eq!(two.len(), 2);
+		assert_eq!(two[0].id, "verify-dont-trust");
+		assert_eq!(two[1].id, "kiss");
+
+		assert!(resolve_selection(&principles, "no-such-id").is_err());
 	}
 }

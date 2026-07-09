@@ -46,6 +46,8 @@ Recommendation: A, with a flake template added later as an optional greenfield c
 
 Refinement (review round 2): a hard requirement is that the tool runs from any working directory and can output to any target directory (defaulting to the current directory with the namespaced layout), selected by an `--output-dir` flag. This rules out a template-only mechanism (a flake template can only initialise the current directory) and settles the shape as "a runnable command that takes an output directory," which is A or B, not C or a bare template. Whether that command is packaged as a Nix flake app (A) or a plain script (B) is a smaller, reversible decision that can be settled at proof-of-concept time per principle 6, rather than up front. Leaning A for distribution and reproducibility, but a script proof-of-concept is the fastest way to validate the dropper logic first.
 
+Decision (review round 3): A. The tool is a Rust binary (clap-based CLI, see OQ-8) packaged as a Nix flake app and run via `nix run`. This resolves the earlier flake-app-versus-script ambiguity toward a Rust binary, which is consistent with the CLI and TUI tooling in OQ-8 and keeps the door open to a script-only proof-of-concept purely to de-risk the drop logic before the Rust implementation. Reversible if it proves wrong.
+
 ### OQ-3: Ownership and update model (broadened from existing-file handling)
 
 Once a file is scaffolded, who owns it, and what happens on re-run? This subsumes the earlier, narrower question of how pre-existing files are handled.
@@ -61,11 +63,28 @@ Decision (review round 2): approach A, vendored and one-shot, at whole-file gran
 
 Consequence for `AGENTS.md`: since the tool will not edit an existing file, the shipped guidance always also lives in the namespaced directory (as a reference copy). On a new project the root `AGENTS.md` is created with the guidance; on a project that already has one, the root file is left untouched and the user merges from the reference copy (or passes `--force` to overwrite). B (a marked, auto-updated block in `AGENTS.md`) and C (opt-in merge `update`) are recorded as possible later enhancements, both off the critical path. D (non-vendored reference) stays rejected because it removes the editability the user wants.
 
-Open sub-question: for an existing `AGENTS.md`, is "leave it and drop a reference copy alongside" sufficient, or is the marked-block augmentation (B) wanted sooner because merging by hand is friction?
+Resolved sub-question (review round 3): "leave it and drop a reference copy alongside" is sufficient. This settles a two-tier ownership model:
+
+- **Tool-owned reference assets** in the namespaced directory (the pristine copies of the shipped guidance, prompts, plan template, and principle data) are always written and safe to overwrite on every run, so they stay current. The user reads and copies from these rather than editing them in place.
+- **User working files** (the root `AGENTS.md`, plans authored under `docs/plans/`) are create-if-absent, with `--force` to overwrite.
+
+For an existing `AGENTS.md`: the root file is left untouched, and the namespaced reference copy is refreshed for the user to merge from. The marked-block augmentation (B) and the merge `update` (C) remain optional later enhancements, not needed for this model.
 
 ### OQ-5: Which principles ship in the default AGENTS.md?
 
 Shipping posture (decided): ship a broad reusable set rather than a minimal one. Refinement (review round 2): rather than shipping a fixed set the user edits after the fact, the tool offers an interactive selection at scaffold time (see OQ-8) with a sane default subset pre-selected, from the full pool below. So the pool is the menu, the pre-selected defaults are the sane starting point, and the user checks or unchecks per project. Still open: which principles belong in the pre-selected default subset (marked later, once the pool is pruned). These are the principles the tool ships to other projects, distinct from this project's own Project Principles above.
+
+Data model (review round 3, decided): each principle is structured data, not a bare line, so the tool can carry richer meaning and render a chosen amount of it. This is worth doing: it powers the selection UI's help text (the user sees why a principle exists before choosing it), lets the output verbosity vary, and lets bring-your-own packs (OQ-7) ship their own principle data in the same shape. Proposed schema per principle:
+
+- `id`: stable slug (for example `make-illegal-states-unrepresentable`), used in flags, config, and the selection record.
+- `group`: category (for example `data-modelling`, `architecture`, `correctness`, `agent-process`, `documentation`, `security`).
+- `name`: short imperative title.
+- `summary`: one sentence.
+- `rationale`: a short paragraph on why to adopt it and what it prevents.
+- `default_selected`: whether it is pre-checked in the sane-default set.
+- optional `references`: links or citations; optional `related`: ids of related principles.
+
+The tool renders a selected subset at a chosen verbosity: `name` only, `name` plus `summary` (proposed default), or `full` (name, summary, rationale, references), via a `--principle-detail` flag or the UI. Format: an external data file (recommend TOML for readability and easy authoring by bring-your-own users, with serde on the Rust side; RON or JSON are alternatives), bundled for the default pack and loadable from a pack for BYO. The same schema pattern extends to modules, so the selection UI can show a description and rationale for each optional module too. Still open: the exact field set, the data format, and which principles carry `default_selected = true` (deferred to a dedicated pruning pass).
 
 Data and type modelling:
 - Make illegal states unrepresentable.
@@ -135,21 +154,23 @@ Approaches:
 - **A. Flags and config only.** Non-interactive: `--principles default|all|none|<list>`, `--modules <list>`, plus an optional config file. Scriptable and idempotent, but the user must know the names.
 - **B. Interactive multi-select with sane defaults, plus the non-interactive path.** In a terminal, present a checkbox selector (for example via gum, fzf, or whiptail) for principles and modules with the sane defaults pre-checked; when not attached to a terminal, or when flags or a config are supplied, run non-interactively.
 
-Decision (review round 2): B. The user asked for a pick-from-the-list UI that ships sane defaults, and an interactive multi-select over the OQ-5 pool and the module set delivers exactly that. Requirement: interactivity is a convenience layer, never the only path; a non-interactive route (flags or a written config) and a recorded record of what was selected must always exist, so the tool stays scriptable, reproducible, and idempotent (principles 2 and 4). The picker dependency (gum, fzf, whiptail, or a small built-in) is deferred to proof-of-concept time. One UI covers both principles and modules.
+Decision (review round 2): B. The user asked for a pick-from-the-list UI that ships sane defaults, and an interactive multi-select over the OQ-5 pool and the module set delivers exactly that. Requirement: interactivity is a convenience layer, never the only path; a non-interactive route (flags or a written config) and a recorded record of what was selected must always exist, so the tool stays scriptable, reproducible, and idempotent (principles 2 and 4). One UI covers both principles and modules.
+
+Tooling decision (review round 3): expose both a CLI and a TUI. The CLI (the non-interactive path) uses `clap`, the standard Rust choice. The TUI (the interactive path) uses `ratatui`, which is the modern, maintained Rust TUI library (the successor to `tui-rs`); `iocraft` is a newer declarative, React-style alternative worth a look but far less mature, and `cursive` is a higher-level retained-mode option. One caveat worth weighing: if the interactive need stays a simple multi-select with help text, a prompt library (`inquire` or `dialoguer`) delivers exactly that checkbox-with-description pattern for a fraction of the code of a hand-built `ratatui` app; `ratatui` earns its keep once the TUI grows into a richer full-screen surface (for example browsing principle rationales in a side pane). Recommendation: `clap` for the CLI now; start the interactive selection with `inquire` and graduate to `ratatui` if and when the TUI becomes more than a picker, or commit to `ratatui` up front if a full TUI is a firm goal. Choosing `clap` and a Rust TUI confirms the tool is implemented in Rust, consistent with OQ-1's decision to ship a Rust binary as a flake app.
 
 ## Implementation Steps
 
-Sequencing is gated on OQ-1 (form: flake app or script, to be settled at proof-of-concept) and the OQ-3 sub-question (existing `AGENTS.md`). Template source is decided (OQ-7 approach B): a built-in default pack plus optional `--template <path-or-flake-ref>`.
+Form is decided (OQ-1): a Rust binary (clap CLI plus a Rust TUI) packaged as a Nix flake app. Template source is decided (OQ-7 approach B): a built-in default pack plus optional `--template <path-or-flake-ref>`. Ownership is decided (OQ-3): two-tier, with tool-owned namespaced reference assets always refreshed and user working files create-if-absent (`--force` to overwrite).
 
-Folded decisions: the kit's own assets (plan template, prompt library, shipped-principles source) live in a namespaced directory by default, with an `--output-dir` override so the tool can run from any directory and write to any target; `AGENTS.md` is written at root and the plan template under `docs/plans/`. Ownership is vendored one-shot: create-if-absent by default, `--force` to overwrite (OQ-3). The optional module set is confirmed: a diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
+Folded decisions: the kit's own reference assets (plan template, prompt library, principle data) live in a namespaced directory by default, always refreshed, with an `--output-dir` override so the tool can run from any directory and write to any target; the root `AGENTS.md` is create-if-absent and the plan template is authored under `docs/plans/`. The optional module set is confirmed: a diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
 
-### 1. Author the minimal core assets
+### 1. Author the minimal core assets and principle data
 
-Status: not started. Write the canonical `AGENTS.md` content, the planning-document template, and the three core prompts (clarifying-questions, open-questions gate, adversarial-review) as static files, before any generation logic. Blocked in part on OQ-5 (which principles are pre-selected by default).
+Status: not started. Write the canonical `AGENTS.md` content, the planning-document template, and the three core prompts (clarifying-questions, open-questions gate, adversarial-review) as static files. Model the principles as structured data (OQ-5 schema) rather than a flat list, so the selection UI and the verbosity rendering can consume them. Blocked in part on OQ-5 (field set, data format, and which principles are pre-selected by default).
 
 ### 2. Proof-of-concept the file-dropper
 
-Status: blocked on OQ-1 (form) and the OQ-3 sub-question. A minimal command (likely a script first) that drops the core into an empty directory and into a populated one, writing kit assets to the namespaced directory under `--output-dir`, creating absent files and leaving existing files untouched unless `--force` is given. Validates the form and ownership decisions per principle 6 before building further.
+Status: not started. A minimal command (a throwaway script is acceptable purely to de-risk the drop logic before the Rust binary) that drops the core into an empty directory and into a populated one, writing reference assets to the namespaced directory under `--output-dir`, refreshing tool-owned assets, creating absent working files, and leaving existing working files untouched unless `--force` is given. Validates the ownership model per principle 6 before building further.
 
 ### 3. Idempotency and safety pass
 

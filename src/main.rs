@@ -9,6 +9,8 @@
 //! The asset set here is stub content; the real guidance, prompts, plan
 //! template, and principle data come later.
 
+mod pack;
+
 use {
 	clap::Parser,
 	std::{
@@ -145,10 +147,22 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
+	/// List the default-selected principles (numbered, in output order) and exit.
+	#[arg(long)]
+	list_principles: bool,
 }
 
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
+
+	if cli.list_principles {
+		let principles = pack::default_principles();
+		for (i, principle) in pack::selected_ordered(&principles).iter().enumerate() {
+			println!("{:>3}. {}", i + 1, principle.name);
+		}
+		return Ok(());
+	}
+
 	for (path, outcome) in scaffold(&cli.output_dir, cli.force)? {
 		println!("{:>16}  {}", outcome.label(), path);
 	}

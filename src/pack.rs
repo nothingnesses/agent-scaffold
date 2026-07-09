@@ -4,13 +4,16 @@
 //! select a subset, order it, and render it at a chosen verbosity, and so that
 //! bring-your-own packs can ship principles in the same shape.
 
-use serde::Deserialize;
+use {
+	clap::ValueEnum,
+	serde::Deserialize,
+};
 
 /// One principle in a pack.
 ///
-/// Some fields are not read by the binary yet: they are part of the pack schema,
-/// are exercised by the tests, and will drive rendering (summary, rationale,
-/// references) and filtering (tags) as the tool grows.
+/// `id`, `tags`, and `related` are not read by the binary yet: they are part of
+/// the pack schema, are exercised by the tests, and will drive the selection
+/// flags and tag filtering as the tool grows.
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct Principle {
@@ -44,7 +47,7 @@ struct PrinciplesFile {
 }
 
 /// The embedded source of the built-in default pack.
-const DEFAULT_PRINCIPLES_TOML: &str = include_str!("../pack/principles.toml");
+pub const DEFAULT_PRINCIPLES_TOML: &str = include_str!("../pack/principles.toml");
 
 /// Parse a principles file's TOML source into its principles.
 pub fn parse_principles(source: &str) -> Result<Vec<Principle>, toml::de::Error> {
@@ -62,6 +65,61 @@ pub fn selected_ordered(principles: &[Principle]) -> Vec<&Principle> {
 	let mut selected: Vec<&Principle> = principles.iter().filter(|p| p.default_selected).collect();
 	selected.sort_by_key(|p| p.default_order);
 	selected
+}
+
+/// How much of each principle to render into the output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Detail {
+	/// Just the principle name.
+	Name,
+	/// Name and one-line summary.
+	Summary,
+	/// Name, rationale, and references.
+	Full,
+}
+
+/// Render one principle as a numbered list item at the given detail level.
+fn render_one(
+	index: usize,
+	principle: &Principle,
+	detail: Detail,
+) -> String {
+	match detail {
+		Detail::Name => format!("{index}. {}", principle.name),
+		Detail::Summary => format!("{index}. **{}.** {}", principle.name, principle.summary),
+		Detail::Full => {
+			let mut rendered = format!("{index}. **{}.** {}", principle.name, principle.rationale);
+			if !principle.references.is_empty() {
+				rendered.push_str("\n   References: ");
+				rendered.push_str(&principle.references.join(", "));
+			}
+			rendered
+		}
+	}
+}
+
+/// Render principles as a numbered list at the given detail level.
+pub fn render_principles(
+	selected: &[&Principle],
+	detail: Detail,
+) -> String {
+	selected
+		.iter()
+		.enumerate()
+		.map(|(i, principle)| render_one(i + 1, principle, detail))
+		.collect::<Vec<_>>()
+		.join("\n")
+}
+
+/// Render an `AGENTS.md` template, substituting the selected principles for the
+/// `{{principles}}` placeholder.
+pub fn render_agents(
+	template: &str,
+	principles: &[Principle],
+	detail: Detail,
+) -> String {
+	let selected = selected_ordered(principles);
+	template.replace("{{principles}}", &render_principles(&selected, detail))
 }
 
 #[cfg(test)]
@@ -118,5 +176,14 @@ mod tests {
 		let mut sorted = orders.clone();
 		sorted.sort_unstable();
 		assert_eq!(orders, sorted, "selection must come out ordered");
+	}
+
+	#[test]
+	fn rendering_substitutes_and_numbers() {
+		let principles = default_principles();
+		let out = render_agents("before\n{{principles}}\nafter", &principles, Detail::Summary);
+		assert!(!out.contains("{{principles}}"), "placeholder must be replaced");
+		assert!(out.contains("1. **"), "list must be numbered and formatted");
+		assert!(out.contains("before") && out.contains("after"), "surrounding text kept");
 	}
 }

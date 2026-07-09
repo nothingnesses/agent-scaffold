@@ -84,18 +84,31 @@ Data model (review round 3, decided): each principle is structured data, not a b
 - `summary`: one sentence.
 - `rationale`: a short paragraph on why to adopt it and what it prevents.
 - `default_selected`: whether it is pre-checked in the sane-default set.
-- `applicability`: which project kinds it fits (for example `universal`, `static-types`, `fp`), so defaults can be proposed per project type instead of one-size-fits-all.
+- `applicability`: which project kinds it fits (`universal`, `static-types`, `fp`, or `oop`), so defaults can be proposed per project type instead of one-size-fits-all.
 - optional `references`: links or citations; optional `related`: ids of related principles.
 
 The tool renders a selected subset at a chosen verbosity: `name` only, `name` plus `summary` (proposed default), or `full` (name, summary, rationale, references), via a `--principle-detail` flag or the UI. Format: an external data file (recommend TOML for readability and easy authoring by bring-your-own users, with serde on the Rust side; RON or JSON are alternatives), bundled for the default pack and loadable from a pack for BYO. The same schema pattern extends to modules, so the selection UI can show a description and rationale for each optional module too. Still open: the exact field set and the data format.
 
-Proposed default set (review round 4): the user proposed adopting nearly the whole pool as defaults, dropping only these eight: "prefer immutability; keep mutation local", "avoid primitive obsession; newtypes" (data modelling); "separate mechanism from policy", "small modules with clear boundaries", "depend on abstractions at boundaries", "YAGNI", "prefer duplication over the wrong abstraction" (architecture); and "match the existing conventions of the codebase" (agent process). Assessment folded into the discussion, still to be settled:
+Default set (review round 5, decided): adopt the recommendation. Drop KISS and "match existing conventions" from the defaults (both stay in the pool), tag every principle with `applicability` (`universal`, `static-types`, `fp`, or `oop`) so the default set adapts to the project, and trim the defaults to a smaller high-leverage subset. On a statically-typed project the defaults are the universal set plus the top typed principles; on a dynamically-typed project only the universal ones apply.
 
-- Coherence: the set is coherent and mutually reinforcing. The one mild tension is KISS against the type-encoding principles (encoding invariants in types can add apparent complexity), which is a judgement call rather than a conflict. Dropping "match existing conventions" sharpens the opinionated-clean-architecture stance, but since the tool targets existing projects too, that principle is arguably worth keeping as a default to reduce friction on established codebases.
-- Sizing: about 39 of the pool is a lot for a default. Costs are context-window weight on every agent turn and signal dilution (when everything is a principle, the highest-leverage ones lose salience). Verbosity control (name-only) mitigates the first, not the second. A tighter default of the highest-leverage, most universal principles, with the rest one toggle away, is worth considering.
-- Universality: the agent-process, documentation, and security principles are genuinely universal. The type and data-modelling principles and several architecture ones (Result and Option, parse-don't-validate, make illegal states unrepresentable, functional core imperative shell, compile-time enforcement) assume an expressive static type system and do not transfer cleanly to dynamically typed projects. This is what the `applicability` field is for: tag principles as `universal` versus `static-types`/`fp`, so the default set can adapt to the project rather than defaulting the whole typed-FP set onto, say, a Python project.
+Applicability by group (finalised per principle in the data file): data and type modelling is `static-types`; agent process, documentation (except "types and tests as documentation", which is `static-types`), and security are `universal`; correctness and quality is `universal` except the compile-time-enforcement hierarchy (`static-types`); architecture is mixed, with functional core imperative shell as `fp`, composition over inheritance as `oop`, and the rest `universal`.
 
-Still open: whether to trim the default set, whether to keep "match existing conventions", and the `applicability` tagging that makes defaults project-aware.
+Proposed trimmed default set (about 20; the three static-types items apply only to statically-typed projects, the rest are universal):
+
+- Data and type modelling (static-types): make illegal states unrepresentable; parse, don't validate; make failure and absence explicit.
+- Architecture (universal): prefer the cleaner long-term architecture over the smallest diff; least privilege and least authority.
+- Correctness and quality (universal): correctness before performance; tests must actually exercise the code they claim to; fail fast and loudly.
+- Agent process (universal): ask clarifying questions first; surface open questions before implementing; ground decisions in evidence with a proof-of-concept; keep changes small and reviewable; verify, do not trust; cite sources; no silent scope expansion; leave durable notes that survive compaction.
+- Documentation (universal): document the why, not the what.
+- Security (universal): validate and parse untrusted input at the boundary; never trust external input; keep secrets out of code and logs.
+
+On a dynamically-typed project the three static-types items drop, leaving seventeen universal defaults.
+
+Close calls left out of the default but reasonable to pull back in: independent or adversarial review, prefer reversible steps, handle errors where you can act on them, and sandbox or isolate untrusted execution (the last is agent-relevant given the isolation module).
+
+Boy scout rule: added to the pool but deliberately not a default, because for agents it pulls against the higher-priority "no silent scope expansion" (it invites touching adjacent code unasked). Best left opt-in.
+
+Still open: confirm the trimmed default list and any close-call additions; the exact per-principle `applicability` tags are finalised in the data file.
 
 Data and type modelling:
 - Make illegal states unrepresentable.
@@ -121,6 +134,7 @@ Architecture:
 - Least privilege and least authority.
 - Principle of least astonishment.
 - Make operations idempotent where they may be retried.
+- Leave code a little better than you found it (the boy scout rule).
 
 Correctness and quality:
 - Correctness before performance; avoid premature optimisation, but ask the cheap scaling questions early.

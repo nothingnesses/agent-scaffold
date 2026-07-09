@@ -223,7 +223,7 @@ mod tests {
 		scaffold(&root, Detail::Summary, false).unwrap();
 		let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
 		assert!(!agents.contains("{{principles}}"));
-		assert!(agents.contains("1. **"));
+		assert!(agents.contains("1. "));
 		fs::remove_dir_all(&root).unwrap();
 	}
 

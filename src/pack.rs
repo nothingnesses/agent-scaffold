@@ -86,9 +86,9 @@ fn render_one(
 ) -> String {
 	match detail {
 		Detail::Name => format!("{index}. {}", principle.name),
-		Detail::Summary => format!("{index}. **{}.** {}", principle.name, principle.summary),
+		Detail::Summary => format!("{index}. {} - {}", principle.name, principle.summary),
 		Detail::Full => {
-			let mut rendered = format!("{index}. **{}.** {}", principle.name, principle.rationale);
+			let mut rendered = format!("{index}. {} - {}", principle.name, principle.rationale);
 			if !principle.references.is_empty() {
 				rendered.push_str("\n   References: ");
 				rendered.push_str(&principle.references.join(", "));
@@ -183,7 +183,7 @@ mod tests {
 		let principles = default_principles();
 		let out = render_agents("before\n{{principles}}\nafter", &principles, Detail::Summary);
 		assert!(!out.contains("{{principles}}"), "placeholder must be replaced");
-		assert!(out.contains("1. **"), "list must be numbered and formatted");
+		assert!(out.contains("1. ") && out.contains(" - "), "list must be numbered and formatted");
 		assert!(out.contains("before") && out.contains("after"), "surrounding text kept");
 	}
 }

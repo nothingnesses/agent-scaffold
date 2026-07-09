@@ -23,7 +23,7 @@ These govern how this tool is built.
 6. Ground decisions in evidence. Before an approach is built out, validate it with a small proof-of-concept that builds and produces the expected output. If the candidates are exhausted, raise the impasse for a decision rather than forcing through an unvalidated approach.
 7. Reproducible. Prefer the project's existing toolchain conventions (Nix, just, direnv) so a scaffolded project and its checks behave the same on any machine.
 
-Note: the principles the tool *ships* to other projects (the default `AGENTS.md` content) are a separate artifact from these, and which set to ship by default is OQ-5.
+Note: the principles the tool _ships_ to other projects (the default `AGENTS.md` content) are a separate artifact from these, and which set to ship by default is OQ-5.
 
 ## Documentation Protocol
 
@@ -110,6 +110,7 @@ Boy scout rule: added to the pool but deliberately not a default, because for ag
 Still open: confirm the trimmed default list and any close-call additions; the exact per-principle `applicability` tags are finalised in the data file.
 
 Data and type modelling:
+
 - Make illegal states unrepresentable.
 - Parse, don't validate (reject malformed input at the boundary and turn it into a precise type).
 - Make failure and absence explicit (Result and Option; no nulls, exceptions, or silent defaults).
@@ -120,6 +121,7 @@ Data and type modelling:
 - Encode invariants in types; fall back to a checked boundary or documented invariant only when the type system cannot express them.
 
 Architecture:
+
 - Prefer the cleaner long-term architecture over the smallest diff.
 - Separate mechanism from policy.
 - Functional core, imperative shell: push effects to the edges.
@@ -136,6 +138,7 @@ Architecture:
 - Leave code a little better than you found it (the boy scout rule).
 
 Correctness and quality:
+
 - Correctness before performance; avoid premature optimisation, but ask the cheap scaling questions early.
 - Tests must actually exercise the code they claim to.
 - Reach for property-based tests when the input space is large.
@@ -145,6 +148,7 @@ Correctness and quality:
 - Make the common case easy and the wrong case hard.
 
 Agent process:
+
 - Ask clarifying questions before forging ahead; always give recommendations and the reasoning behind them.
 - Surface open questions, decisions, and blockers before implementing.
 - Ground decisions in evidence; validate an approach with a small proof-of-concept before building it out, and if the candidates are exhausted, raise the impasse rather than forcing an unvalidated approach through.
@@ -158,12 +162,14 @@ Agent process:
 - Prefer reversible steps; make risky or irreversible steps explicit and confirm them.
 
 Documentation:
+
 - Document the why, not the what.
 - Treat types and tests as documentation.
 - Include runnable examples with assertions.
 - Keep docs next to the code and make stale docs loud (for example compile-time doc checks).
 
 Security:
+
 - Validate and parse untrusted input at the boundary.
 - Never trust external input.
 - Sandbox or isolate untrusted execution (directly relevant to agents).

@@ -199,7 +199,7 @@ Folded decisions: the kit's own reference assets (plan template, prompt library,
 
 ### 1. Author the minimal core assets and principle data
 
-Status: not started. Write the canonical `AGENTS.md` content, the planning-document template, and the three core prompts (clarifying-questions, open-questions gate, adversarial-review) as static files. Model the principles as structured data (OQ-5 schema) rather than a flat list, so the selection UI and the verbosity rendering can consume them. Blocked in part on OQ-5 (field set, data format, and which principles are pre-selected by default).
+Status: complete. Wrote the canonical `AGENTS.md` guidance (with a `{{principles}}` placeholder), the plan-document template, the three core prompts, and the principle data as structured TOML (48 principles, 21 default), parsed and tested. Content policy: the shipped prompts and guidance stay principle-agnostic and defer to the user-selected principle set in `AGENTS.md`, rather than baking in specific opinions a user may not have chosen (the open-questions gate was corrected to follow this).
 
 ### 2. Proof-of-concept the file-dropper
 

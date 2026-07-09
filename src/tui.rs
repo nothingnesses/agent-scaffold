@@ -89,7 +89,8 @@ struct App<'a> {
 	principles: &'a [Principle],
 	/// Included principle indices, in the user's chosen order.
 	included: Vec<usize>,
-	/// Available (not included) indices, kept in `default_order`.
+	/// Available (not included) indices: seeded in `default_order`, then items
+	/// toggled out of Included are appended to the end.
 	available: Vec<usize>,
 	focus: Pane,
 	available_state: ListState,
@@ -201,10 +202,7 @@ impl<'a> App<'a> {
 			}
 			Pane::Included => {
 				let idx = self.included.remove(pos);
-				let order = self.principles[idx].default_order;
-				let at =
-					self.available.partition_point(|&i| self.principles[i].default_order < order);
-				self.available.insert(at, idx);
+				self.available.push(idx);
 			}
 		}
 		self.clamp_focused();
@@ -489,12 +487,12 @@ mod tests {
 		assert_eq!(app.included, vec![0]);
 		assert_eq!(app.available, vec![1, 2]);
 
-		// Switch to the included pane and exclude it again; it returns in
-		// default_order (order 10 sorts to the front).
+		// Switch to the included pane and exclude it again; it is appended to
+		// the end of Available (symmetric with toggling in), not re-sorted.
 		update(&mut app, key(KeyCode::Tab));
 		assert_eq!(app.focus, Pane::Included);
 		update(&mut app, key(KeyCode::Char(' ')));
-		assert_eq!(app.available, vec![0, 1, 2]);
+		assert_eq!(app.available, vec![1, 2, 0]);
 		assert!(app.included.is_empty());
 	}
 

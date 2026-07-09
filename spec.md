@@ -44,6 +44,8 @@ Approaches:
 
 Recommendation: A, with a flake template added later as an optional greenfield convenience (a subset of D). Reasoning: A alone satisfies both modes, is a single `nix run` one-liner (the "quick and easy" goal), and is reproducible. The template is a nicety, not a requirement, so it is deferred under the minimal-by-default principle.
 
+Refinement (review round 2): a hard requirement is that the tool runs from any working directory and can output to any target directory (defaulting to the current directory with the namespaced layout), selected by an `--output-dir` flag. This rules out a template-only mechanism (a flake template can only initialise the current directory) and settles the shape as "a runnable command that takes an output directory," which is A or B, not C or a bare template. Whether that command is packaged as a Nix flake app (A) or a plain script (B) is a smaller, reversible decision that can be settled at proof-of-concept time per principle 6, rather than up front. Leaning A for distribution and reproducibility, but a script proof-of-concept is the fastest way to validate the dropper logic first.
+
 ### OQ-3: Ownership and update model (broadened from existing-file handling)
 
 Once a file is scaffolded, who owns it, and what happens on re-run? This subsumes the earlier, narrower question of how pre-existing files are handled.
@@ -55,11 +57,15 @@ Approaches:
 - **C. Vendored with opt-in update (3-way merge).** The tool records what it generated (a manifest), and an explicit `update` re-applies template changes via a 3-way merge (base = last generated, ours = user edits, theirs = new template), copier-style. Most powerful, most complex, can conflict.
 - **D. Referenced, non-vendored.** Assets stay in the tool or a package and the project references them (symlink or include). Always current, but the user cannot edit freely without breaking the link.
 
-Recommendation: A by default (maximum freedom, zero interference, which directly answers the "will the tool step on my edits" concern), plus B for the few root files the tool must co-inhabit (chiefly `AGENTS.md` when it already exists). Offer C later as an explicit opt-in `update` command for users who want to pull template improvements. Reasoning: hands-off is the safe default and the common case; the marked block covers the one unavoidable co-tenancy; a merge-based update is real value but is advanced and must not complicate the core. D is rejected as a default because it removes the editability the user explicitly wants, though it could be an optional mode later.
+Decision (review round 2): approach A, vendored and one-shot, at whole-file granularity. By default the tool creates files that do not exist and never modifies files that do (create-if-absent), so it can never step on the user's edits. An opt-in `--force` (off by default) overwrites existing files with the pack version. This is simpler and more predictable than both the marked-block co-tenancy (B) and the 3-way-merge update (C), and it matches the user's preference for a plain override option over a merge.
+
+Consequence for `AGENTS.md`: since the tool will not edit an existing file, the shipped guidance always also lives in the namespaced directory (as a reference copy). On a new project the root `AGENTS.md` is created with the guidance; on a project that already has one, the root file is left untouched and the user merges from the reference copy (or passes `--force` to overwrite). B (a marked, auto-updated block in `AGENTS.md`) and C (opt-in merge `update`) are recorded as possible later enhancements, both off the critical path. D (non-vendored reference) stays rejected because it removes the editability the user wants.
+
+Open sub-question: for an existing `AGENTS.md`, is "leave it and drop a reference copy alongside" sufficient, or is the marked-block augmentation (B) wanted sooner because merging by hand is friction?
 
 ### OQ-5: Which principles ship in the default AGENTS.md?
 
-Shipping posture (decided): ship a broad reusable set with a note that they are a starting point to trim per project, since deleting an unwanted principle is easier than noticing a missing one. Still open: which principles make the cut. Candidate pool below, grouped, for pruning. These are the principles the tool ships to other projects, distinct from this project's own Project Principles above.
+Shipping posture (decided): ship a broad reusable set rather than a minimal one. Refinement (review round 2): rather than shipping a fixed set the user edits after the fact, the tool offers an interactive selection at scaffold time (see OQ-8) with a sane default subset pre-selected, from the full pool below. So the pool is the menu, the pre-selected defaults are the sane starting point, and the user checks or unchecks per project. Still open: which principles belong in the pre-selected default subset (marked later, once the pool is pruned). These are the principles the tool ships to other projects, distinct from this project's own Project Principles above.
 
 Data and type modelling:
 - Make illegal states unrepresentable.
@@ -120,57 +126,60 @@ Security:
 - Sandbox or isolate untrusted execution (directly relevant to agents).
 - Keep secrets out of code and logs.
 
-### OQ-7: Template source, built-in versus bring-your-own
+### OQ-8: Selection UI for principles and modules
 
-Should the content the tool scaffolds be fixed (our agent-workflow pack), or can the user point the tool at their own template set?
+At scaffold time, how does the user choose which principles (OQ-5) and which optional modules to include?
 
 Approaches:
 
-- **A. Built-in only.** The tool ships one opinionated pack (the agent workflow). Simplest. Trade-off: not reusable for the user's other scaffolding needs.
-- **B. Built-in default plus bring-your-own.** The tool ships the agent-workflow pack as the default, and `--template <path-or-flake-ref>` points it at an alternative. A pack is a plain directory of assets plus a small manifest (what to drop where, and each asset's ownership mode from OQ-3). Substitution stays minimal (simple named-variable replacement), deliberately not a full templating language.
-- **C. Bring-your-own first (generic engine).** The tool is a general scaffolding engine and the agent workflow is merely the bundled default pack.
+- **A. Flags and config only.** Non-interactive: `--principles default|all|none|<list>`, `--modules <list>`, plus an optional config file. Scriptable and idempotent, but the user must know the names.
+- **B. Interactive multi-select with sane defaults, plus the non-interactive path.** In a terminal, present a checkbox selector (for example via gum, fzf, or whiptail) for principles and modules with the sane defaults pre-checked; when not attached to a terminal, or when flags or a config are supplied, run non-interactively.
 
-Recommendation: B. Reasoning: it separates mechanism (drop and merge) from policy (the pack), which is cleaner and lets the same tool scaffold the user's own project types cheaply, while stopping short of rebuilding copier or cookiecutter (C's real risk, since a full generic templating engine is a much larger undertaking with mature incumbents). Keeping substitution minimal is what holds B back from sliding into C. B also fits OQ-1 approach A: a pack referenced as a path or flake-ref is exactly what `nix run` can fetch. Flagged for discussion, per the request to talk this through before settling OQ-3.
+Decision (review round 2): B. The user asked for a pick-from-the-list UI that ships sane defaults, and an interactive multi-select over the OQ-5 pool and the module set delivers exactly that. Requirement: interactivity is a convenience layer, never the only path; a non-interactive route (flags or a written config) and a recorded record of what was selected must always exist, so the tool stays scriptable, reproducible, and idempotent (principles 2 and 4). The picker dependency (gum, fzf, whiptail, or a small built-in) is deferred to proof-of-concept time. One UI covers both principles and modules.
 
 ## Implementation Steps
 
-Sequencing is gated on OQ-1, OQ-3, and OQ-7; the steps below assume OQ-1 approach A.
+Sequencing is gated on OQ-1 (form: flake app or script, to be settled at proof-of-concept) and the OQ-3 sub-question (existing `AGENTS.md`). Template source is decided (OQ-7 approach B): a built-in default pack plus optional `--template <path-or-flake-ref>`.
 
-Folded decisions from review round 1: the kit's own assets (plan template, prompt library, shipped-principles source) live in a namespaced directory by default, with an optional output-directory override; `AGENTS.md` is written at root and the plan template under `docs/plans/`. The optional module set is confirmed: a diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
+Folded decisions: the kit's own assets (plan template, prompt library, shipped-principles source) live in a namespaced directory by default, with an `--output-dir` override so the tool can run from any directory and write to any target; `AGENTS.md` is written at root and the plan template under `docs/plans/`. Ownership is vendored one-shot: create-if-absent by default, `--force` to overwrite (OQ-3). The optional module set is confirmed: a diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
 
 ### 1. Author the minimal core assets
 
-Status: not started. Write the canonical `AGENTS.md` content, the planning-document template, and the three core prompts (clarifying-questions, open-questions gate, adversarial-review) as static files, before any generation logic. This is the reusable substance and can be validated by eye. Blocked in part on OQ-5 (which principles to ship).
+Status: not started. Write the canonical `AGENTS.md` content, the planning-document template, and the three core prompts (clarifying-questions, open-questions gate, adversarial-review) as static files, before any generation logic. Blocked in part on OQ-5 (which principles are pre-selected by default).
 
 ### 2. Proof-of-concept the file-dropper
 
-Status: blocked on OQ-1, OQ-3, OQ-7. A minimal flake app that drops the core into an empty directory and into a populated one, writing kit assets to the namespaced directory, creating `AGENTS.md` if absent and editing its marked block if present. Validates the form and ownership decisions per principle 6 before building further.
+Status: blocked on OQ-1 (form) and the OQ-3 sub-question. A minimal command (likely a script first) that drops the core into an empty directory and into a populated one, writing kit assets to the namespaced directory under `--output-dir`, creating absent files and leaving existing files untouched unless `--force` is given. Validates the form and ownership decisions per principle 6 before building further.
 
 ### 3. Idempotency and safety pass
 
-Status: not started. Re-run produces no drift; pre-existing files are preserved; the marked block round-trips; the optional output-directory override works.
+Status: not started. Re-run changes nothing; pre-existing files are preserved unless `--force`; the `--output-dir` override works from any working directory.
 
-### 4. Optional modules behind flags
+### 4. Selection UI
 
-Status: not started. Add the confirmed modules as opt-in selections, each self-contained, none complicating the core.
+Status: not started. Interactive multi-select for principles and modules with sane defaults pre-checked (OQ-8 B), plus the non-interactive flag and config path and a recorded selection.
 
-### 5. Bring-your-own template support
+### 5. Optional modules
 
-Status: blocked on OQ-7. If B is adopted, support `--template <path-or-flake-ref>` with a small manifest and minimal named-variable substitution.
+Status: not started. Package the confirmed modules as opt-in selections, each self-contained, none complicating the core.
 
-### 6. Optional greenfield flake template
+### 6. Bring-your-own template support
+
+Status: not started (OQ-7 B decided). Support `--template <path-or-flake-ref>` with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default.
+
+### 7. Optional greenfield flake template
 
 Status: not started. Expose a `nix flake new` template as a convenience for the new-project case, reusing the same core assets.
 
-### 7. Optional opt-in update command
+### 8. Optional later enhancements
 
-Status: blocked on OQ-3. If C (3-way merge update) is adopted as an advanced mode, record a generation manifest and implement `update`.
+Status: not started. Marked-block augmentation of an existing `AGENTS.md` (OQ-3 B) and an opt-in merge `update` command (OQ-3 C), if the create-or-overwrite model proves too blunt in practice.
 
 ## Success Criteria
 
-- One command drops the minimal core into an empty directory and into an existing repository, in both cases leaving a usable `AGENTS.md`, a planning-document template, and the core prompts.
-- Running it a second time changes nothing (idempotent) and never overwrites a pre-existing file outside its own marked block.
-- Vendored assets can be edited freely, and a default re-run does not revert those edits.
+- One command, run from any working directory and targeting any `--output-dir`, drops the minimal core (a usable `AGENTS.md`, a planning-document template, and the core prompts) into both an empty directory and an existing repository.
+- By default it creates only absent files and never modifies existing ones; `--force` is required to overwrite; a default re-run therefore reverts nothing.
+- The user can choose which principles and modules to include, interactively with sane defaults or non-interactively via flags or config.
 - The dropped assets are immediately usable to run one pass of the workflow (plan -> review -> implement -> review) without further setup.
 - Optional modules can be added without touching or complicating the core.
-- (If OQ-7 B is adopted) the tool can scaffold from a user-supplied template pack, not only the built-in one.
+- The tool can scaffold from a user-supplied template pack, not only the built-in one.

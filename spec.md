@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 3 are complete and the selection UI's non-interactive path (Step 4) is done. The next work is the interactive TUI (the rest of Step 4), which is the agreed pause point: check in with the user before building it. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 3 are complete and the selection UI's non-interactive path (Step 4) is done. The interactive TUI design is now decided (see Step 4) and is the next work to build. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -31,16 +31,7 @@ This plan is kept current during the work. Each Implementation Step carries a `S
 
 ## Open Questions, Decisions, Issues and Blockers
 
-The earlier open questions (the tool's form, the ownership and update model, the shipped principle set and its data model, the template source, and the selection UI) are all resolved and folded into the Implementation Steps below and into the code. One open question remains, and it gates the interactive TUI (the rest of Step 4). The TUI is the agreed pause point: check in with the user before building it.
-
-### OQ-A: TUI design for the interactive selector
-
-The interactive TUI must let the user toggle whether a principle is included, move a cursor to the active included principle, and reorder that principle up and down (overriding `default_order` for the project); modules are toggle-only. Undecided:
-
-- Scope of the first pass: principles only (toggle plus reorder), or principles and modules together. Principles-only is the smaller pass, since modules are specified but not yet built.
-- Layout: a single scrolling list with an inclusion checkbox and a highlighted active row, or a two-pane available-versus-included view. Leaning single-list, which maps directly to the three requirements.
-- Output on confirm: run the scaffold immediately with the chosen selection and order, print the resolved `--principles` and order for non-interactive reuse, or both.
-- Extras for the first pass: search/filter, a detail preview pane, tag display, or none.
+No open questions remain. The earlier open questions (the tool's form, the ownership and update model, the shipped principle set and its data model, the template source, the non-interactive selection UI, and the interactive TUI design) are all resolved and folded into the Implementation Steps below and into the code.
 
 ## Implementation Steps
 
@@ -66,7 +57,15 @@ Status: complete. Re-run refreshes reference assets and skips existing working f
 
 ### 4. Selection UI
 
-Status: in progress. The non-interactive path is done: `--principles default|all|none|<ids>` selects the set and `--principle-detail name|summary|full` sets the rendering, both feeding generation and `--list-principles`. The interactive TUI (ratatui: toggle inclusion, select the active included principle, reorder it) is not started, and is the agreed pause point for a check-in with the user before implementation (see OQ-A). A non-interactive route and a recorded selection must always remain available so the tool stays scriptable and idempotent.
+Status: in progress. The non-interactive path is done: `--principles default|all|none|<ids>` selects the set and `--principle-detail name|summary|full` sets the rendering, both feeding generation and `--list-principles`. A non-interactive route and a recorded selection must always remain available so the tool stays scriptable and idempotent.
+
+The interactive TUI (ratatui) is designed and not yet built. First-pass design, decided with the user:
+
+- **Scope: principles only.** Toggle inclusion and reorder principles. Modules are out of this pass, since they are specified but not yet built (Step 5); a module pane or mode is added when modules exist, reusing this pass's interaction code.
+- **Layout: two-pane.** Left pane lists available (not included) principles; right pane lists included principles in their chosen order. Space/Enter toggles the highlighted item between panes; Tab (or left/right) switches focus; up/down moves the cursor; with the included pane focused, a reorder binding (Shift+up/down, or `K`/`J`) moves the highlighted principle up or down, overriding `default_order` for the project.
+- **Detail footer.** A one- or two-line footer shows the highlighted principle's `summary` and `tags`. No search/filter in this pass (48 principles scroll fine); filter is a clean later follow-up.
+- **Confirm and abort.** Enter-to-confirm runs the scaffold immediately with the chosen selection and order, and prints the resolved selection as a ready-to-paste `--principles <id1,id2,...>` line (in the chosen order) for non-interactive replay. Esc/`q` aborts and writes nothing.
+- **Order round-trips (implementation gap to close in this step).** Reordering overrides `default_order`, but `resolve_selection` currently re-sorts every result through `ordered_by_default`, so an explicit id list would not preserve the user's order. Change the comma-list path in `resolve_selection` to keep the given order (only `default`/`all` sort by `default_order`), so the printed `--principles` line reproduces the TUI result. The `selection_modes_resolve` test's ordered-id assertion flips from `default_order` to list order accordingly.
 
 ### 5. Optional modules
 

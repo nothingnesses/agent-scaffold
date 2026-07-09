@@ -86,17 +86,22 @@ impl std::fmt::Display for SelectionError {
 
 impl std::error::Error for SelectionError {}
 
-/// Resolve a `--principles` selection spec into an ordered principle list.
+/// Resolve a `--principles` selection spec into a principle list.
 ///
-/// `spec` is `default`, `all`, `none`, or a comma-separated list of ids.
+/// `spec` is `default`, `all`, `none`, or a comma-separated list of ids. The
+/// `default` and `all` sets come out sorted by `default_order`; an explicit id
+/// list preserves the order it was given, so a selection recorded by the
+/// interactive selector (which overrides `default_order`) round-trips through
+/// `--principles`.
 pub fn resolve_selection<'a>(
 	principles: &'a [Principle],
 	spec: &str,
 ) -> Result<Vec<&'a Principle>, SelectionError> {
-	let selected: Vec<&Principle> = match spec {
-		"default" => principles.iter().filter(|p| p.default_selected).collect(),
-		"all" => principles.iter().collect(),
-		"none" => Vec::new(),
+	match spec {
+		"default" =>
+			Ok(ordered_by_default(principles.iter().filter(|p| p.default_selected).collect())),
+		"all" => Ok(ordered_by_default(principles.iter().collect())),
+		"none" => Ok(Vec::new()),
 		list => {
 			let mut out = Vec::new();
 			for id in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -105,10 +110,9 @@ pub fn resolve_selection<'a>(
 					None => return Err(SelectionError::UnknownId(id.to_string())),
 				}
 			}
-			out
+			Ok(out)
 		}
-	};
-	Ok(ordered_by_default(selected))
+	}
 }
 
 /// How much of each principle to render into the output.
@@ -241,12 +245,13 @@ mod tests {
 			principles.iter().filter(|p| p.default_selected).count()
 		);
 
-		// A comma-separated id list, returned in default_order (kiss is 350,
-		// after verify-dont-trust at 60).
+		// An explicit id list preserves the given order (not default_order:
+		// kiss is 350, after verify-dont-trust at 60), so a reordered selection
+		// round-trips through `--principles`.
 		let two = resolve_selection(&principles, "kiss, verify-dont-trust").unwrap();
 		assert_eq!(two.len(), 2);
-		assert_eq!(two[0].id, "verify-dont-trust");
-		assert_eq!(two[1].id, "kiss");
+		assert_eq!(two[0].id, "kiss");
+		assert_eq!(two[1].id, "verify-dont-trust");
 
 		assert!(resolve_selection(&principles, "no-such-id").is_err());
 	}

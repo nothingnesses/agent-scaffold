@@ -1,5 +1,8 @@
 # Adversarial review
 
+First, read `AGENTS.md` and the plan, so you review the work against the
+project's current principles rather than assumed ones.
+
 Review this work adversarially. Your goal is to find where it is wrong,
 incomplete, or inconsistent with the plan and the project principles, not to
 confirm that it is fine.

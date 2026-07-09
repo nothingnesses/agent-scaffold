@@ -283,7 +283,12 @@ fn update(
 		KeyCode::Char('q') | KeyCode::Esc => return Step::Abort,
 		KeyCode::Enter => return Step::Confirm,
 		KeyCode::Char(' ') => app.toggle(),
-		KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => app.switch_focus(),
+		KeyCode::Tab
+		| KeyCode::BackTab
+		| KeyCode::Left
+		| KeyCode::Right
+		| KeyCode::Char('h')
+		| KeyCode::Char('l') => app.switch_focus(),
 		KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => app.reorder_up(),
 		KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => app.reorder_down(),
 		KeyCode::Char('K') => app.reorder_up(),
@@ -391,7 +396,7 @@ fn ui(
 	);
 	frame.render_widget(
 		Paragraph::new(
-			"space toggle  tab/<-/-> focus  j/k move  J/K reorder  enter confirm  q abort",
+			"space toggle  tab/h/l focus  j/k move  J/K reorder  enter confirm  q abort",
 		)
 		.centered()
 		.dim(),

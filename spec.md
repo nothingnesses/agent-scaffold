@@ -48,6 +48,8 @@ Refinement (review round 2): a hard requirement is that the tool runs from any w
 
 Decision (review round 3): A. The tool is a Rust binary (clap-based CLI, see OQ-8) packaged as a Nix flake app and run via `nix run`. This resolves the earlier flake-app-versus-script ambiguity toward a Rust binary, which is consistent with the CLI and TUI tooling in OQ-8 and keeps the door open to a script-only proof-of-concept purely to de-risk the drop logic before the Rust implementation. Reversible if it proves wrong.
 
+Refinement (review round 4): the tool must not require Nix at runtime. Nix is used only for the development environment (a reproducible dev shell for contributors). The tool ships as a standalone Rust binary that end users install and run without Nix: via `cargo install`, a prebuilt release binary, or, for Nix users only and as a convenience, a flake app. Impacts: distribution needs a non-Nix path (crates.io and prebuilt binaries built for common targets in CI), which is slightly more release engineering than a single flake; the bring-your-own template fetch must not depend on Nix fetchers (support a local path and a git URL, with a flake-ref only as an optional extra); and the optional isolation module (agent-box, agent-images) keeps its Nix and container dependencies, so it is the one part not available Nix-free, which is acceptable because it is opt-in. No real downside for a CLI of this kind: `Cargo.lock` gives adequate build reproducibility, and dropping the hard Nix dependency widens the audience to anyone with a Rust toolchain or a prebuilt binary.
+
 ### OQ-3: Ownership and update model (broadened from existing-file handling)
 
 Once a file is scaffolded, who owns it, and what happens on re-run? This subsumes the earlier, narrower question of how pre-existing files are handled.
@@ -82,9 +84,18 @@ Data model (review round 3, decided): each principle is structured data, not a b
 - `summary`: one sentence.
 - `rationale`: a short paragraph on why to adopt it and what it prevents.
 - `default_selected`: whether it is pre-checked in the sane-default set.
+- `applicability`: which project kinds it fits (for example `universal`, `static-types`, `fp`), so defaults can be proposed per project type instead of one-size-fits-all.
 - optional `references`: links or citations; optional `related`: ids of related principles.
 
-The tool renders a selected subset at a chosen verbosity: `name` only, `name` plus `summary` (proposed default), or `full` (name, summary, rationale, references), via a `--principle-detail` flag or the UI. Format: an external data file (recommend TOML for readability and easy authoring by bring-your-own users, with serde on the Rust side; RON or JSON are alternatives), bundled for the default pack and loadable from a pack for BYO. The same schema pattern extends to modules, so the selection UI can show a description and rationale for each optional module too. Still open: the exact field set, the data format, and which principles carry `default_selected = true` (deferred to a dedicated pruning pass).
+The tool renders a selected subset at a chosen verbosity: `name` only, `name` plus `summary` (proposed default), or `full` (name, summary, rationale, references), via a `--principle-detail` flag or the UI. Format: an external data file (recommend TOML for readability and easy authoring by bring-your-own users, with serde on the Rust side; RON or JSON are alternatives), bundled for the default pack and loadable from a pack for BYO. The same schema pattern extends to modules, so the selection UI can show a description and rationale for each optional module too. Still open: the exact field set and the data format.
+
+Proposed default set (review round 4): the user proposed adopting nearly the whole pool as defaults, dropping only these eight: "prefer immutability; keep mutation local", "avoid primitive obsession; newtypes" (data modelling); "separate mechanism from policy", "small modules with clear boundaries", "depend on abstractions at boundaries", "YAGNI", "prefer duplication over the wrong abstraction" (architecture); and "match the existing conventions of the codebase" (agent process). Assessment folded into the discussion, still to be settled:
+
+- Coherence: the set is coherent and mutually reinforcing. The one mild tension is KISS against the type-encoding principles (encoding invariants in types can add apparent complexity), which is a judgement call rather than a conflict. Dropping "match existing conventions" sharpens the opinionated-clean-architecture stance, but since the tool targets existing projects too, that principle is arguably worth keeping as a default to reduce friction on established codebases.
+- Sizing: about 39 of the pool is a lot for a default. Costs are context-window weight on every agent turn and signal dilution (when everything is a principle, the highest-leverage ones lose salience). Verbosity control (name-only) mitigates the first, not the second. A tighter default of the highest-leverage, most universal principles, with the rest one toggle away, is worth considering.
+- Universality: the agent-process, documentation, and security principles are genuinely universal. The type and data-modelling principles and several architecture ones (Result and Option, parse-don't-validate, make illegal states unrepresentable, functional core imperative shell, compile-time enforcement) assume an expressive static type system and do not transfer cleanly to dynamically typed projects. This is what the `applicability` field is for: tag principles as `universal` versus `static-types`/`fp`, so the default set can adapt to the project rather than defaulting the whole typed-FP set onto, say, a Python project.
+
+Still open: whether to trim the default set, whether to keep "match existing conventions", and the `applicability` tagging that makes defaults project-aware.
 
 Data and type modelling:
 - Make illegal states unrepresentable.
@@ -160,7 +171,7 @@ Tooling decision (review round 3): expose both a CLI and a TUI. The CLI (the non
 
 ## Implementation Steps
 
-Form is decided (OQ-1): a Rust binary (clap CLI plus a Rust TUI) packaged as a Nix flake app. Template source is decided (OQ-7 approach B): a built-in default pack plus optional `--template <path-or-flake-ref>`. Ownership is decided (OQ-3): two-tier, with tool-owned namespaced reference assets always refreshed and user working files create-if-absent (`--force` to overwrite).
+Form is decided (OQ-1): a standalone Rust binary (clap CLI plus a Rust TUI) that runs without Nix, distributed via `cargo install` or prebuilt binaries, with an optional flake app for Nix users; Nix is used only for the development environment. Template source is decided (OQ-7 approach B): a built-in default pack plus optional `--template <ref>`. Ownership is decided (OQ-3): two-tier, with tool-owned namespaced reference assets always refreshed and user working files create-if-absent (`--force` to overwrite).
 
 Folded decisions: the kit's own reference assets (plan template, prompt library, principle data) live in a namespaced directory by default, always refreshed, with an `--output-dir` override so the tool can run from any directory and write to any target; the root `AGENTS.md` is create-if-absent and the plan template is authored under `docs/plans/`. The optional module set is confirmed: a diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
 
@@ -186,7 +197,7 @@ Status: not started. Package the confirmed modules as opt-in selections, each se
 
 ### 6. Bring-your-own template support
 
-Status: not started (OQ-7 B decided). Support `--template <path-or-flake-ref>` with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default.
+Status: not started (OQ-7 B decided). Support `--template <ref>`, where `ref` is a local path or a git URL (a Nix flake-ref is an optional extra for Nix users, not required, and the fetch must not depend on Nix), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default.
 
 ### 7. Optional greenfield flake template
 

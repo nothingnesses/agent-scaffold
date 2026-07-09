@@ -1,0 +1,588 @@
+# Default principle pack for agent-scaffold.
+#
+# Each [[principle]] is one entry. Fields:
+#   id               stable slug (kebab-case); used in flags, config, and the selection record.
+#   name             short imperative title.
+#   summary          one sentence.
+#   rationale        as rich as needed to convey the idea, but not verbose and not redundant.
+#   tags             array of labels. Two conventional namespaces:
+#                      category tags: data-modelling, architecture, correctness,
+#                                     agent-process, documentation, security
+#                      applicability tags: universal, static-types, fp, oop
+#                    A principle carries as many as apply.
+#   default_selected whether it is pre-checked in the sane-default set.
+#   default_order    integer sort key for the output list (spaced by 10). The
+#                    selected principles are rendered as a numbered list in this
+#                    order; the TUI can reorder them per project.
+#   references       optional array of links or citations.
+#   related          optional array of principle ids.
+#
+# Order clusters: agent-process (10-110), correctness (120-180),
+# data-modelling (190-260), architecture (270-400), documentation (410-440),
+# security (450-480).
+
+# -- Agent process --
+
+[[principle]]
+id = "ask-clarifying-questions"
+name = "Ask clarifying questions before forging ahead"
+summary = "Confirm intent before writing code, and give recommendations with reasoning."
+rationale = """
+Confirm intent and give recommendations with reasoning before building. It is \
+cheap up front and avoids building the wrong thing well."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 10
+
+[[principle]]
+id = "surface-open-questions-before-implementing"
+name = "Surface open questions before implementing"
+summary = "List the open questions, decisions, and blockers and resolve them before coding."
+rationale = """
+List the open questions, decisions, and blockers and resolve them before \
+writing code, rather than discovering them mid-implementation when they are \
+more expensive to address."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 20
+
+[[principle]]
+id = "ground-decisions-in-evidence"
+name = "Ground decisions in evidence"
+summary = "Validate an approach with a small proof-of-concept before building it out."
+rationale = """
+Validate an approach with a small proof-of-concept before building it out; if \
+the candidates are exhausted, raise the impasse for a decision rather than \
+forcing an unvalidated approach through."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 30
+
+[[principle]]
+id = "keep-changes-small-and-reviewable"
+name = "Keep changes small and reviewable"
+summary = "Prefer small, focused changes over large ones."
+rationale = """
+Prefer small, focused changes that fit in a reviewer's head over large ones, \
+which are harder to trust and to reason about."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 40
+
+[[principle]]
+id = "independent-or-adversarial-review"
+name = "Have independent or adversarial review"
+summary = "Have a separate reviewer check the work before accepting it."
+rationale = """
+Have a separate reviewer, or a separate agent, check the work before accepting \
+it. Green tests are not the same as correct."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 50
+
+[[principle]]
+id = "verify-dont-trust"
+name = "Verify, don't trust"
+summary = "Run it and test it rather than asserting success from having written it."
+rationale = """
+Run it and test it rather than asserting success from having written it. \
+Confirm behaviour against reality."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 60
+
+[[principle]]
+id = "cite-sources"
+name = "Cite sources rather than asserting from memory"
+summary = "Point to the file and line, or the document, so claims can be checked."
+rationale = """
+Point to the file and line, or the document, rather than asserting from \
+memory, so a claim can be checked rather than taken on faith."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 70
+
+[[principle]]
+id = "no-silent-scope-expansion"
+name = "No silent scope expansion"
+summary = "Do what was asked and flag anything else rather than quietly doing it."
+rationale = """
+Do what was asked and flag anything else rather than silently doing it, since \
+unrequested changes are hard to review and easy to get wrong."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 80
+
+[[principle]]
+id = "leave-durable-notes"
+name = "Leave durable notes that survive context loss"
+summary = "Record the state of the work so it can be resumed correctly."
+rationale = """
+Record the state of the work in durable notes that survive context loss (for \
+example agent context compaction), so it can be resumed correctly by a later \
+session."""
+tags = ["agent-process", "universal"]
+default_selected = true
+default_order = 90
+
+[[principle]]
+id = "prefer-reversible-steps"
+name = "Prefer reversible steps"
+summary = "Prefer steps that are easy to undo; make risky steps explicit and confirm them."
+rationale = """
+Prefer steps that are easy to undo, and make irreversible or risky steps \
+explicit and confirm them before taking them."""
+tags = ["agent-process", "universal"]
+default_selected = false
+default_order = 100
+
+[[principle]]
+id = "match-existing-conventions"
+name = "Match the existing conventions of the codebase"
+summary = "Follow the surrounding code's conventions and style so changes fit."
+rationale = """
+Follow the existing conventions and style of the codebase you are working in, \
+so a change fits the surrounding code rather than fighting it."""
+tags = ["agent-process", "universal"]
+default_selected = false
+default_order = 110
+
+# -- Correctness and quality --
+
+[[principle]]
+id = "correctness-before-performance"
+name = "Correctness before performance"
+summary = "Make it correct before making it fast; avoid premature optimisation."
+rationale = """
+Make it correct before making it fast, and avoid premature optimisation, but \
+still ask the cheap scaling questions (how much data, what runs on the hot \
+path) early."""
+tags = ["correctness", "universal"]
+default_selected = true
+default_order = 120
+
+[[principle]]
+id = "tests-must-exercise-code"
+name = "Tests must actually exercise the code they claim to"
+summary = "A test must run the code path it claims to cover."
+rationale = """
+A test must actually run the code path it claims to cover; a test that passes \
+without exercising its target gives false confidence."""
+tags = ["correctness", "universal"]
+default_selected = true
+default_order = 130
+
+[[principle]]
+id = "fail-fast-and-loudly"
+name = "Fail fast and loudly"
+summary = "Report errors early and visibly rather than swallowing them."
+rationale = """
+Report errors early and visibly rather than swallowing them; a silent failure \
+is far harder to find than a loud one."""
+tags = ["correctness", "universal"]
+default_selected = true
+default_order = 140
+
+[[principle]]
+id = "property-based-tests"
+name = "Reach for property-based tests when the input space is large"
+summary = "Check invariants over many generated inputs, not a few hand-picked examples."
+rationale = """
+When the input space is large, reach for property-based tests so many \
+generated inputs are checked against invariants, rather than relying on a few \
+hand-picked examples."""
+tags = ["correctness", "universal"]
+default_selected = false
+default_order = 150
+
+[[principle]]
+id = "prefer-compile-time-enforcement"
+name = "Prefer compile-time enforcement, then runtime, then convention, then prose"
+summary = "Catch mistakes as early in that chain as the language allows."
+rationale = """
+Prefer, in order, compile-time enforcement, then runtime checks, then \
+convention, then prose. The earlier in that chain a mistake is caught, the \
+cheaper and more reliable the guarantee."""
+tags = ["correctness", "static-types"]
+default_selected = false
+default_order = 160
+
+[[principle]]
+id = "handle-errors-where-you-can-act"
+name = "Handle errors where you can act on them"
+summary = "Handle an error at the layer that can actually do something about it."
+rationale = """
+Handle an error at the layer that can actually do something about it, rather \
+than catching it where nothing useful can be done and the context is lost."""
+tags = ["correctness", "universal"]
+default_selected = false
+default_order = 170
+
+[[principle]]
+id = "make-common-case-easy"
+name = "Make the common case easy and the wrong case hard"
+summary = "Design so the correct use is the easy path and misuse is hard."
+rationale = """
+Design so the common, correct use is the easy path and the wrong use is hard \
+or impossible, so the API steers callers toward correctness."""
+tags = ["correctness", "universal"]
+default_selected = false
+default_order = 180
+
+# -- Data and type modelling --
+
+[[principle]]
+id = "make-illegal-states-unrepresentable"
+name = "Make illegal states unrepresentable"
+summary = "Encode the valid states in types so invalid combinations cannot be constructed."
+rationale = """
+Encode the valid states and transitions in types so an invalid combination is \
+a compile error rather than a runtime check you must remember to write."""
+tags = ["data-modelling", "static-types"]
+default_selected = true
+default_order = 190
+related = ["encode-invariants-in-types", "make-failure-and-absence-explicit"]
+
+[[principle]]
+id = "parse-dont-validate"
+name = "Parse, don't validate"
+summary = "Reject malformed input at the boundary and turn it into a precise type."
+rationale = """
+Turn input into a precise type at the boundary instead of validating a loose \
+type and passing it on, so the core can trust its data and validation lives \
+once, at the edge."""
+tags = ["data-modelling", "static-types"]
+default_selected = true
+default_order = 200
+references = [
+  "https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/",
+]
+related = ["validate-and-parse-untrusted-input"]
+
+[[principle]]
+id = "make-failure-and-absence-explicit"
+name = "Make failure and absence explicit"
+summary = "Represent failure and absence as data the caller must handle."
+rationale = """
+Represent failure and absence as data the caller must handle (Result and \
+Option), not nulls, exceptions, or silent defaults that a caller can ignore."""
+tags = ["data-modelling", "static-types"]
+default_selected = true
+default_order = 210
+
+[[principle]]
+id = "keep-pattern-matches-total"
+name = "Keep pattern matches total"
+summary = "Avoid a catch-all where a missing case would be a bug."
+rationale = """
+Prefer exhaustive matches without a catch-all where a missing case would be a \
+bug, so adding a variant forces every decision point to be revisited rather \
+than silently falling through."""
+tags = ["data-modelling", "static-types"]
+default_selected = false
+default_order = 220
+
+[[principle]]
+id = "one-source-of-truth"
+name = "One source of truth"
+summary = "Keep one authoritative source for each piece of data and derive the rest."
+rationale = """
+Keep one authoritative source for each piece of data and derive the rest, \
+rather than duplicating it and risking the copies drifting apart."""
+tags = ["data-modelling", "universal"]
+default_selected = false
+default_order = 230
+
+[[principle]]
+id = "encode-invariants-in-types"
+name = "Encode invariants in types"
+summary = "Push invariants into types; fall back to checked boundaries only when needed."
+rationale = """
+Encode invariants in types where the language allows, and fall back to a \
+checked boundary or a documented invariant only when the type system cannot \
+express them."""
+tags = ["data-modelling", "static-types"]
+default_selected = false
+default_order = 240
+related = ["make-illegal-states-unrepresentable"]
+
+[[principle]]
+id = "prefer-immutability"
+name = "Prefer immutability"
+summary = "Prefer immutable data and keep mutation local and explicit."
+rationale = """
+Prefer immutable data, and where mutation is needed keep it local and \
+explicit, so state is easier to follow and reason about."""
+tags = ["data-modelling", "fp"]
+default_selected = false
+default_order = 250
+
+[[principle]]
+id = "avoid-primitive-obsession"
+name = "Avoid primitive obsession"
+summary = "Wrap meaningful values in their own types rather than passing bare primitives."
+rationale = """
+Wrap meaningful values in their own types rather than passing bare primitives, \
+so the compiler distinguishes, say, a user id from an order id and rejects \
+mixing them."""
+tags = ["data-modelling", "static-types"]
+default_selected = false
+default_order = 260
+
+# -- Architecture --
+
+[[principle]]
+id = "prefer-cleaner-long-term-architecture"
+name = "Prefer the cleaner long-term architecture over the smallest diff"
+summary = "Choose the cleaner design over the smallest local fix."
+rationale = """
+Prefer the cleaner long-term design over the smallest diff; when a local fix \
+conflicts with a cleaner architecture, choose the cleaner one unless a concrete \
+limitation prevents it."""
+tags = ["architecture", "universal"]
+default_selected = true
+default_order = 270
+
+[[principle]]
+id = "least-privilege-and-least-authority"
+name = "Least privilege and least authority"
+summary = "Give each part only the access and authority it needs."
+rationale = """
+Give each part only the access and authority it needs, so a mistake or a \
+compromise in one place has a limited blast radius."""
+tags = ["architecture", "security", "universal"]
+default_selected = true
+default_order = 280
+
+[[principle]]
+id = "separate-mechanism-from-policy"
+name = "Separate mechanism from policy"
+summary = "Separate how something is done from what to do."
+rationale = """
+Separate the mechanism (how something is done) from the policy (what to do), \
+so each can change without disturbing the other."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 290
+
+[[principle]]
+id = "functional-core-imperative-shell"
+name = "Functional core, imperative shell"
+summary = "Keep a pure core and push effects to a thin shell at the edges."
+rationale = """
+Keep a pure core of logic and push effects (IO, state) to a thin shell at the \
+edges, so the core is easy to test and reason about."""
+tags = ["architecture", "fp"]
+default_selected = false
+default_order = 300
+
+[[principle]]
+id = "composition-over-inheritance"
+name = "Prefer composition over inheritance"
+summary = "Compose small pieces rather than building deep inheritance hierarchies."
+rationale = """
+Compose small pieces rather than deep inheritance hierarchies that couple \
+behaviour to a class tree and resist change; mainly relevant in object-oriented \
+code."""
+tags = ["architecture", "oop"]
+default_selected = false
+default_order = 310
+
+[[principle]]
+id = "small-modules-clear-boundaries"
+name = "Small modules with clear boundaries"
+summary = "Keep modules small with explicit contracts."
+rationale = """
+Keep modules small with clear boundaries and explicit contracts, so each can \
+be understood and changed on its own."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 320
+
+[[principle]]
+id = "depend-on-abstractions-at-boundaries"
+name = "Depend on abstractions at boundaries"
+summary = "Depend on abstractions rather than concrete implementations at boundaries."
+rationale = """
+Depend on abstractions at module boundaries rather than concrete \
+implementations, so parts can be swapped and tested in isolation."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 330
+
+[[principle]]
+id = "yagni"
+name = "You aren't gonna need it"
+summary = "Do not build for speculative future needs."
+rationale = """
+Do not build for speculative future needs; add capability when it is actually \
+required, not before, so effort is not spent on guesses that may never pay \
+off."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 340
+
+[[principle]]
+id = "kiss"
+name = "Keep it simple"
+summary = "Prefer the simplest thing that works."
+rationale = """
+Prefer the simplest thing that works; added complexity should earn its place \
+rather than be adopted by default."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 350
+
+[[principle]]
+id = "prefer-duplication-over-wrong-abstraction"
+name = "Prefer duplication over the wrong abstraction"
+summary = "Extract a shared abstraction once its real shape is clear, not on the first repeat."
+rationale = """
+Prefer a little duplication over a premature or wrong abstraction; extract \
+shared code once the real shape is clear, since a wrong abstraction is more \
+costly to unpick than duplication."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 360
+
+[[principle]]
+id = "design-for-deletion-and-replaceability"
+name = "Design for deletion and replaceability"
+summary = "Make components easy to delete or replace."
+rationale = """
+Design components so they can be deleted or replaced without unpicking the \
+whole system, which keeps the system malleable as needs change."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 370
+
+[[principle]]
+id = "principle-of-least-astonishment"
+name = "Principle of least astonishment"
+summary = "Make behaviour match what a reasonable caller would expect."
+rationale = """
+Make behaviour match what a reasonable user or caller would expect, so the \
+code holds few surprises and is safer to use without reading its internals."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 380
+
+[[principle]]
+id = "make-operations-idempotent"
+name = "Make operations idempotent where they may be retried"
+summary = "A repeat should have the same effect as a single call."
+rationale = """
+Make operations idempotent where they may be retried, so a repeat has the same \
+effect as a single call; important for queues, network calls, and distributed \
+work where retries happen."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 390
+
+[[principle]]
+id = "boy-scout-rule"
+name = "Leave code better than you found it"
+summary = "Make a small improvement to code you touch (the boy scout rule)."
+rationale = """
+Leave code a little better than you found it; kept out of the agent defaults \
+because it can pull against no-silent-scope-expansion by inviting changes \
+beyond the task."""
+tags = ["architecture", "universal"]
+default_selected = false
+default_order = 400
+related = ["no-silent-scope-expansion"]
+
+# -- Documentation --
+
+[[principle]]
+id = "document-the-why-not-the-what"
+name = "Document the why, not the what"
+summary = "Document reasoning and constraints, not what the code plainly does."
+rationale = """
+Document why the code is the way it is, not what it plainly does; the code \
+shows the what, but the reasoning and constraints behind it are easily lost."""
+tags = ["documentation", "universal"]
+default_selected = true
+default_order = 410
+
+[[principle]]
+id = "treat-types-and-tests-as-documentation"
+name = "Treat types and tests as documentation"
+summary = "Types and tests document behaviour the compiler and test runner keep honest."
+rationale = """
+Treat types and tests as documentation that the compiler and test runner keep \
+honest, alongside prose that can otherwise drift from the code."""
+tags = ["documentation", "static-types"]
+default_selected = false
+default_order = 420
+
+[[principle]]
+id = "include-runnable-examples-with-assertions"
+name = "Include runnable examples with assertions"
+summary = "Prefer examples that run and assert their expected outcome."
+rationale = """
+Prefer examples that run and assert their expected outcome, so they show \
+correct use, prove it, and cannot silently rot."""
+tags = ["documentation", "universal"]
+default_selected = false
+default_order = 430
+
+[[principle]]
+id = "keep-docs-next-to-code"
+name = "Keep docs next to the code and make stale docs loud"
+summary = "Colocate docs with code and surface staleness."
+rationale = """
+Keep documentation next to the code it describes and make stale docs loud (for \
+example with compile-time doc checks), so docs are maintained with the code \
+rather than rotting apart from it."""
+tags = ["documentation", "universal"]
+default_selected = false
+default_order = 440
+
+# -- Security --
+
+[[principle]]
+id = "validate-and-parse-untrusted-input"
+name = "Validate and parse untrusted input at the boundary"
+summary = "Check untrusted input at the boundary, using framework APIs where they exist."
+rationale = """
+Validate and parse untrusted input at the boundary, using framework APIs where \
+they exist, so malformed or hostile data does not reach the core."""
+tags = ["security", "universal"]
+default_selected = true
+default_order = 450
+related = ["parse-dont-validate", "never-trust-external-input"]
+
+[[principle]]
+id = "never-trust-external-input"
+name = "Never trust external input"
+summary = "Treat all external input as untrusted until checked."
+rationale = """
+Treat all external input (users, files, APIs, imported data) as untrusted \
+until checked, and assume it may be malformed or malicious."""
+tags = ["security", "universal"]
+default_selected = true
+default_order = 460
+
+[[principle]]
+id = "keep-secrets-out-of-code-and-logs"
+name = "Keep secrets out of code and logs"
+summary = "Load credentials from the environment or a secret store, never source or logs."
+rationale = """
+Keep credentials and secrets out of source code and logs; load them from the \
+environment or a secret store so they are not committed or leaked."""
+tags = ["security", "universal"]
+default_selected = true
+default_order = 470
+
+[[principle]]
+id = "sandbox-or-isolate-untrusted-execution"
+name = "Sandbox or isolate untrusted execution"
+summary = "Run untrusted or agent-driven execution with a restricted view of the system."
+rationale = """
+Run untrusted or agent-driven execution with a restricted view of the system \
+(containers, sandboxes, worktrees) as a useful extra boundary; not a default \
+because it needs external tooling to be effective."""
+tags = ["security", "agent-process", "universal"]
+default_selected = false
+default_order = 480

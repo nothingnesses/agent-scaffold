@@ -10,6 +10,7 @@
 //! pack's guidance template; the other assets are dropped verbatim.
 
 mod pack;
+mod tui;
 
 use {
 	clap::Parser,
@@ -180,6 +181,9 @@ struct Cli {
 	/// Print the default-selected principles (numbered) and exit, without scaffolding.
 	#[arg(long)]
 	list_principles: bool,
+	/// Choose principles interactively in a two-pane selector, seeded from `--principles`.
+	#[arg(long, short)]
+	interactive: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -198,6 +202,35 @@ fn main() -> io::Result<()> {
 		println!("{}", pack::render_principles(&selected, cli.principle_detail));
 		return Ok(());
 	}
+
+	// Interactive selection overrides the resolved set, seeded from it. On
+	// confirm it prints a `--principles` line so the exact selection and order
+	// can be replayed non-interactively; on abort nothing is written.
+	let selected = if cli.interactive {
+		let initial: Vec<usize> = selected
+			.iter()
+			.map(|p| {
+				principles
+					.iter()
+					.position(|q| q.id == p.id)
+					.expect("selected principle is from the pack")
+			})
+			.collect();
+		match tui::run_selection(&principles, &initial)? {
+			Some(order) => {
+				let chosen: Vec<&pack::Principle> = order.iter().map(|&i| &principles[i]).collect();
+				let ids: Vec<&str> = chosen.iter().map(|p| p.id.as_str()).collect();
+				println!("selection: --principles {}", ids.join(","));
+				chosen
+			}
+			None => {
+				eprintln!("aborted; nothing written");
+				return Ok(());
+			}
+		}
+	} else {
+		selected
+	};
 
 	for (path, outcome) in scaffold(&cli.output_dir, &selected, cli.principle_detail, cli.force)? {
 		println!("{:>16}  {}", outcome.label(), path);

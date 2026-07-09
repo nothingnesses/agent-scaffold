@@ -1,0 +1,9 @@
+[package]
+name = "agent-scaffold"
+version = "0.0.0"
+edition = "2021"
+license = "BlueOak-1.0.0"
+description = "Scaffold the agent workflow into a project."
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }

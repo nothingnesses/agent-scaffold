@@ -1,4 +1,11 @@
-/result
-/result-*
+# Nix / direnv.
 .direnv/
-.pre-commit-config.yaml.bak
+result
+result-*
+
+# Rust.
+/target/
+
+# Environment files.
+.env
+.env.*

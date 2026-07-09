@@ -1,0 +1,29 @@
+{
+  // Rust debugging uses CodeLLDB (which uses the flake's lldb).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Builds with cargo, then debugs the resulting binary. CodeLLDB's
+      // `cargo` key resolves the built executable automatically.
+      "type": "lldb",
+      "request": "launch",
+      "name": "Rust: debug (cargo build)",
+      "cargo": {
+        "args": ["build"]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Builds and debugs the current package's test binary.
+      "type": "lldb",
+      "request": "launch",
+      "name": "Rust: debug unit tests",
+      "cargo": {
+        "args": ["test", "--no-run"]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

@@ -79,12 +79,23 @@ enum Step {
 	Abort,
 }
 
+/// A restorable snapshot of the editable state, for undo and redo.
+#[derive(Clone)]
+struct Snapshot {
+	included: Vec<usize>,
+	available: Vec<usize>,
+	focus: Pane,
+	available_selected: Option<usize>,
+	included_selected: Option<usize>,
+}
+
 /// The whole selector state.
 ///
 /// `included` (ordered) and `available` are disjoint and together cover every
-/// principle index exactly once. The only mutations are `toggle` (move one
+/// principle index exactly once. The editing mutations are `toggle` (move one
 /// index between the two) and `reorder` (swap adjacent within `included`), so
-/// the invariant holds by construction.
+/// the invariant holds by construction; undo and redo restore whole-state
+/// snapshots, which are themselves valid.
 struct App<'a> {
 	principles: &'a [Principle],
 	/// Included principle indices, in the user's chosen order.
@@ -94,6 +105,10 @@ struct App<'a> {
 	focus: Pane,
 	available_state: ListState,
 	included_state: ListState,
+	/// Pre-edit snapshots for undo (most recent last).
+	undo_stack: Vec<Snapshot>,
+	/// Snapshots undone and available to redo (most recent last).
+	redo_stack: Vec<Snapshot>,
 }
 
 impl<'a> App<'a> {
@@ -122,6 +137,56 @@ impl<'a> App<'a> {
 			focus: Pane::Available,
 			available_state,
 			included_state,
+			undo_stack: Vec::new(),
+			redo_stack: Vec::new(),
+		}
+	}
+
+	/// Capture the current editable state.
+	fn snapshot(&self) -> Snapshot {
+		Snapshot {
+			included: self.included.clone(),
+			available: self.available.clone(),
+			focus: self.focus,
+			available_selected: self.available_state.selected(),
+			included_selected: self.included_state.selected(),
+		}
+	}
+
+	/// Restore a captured snapshot.
+	fn restore(
+		&mut self,
+		snap: Snapshot,
+	) {
+		self.included = snap.included;
+		self.available = snap.available;
+		self.focus = snap.focus;
+		self.available_state.select(snap.available_selected);
+		self.included_state.select(snap.included_selected);
+	}
+
+	/// Record the pre-edit state so the edit can be undone, and drop the redo
+	/// history (a fresh edit forks it).
+	fn checkpoint(&mut self) {
+		self.undo_stack.push(self.snapshot());
+		self.redo_stack.clear();
+	}
+
+	/// Undo the last edit, moving it onto the redo stack.
+	fn undo(&mut self) {
+		if let Some(prev) = self.undo_stack.pop() {
+			let current = self.snapshot();
+			self.redo_stack.push(current);
+			self.restore(prev);
+		}
+	}
+
+	/// Redo the last undone edit, moving it back onto the undo stack.
+	fn redo(&mut self) {
+		if let Some(next) = self.redo_stack.pop() {
+			let current = self.snapshot();
+			self.undo_stack.push(current);
+			self.restore(next);
 		}
 	}
 
@@ -208,6 +273,7 @@ impl<'a> App<'a> {
 		if pos >= len {
 			return;
 		}
+		self.checkpoint();
 		match self.focus {
 			Pane::Available => {
 				let idx = self.available.remove(pos);
@@ -237,6 +303,7 @@ impl<'a> App<'a> {
 		if pos == 0 || pos >= self.included.len() {
 			return;
 		}
+		self.checkpoint();
 		self.included.swap(pos, pos - 1);
 		self.included_state.select(Some(pos - 1));
 	}
@@ -252,6 +319,7 @@ impl<'a> App<'a> {
 		if pos + 1 >= self.included.len() {
 			return;
 		}
+		self.checkpoint();
 		self.included.swap(pos, pos + 1);
 		self.included_state.select(Some(pos + 1));
 	}
@@ -335,6 +403,8 @@ fn update(
 		KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => app.reorder_down(),
 		KeyCode::Char('K') => app.reorder_up(),
 		KeyCode::Char('J') => app.reorder_down(),
+		KeyCode::Char('u') => app.undo(),
+		KeyCode::Char('U') => app.redo(),
 		KeyCode::Up | KeyCode::Char('k') => app.cursor_up(),
 		KeyCode::Down | KeyCode::Char('j') => app.cursor_down(),
 		_ => {}
@@ -438,7 +508,7 @@ fn ui(
 	);
 	frame.render_widget(
 		Paragraph::new(
-			"i/a insert before/after  tab/h/l focus  j/k cursor  J/K reorder  enter confirm  q abort",
+			"i/a insert before/after  J/K reorder  u/U undo/redo  tab/h/l focus  j/k cursor  enter confirm  q abort",
 		)
 		.centered()
 		.dim(),
@@ -552,6 +622,47 @@ mod tests {
 		update(&mut app, key(KeyCode::Char('i')));
 		assert_eq!(app.included, vec![1, 0, 2]);
 		assert_eq!(app.included_state.selected(), Some(1));
+	}
+
+	#[test]
+	fn undo_and_redo_an_edit() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[]);
+
+		// Include 'a', then undo back to the empty selection, then redo.
+		update(&mut app, key(KeyCode::Char('i')));
+		assert_eq!(app.included, vec![0]);
+		assert_eq!(app.available, vec![1, 2]);
+
+		update(&mut app, key(KeyCode::Char('u')));
+		assert!(app.included.is_empty());
+		assert_eq!(app.available, vec![0, 1, 2]);
+
+		update(&mut app, key(KeyCode::Char('U')));
+		assert_eq!(app.included, vec![0]);
+		assert_eq!(app.available, vec![1, 2]);
+	}
+
+	#[test]
+	fn a_fresh_edit_forks_the_redo_history() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[]);
+		update(&mut app, key(KeyCode::Char('i'))); // include 'a'
+		update(&mut app, key(KeyCode::Char('u'))); // undo; the toggle is now redoable
+
+		update(&mut app, key(KeyCode::Char('i'))); // a new edit clears the redo stack
+		assert!(app.redo_stack.is_empty());
+		update(&mut app, key(KeyCode::Char('U'))); // redo is now a no-op
+		assert_eq!(app.included, vec![0]);
+	}
+
+	#[test]
+	fn undo_with_no_history_is_a_no_op() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[]);
+		update(&mut app, key(KeyCode::Char('u')));
+		assert_eq!(app.available, vec![0, 1, 2]);
+		assert!(app.included.is_empty());
 	}
 
 	#[test]

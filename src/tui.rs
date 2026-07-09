@@ -43,6 +43,7 @@ use {
 		},
 		widgets::{
 			Block,
+			Clear,
 			List,
 			ListItem,
 			ListState,
@@ -58,6 +59,23 @@ use {
 enum Pane {
 	Available,
 	Included,
+}
+
+/// A button in the save-confirmation modal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Button {
+	Save,
+	Cancel,
+}
+
+impl Button {
+	/// The other button (there are only two).
+	fn other(self) -> Self {
+		match self {
+			Button::Save => Button::Cancel,
+			Button::Cancel => Button::Save,
+		}
+	}
 }
 
 /// An input event the loop reacts to. `Resize` triggers a redraw; the loop
@@ -109,12 +127,19 @@ struct App<'a> {
 	undo_stack: Vec<Snapshot>,
 	/// Snapshots undone and available to redo (most recent last).
 	redo_stack: Vec<Snapshot>,
+	/// Whether the save-confirmation modal is open.
+	confirming: bool,
+	/// Which modal button is focused while `confirming`.
+	confirm_button: Button,
+	/// Caller-supplied lines describing what saving will do, shown in the modal.
+	save_summary: Vec<String>,
 }
 
 impl<'a> App<'a> {
 	fn new(
 		principles: &'a [Principle],
 		initial_included: &[usize],
+		save_summary: Vec<String>,
 	) -> Self {
 		let included: Vec<usize> = initial_included.to_vec();
 		let mut available: Vec<usize> =
@@ -139,6 +164,10 @@ impl<'a> App<'a> {
 			included_state,
 			undo_stack: Vec::new(),
 			redo_stack: Vec::new(),
+			confirming: false,
+			// Default to Cancel so an accidental confirm never writes.
+			confirm_button: Button::Cancel,
+			save_summary,
 		}
 	}
 
@@ -346,6 +375,16 @@ impl<'a> App<'a> {
 		}
 		Text::from(lines)
 	}
+
+	/// The body text of the save-confirmation modal: what saving will do.
+	fn confirm_message(&self) -> Text<'static> {
+		let mut lines =
+			vec![Line::from(format!("{} principle(s) will be included.", self.included.len()))];
+		for line in &self.save_summary {
+			lines.push(Line::from(line.clone()));
+		}
+		Text::from(lines)
+	}
 }
 
 /// Insert `idx` into `dest` just before its cursor and move the cursor onto the
@@ -388,9 +427,33 @@ fn update(
 		Event::Resize => return Step::Continue,
 	};
 
+	// While the save modal is open it is modal: only button navigation and
+	// activate/cancel are handled; editing keys are ignored.
+	if app.confirming {
+		match key.code {
+			KeyCode::Left
+			| KeyCode::Right
+			| KeyCode::Tab
+			| KeyCode::BackTab
+			| KeyCode::Char('h')
+			| KeyCode::Char('l') => app.confirm_button = app.confirm_button.other(),
+			KeyCode::Enter => match app.confirm_button {
+				Button::Save => return Step::Confirm,
+				Button::Cancel => app.confirming = false,
+			},
+			KeyCode::Esc => app.confirming = false,
+			_ => {}
+		}
+		return Step::Continue;
+	}
+
 	match key.code {
 		KeyCode::Char('q') | KeyCode::Esc => return Step::Abort,
-		KeyCode::Enter => return Step::Confirm,
+		KeyCode::Enter => {
+			// Open the save modal; focus Cancel by default.
+			app.confirm_button = Button::Cancel;
+			app.confirming = true;
+		}
 		KeyCode::Char('i') => app.toggle_with(insert_before_cursor),
 		KeyCode::Char('a') => app.toggle_with(insert_after_cursor),
 		KeyCode::Tab
@@ -508,12 +571,84 @@ fn ui(
 	);
 	frame.render_widget(
 		Paragraph::new(
-			"i/a insert before/after  J/K reorder  u/U undo/redo  tab/h/l focus  j/k cursor  enter confirm  q abort",
+			"i/a insert before/after  J/K reorder  u/U undo/redo  tab/h/l focus  j/k cursor  enter save  q abort",
 		)
 		.centered()
 		.dim(),
 		help_area,
 	);
+
+	if app.confirming {
+		render_confirm_modal(frame, app);
+	}
+}
+
+/// A centred rectangle `width` x `height` clamped to `area`.
+fn centered_rect(
+	width: u16,
+	height: u16,
+	area: Rect,
+) -> Rect {
+	let width = width.min(area.width);
+	let height = height.min(area.height);
+	Rect {
+		x: area.x + (area.width - width) / 2,
+		y: area.y + (area.height - height) / 2,
+		width,
+		height,
+	}
+}
+
+/// Render one modal button, highlighted when focused.
+fn render_button(
+	frame: &mut Frame,
+	area: Rect,
+	label: &str,
+	focused: bool,
+) {
+	let (border, text) = if focused {
+		(
+			Style::default().fg(Color::Yellow),
+			Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+		)
+	} else {
+		(Style::default().fg(Color::DarkGray), Style::default())
+	};
+	frame.render_widget(
+		Paragraph::new(label).centered().style(text).block(Block::bordered().border_style(border)),
+		area,
+	);
+}
+
+/// Render the save-confirmation modal over the selector.
+fn render_confirm_modal(
+	frame: &mut Frame,
+	app: &App,
+) {
+	let message = app.confirm_message();
+	// message lines + a blank + the button row (3) + the outer border (2).
+	let height = message.lines.len() as u16 + 1 + 3 + 2;
+	let area = centered_rect(60, height, frame.area());
+
+	frame.render_widget(Clear, area);
+	let block = Block::bordered().title("Save?");
+	let inner = block.inner(area);
+	frame.render_widget(block, area);
+
+	let [message_area, buttons_area] =
+		Layout::vertical([Constraint::Fill(1), Constraint::Length(3)]).areas(inner);
+	frame.render_widget(
+		Paragraph::new(message).wrap(Wrap {
+			trim: true,
+		}),
+		message_area,
+	);
+
+	let [save_area, cancel_area] =
+		Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+			.areas(buttons_area);
+	render_button(frame, save_area, "Save", app.confirm_button == Button::Save);
+	render_button(frame, cancel_area, "Cancel", app.confirm_button == Button::Cancel);
 }
 
 /// Read the next event the loop cares about, ignoring the rest.
@@ -533,8 +668,9 @@ fn run(
 	terminal: &mut ratatui::DefaultTerminal,
 	principles: &[Principle],
 	initial_included: &[usize],
+	save_summary: Vec<String>,
 ) -> io::Result<Option<Vec<usize>>> {
-	let mut app = App::new(principles, initial_included);
+	let mut app = App::new(principles, initial_included, save_summary);
 	loop {
 		terminal.draw(|frame| ui(frame, &mut app))?;
 		match update(&mut app, next_event()?) {
@@ -549,13 +685,15 @@ fn run(
 /// `principles`) in the confirmed order, or `None` if the user aborted.
 ///
 /// `initial_included` seeds the included pane (in order); everything else starts
-/// in the available pane ordered by `default_order`.
+/// in the available pane ordered by `default_order`. `save_summary` is shown in
+/// the save-confirmation modal to describe what saving will do.
 pub fn run_selection(
 	principles: &[Principle],
 	initial_included: &[usize],
+	save_summary: Vec<String>,
 ) -> io::Result<Option<Vec<usize>>> {
 	let mut terminal = ratatui::init();
-	let outcome = run(&mut terminal, principles, initial_included);
+	let outcome = run(&mut terminal, principles, initial_included, save_summary);
 	ratatui::restore();
 	outcome
 }
@@ -592,7 +730,7 @@ mod tests {
 	#[test]
 	fn toggle_moves_between_panes_and_keeps_the_partition() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 		assert_eq!(app.available, vec![0, 1, 2]);
 		assert!(app.included.is_empty());
 
@@ -613,7 +751,7 @@ mod tests {
 	#[test]
 	fn i_inserts_before_the_destination_cursor() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[1, 2]);
+		let mut app = App::new(&principles, &[1, 2], Vec::new());
 		assert_eq!(app.available, vec![0]);
 
 		// The destination (Included) cursor sits on its second row; `i` moves
@@ -627,7 +765,7 @@ mod tests {
 	#[test]
 	fn undo_and_redo_an_edit() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 
 		// Include 'a', then undo back to the empty selection, then redo.
 		update(&mut app, key(KeyCode::Char('i')));
@@ -646,7 +784,7 @@ mod tests {
 	#[test]
 	fn a_fresh_edit_forks_the_redo_history() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 		update(&mut app, key(KeyCode::Char('i'))); // include 'a'
 		update(&mut app, key(KeyCode::Char('u'))); // undo; the toggle is now redoable
 
@@ -659,7 +797,7 @@ mod tests {
 	#[test]
 	fn undo_with_no_history_is_a_no_op() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 		update(&mut app, key(KeyCode::Char('u')));
 		assert_eq!(app.available, vec![0, 1, 2]);
 		assert!(app.included.is_empty());
@@ -668,7 +806,7 @@ mod tests {
 	#[test]
 	fn a_inserts_after_the_destination_cursor() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[1, 2]);
+		let mut app = App::new(&principles, &[1, 2], Vec::new());
 		assert_eq!(app.available, vec![0]);
 
 		// With the destination cursor on its first row, `a` moves the item just
@@ -682,7 +820,7 @@ mod tests {
 	#[test]
 	fn reorder_swaps_within_included_and_clamps_at_the_ends() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[0, 1, 2]);
+		let mut app = App::new(&principles, &[0, 1, 2], Vec::new());
 		update(&mut app, key(KeyCode::Tab));
 		assert_eq!(app.focus, Pane::Included);
 		assert_eq!(app.included_state.selected(), Some(0));
@@ -700,7 +838,7 @@ mod tests {
 	#[test]
 	fn cursor_wraps_at_both_ends() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 		assert_eq!(app.available_state.selected(), Some(0));
 
 		// Up from the top wraps to the bottom.
@@ -715,18 +853,54 @@ mod tests {
 	#[test]
 	fn reorder_does_nothing_on_the_available_pane() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[]);
+		let mut app = App::new(&principles, &[], Vec::new());
 		assert_eq!(app.focus, Pane::Available);
 		update(&mut app, key(KeyCode::Char('J')));
 		assert_eq!(app.available, vec![0, 1, 2]);
 	}
 
 	#[test]
-	fn confirm_and_abort_report_to_the_loop() {
+	fn abort_reports_to_the_loop() {
 		let principles = sample();
-		let mut app = App::new(&principles, &[1]);
+		let mut app = App::new(&principles, &[1], Vec::new());
+		// From editing, Esc aborts the whole selector.
+		assert_eq!(update(&mut app, key(KeyCode::Esc)), Step::Abort);
+	}
+
+	#[test]
+	fn enter_opens_the_modal_which_saves_or_cancels() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[1], Vec::new());
+
+		// Enter opens the modal (does not save yet) and focuses Cancel.
+		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Continue);
+		assert!(app.confirming);
+		assert_eq!(app.confirm_button, Button::Cancel);
+
+		// Enter on Cancel closes the modal without saving.
+		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Continue);
+		assert!(!app.confirming);
+
+		// Reopen, move focus to Save, then Enter saves.
+		update(&mut app, key(KeyCode::Enter));
+		update(&mut app, key(KeyCode::Right));
+		assert_eq!(app.confirm_button, Button::Save);
 		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Confirm);
 		assert_eq!(app.included, vec![1]);
-		assert_eq!(update(&mut app, key(KeyCode::Esc)), Step::Abort);
+	}
+
+	#[test]
+	fn modal_ignores_editing_keys_and_esc_cancels() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[1], Vec::new());
+		update(&mut app, key(KeyCode::Enter)); // open modal
+		let before = app.included.clone();
+		// An editing key does nothing while the modal is open.
+		update(&mut app, key(KeyCode::Char('i')));
+		assert_eq!(app.included, before);
+		assert!(app.confirming);
+		// Esc cancels the modal.
+		update(&mut app, key(KeyCode::Esc));
+		assert!(!app.confirming);
 	}
 }

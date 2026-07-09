@@ -216,7 +216,17 @@ fn main() -> io::Result<()> {
 					.expect("selected principle is from the pack")
 			})
 			.collect();
-		match tui::run_selection(&principles, &initial)? {
+		let save_summary = vec![
+			format!("Scaffold into: {}", cli.output_dir.display()),
+			"Creates AGENTS.md and docs/plans/TEMPLATE.md if absent;".to_string(),
+			"always refreshes the .agents/ reference assets.".to_string(),
+			if cli.force {
+				"Existing working files WILL be overwritten (--force).".to_string()
+			} else {
+				"Existing working files are left untouched.".to_string()
+			},
+		];
+		match tui::run_selection(&principles, &initial, save_summary)? {
 			Some(order) => {
 				let chosen: Vec<&pack::Principle> = order.iter().map(|&i| &principles[i]).collect();
 				let ids: Vec<&str> = chosen.iter().map(|p| p.id.as_str()).collect();

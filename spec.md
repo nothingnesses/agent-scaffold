@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is the immediate next work; its design decisions are recorded as open questions (OQ-B/C/D) below and being resolved before implementation. Steps 6 to 9 are optional extras. None of Steps 5 to 9 are started. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is the immediate next work; its design is resolved (OQ-B/C/D adopted) and broken into concrete sub-steps 5a to 5d, each evidence-grounded. Steps 6 to 9 are optional extras. None of Steps 5 to 9 are started (5a is next to implement). The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -31,39 +31,7 @@ This plan is kept current during the work. Each Implementation Step carries a `S
 
 ## Open Questions, Decisions, Issues and Blockers
 
-The earlier questions (the tool's form, the ownership and update model, the shipped principle set and its data model, the template source, the non-interactive selection UI, and the interactive TUI design) are resolved and folded into the steps and code. Step 5 (TUI polish) raises three decisions to settle before it is implemented, so the interactions are not reworked later.
-
-### OQ-B: How to represent the selector's modes (editing / filtering / confirming)?
-
-Today `App` carries `confirming: bool` (plus `confirm_button`). A filter mode adds a second mode with its own state (the query string).
-
-- Approach 1: add a second bool `filtering` plus a `filter_query`. Smallest diff, but it admits illegal combinations (filtering and confirming at once), every reducer branch must guard them, and the bools multiply as modes grow.
-- Approach 2: a `Mode` enum (`Editing`, `Filtering { query }`, `Confirming { button }`) with each mode owning its data; `update` dispatches on the mode. One small refactor now (fold `confirming`/`confirm_button` into `Mode::Confirming`), after which exactly one mode holds at a time and mode-specific data exists only in its variant.
-- Approach 3: a mode stack (push/pop). More machinery than needed; the selector never nests modes.
-
-Recommended: Approach 2. It makes the illegal states unrepresentable (Principle 5) and is the cleaner long-term structure as modes multiply (Principle 1), for a small, contained refactor rather than accreting bools (Principle 2). The filter and confirm modes are mutually exclusive by nature, so encoding that in the type removes a class of guard code.
-
-### OQ-C: What is the search/filter model and how does it interact with the two panes?
-
-Sub-decisions: which pane(s) it filters, what it matches, live-narrow versus jump-to-match, how the filtered view maps to the underlying `available`/`included` vectors, and how text is entered.
-
-- Which pane: (a) the focused pane (either), (b) the Available pane only, (c) both by one query. Filtering the Included pane makes reordering act over a partial view (moving an item past hidden items), which is confusing; Included is the user's curated, usually-small, ordered list, so filtering it is low-value.
-- Match fields: name only; name + id + tags; or also summary (summaries are long and produce noisy substring hits).
-- Model: live incremental narrowing (the list shrinks as you type) versus jump-to-next-match.
-- Projection: under a filter the visible list is a subset, so the cursor indexes the visible subset and must map back to the underlying vector to toggle or insert correctly.
-- Text input: a hand-rolled `String` (append plus backspace) versus a crate such as `tui-input`.
-
-Recommended: filter the Available pane only; live incremental case-insensitive substring over name + id + tags; a hand-rolled query string; and a visible-to-underlying index projection for the cursor and toggle. Included is never filtered, so reordering is never over a partial view. This serves the actual need (finding one of 48 principles to add) with the least state (Principle 2), keeps reordering unambiguous and the partition invariant intact (Principle 5), avoids a new dependency for a short query field (Principle 2), and the projection is the clean general mechanism (Principle 1). It refines the earlier "narrows the focused pane" wording to "narrows Available." Fallback if the projection is error-prone in the proof-of-concept: jump-to-first-match (cursor moves, no narrowing), surfaced as reduced scope.
-
-### OQ-D: How is tag-based selection expressed, especially non-interactively?
-
-The pack carries `tags` (category plus applicability). Interactive tag filtering is largely covered by OQ-C's filter matching tags; the open part is the non-interactive form and its disambiguation from ids, since ids and tags share the `--principles` token space.
-
-- Approach 1: auto-detect (a token that is not a known id is treated as a tag). Ambiguous: a mistyped id silently becomes a tag or an empty match instead of erroring, losing the current `UnknownId` safety.
-- Approach 2: a `tag:` prefix inside `--principles`; bare tokens stay ids, `tag:<t>` expands to all principles carrying `<t>`, `default`/`all`/`none` unchanged, an unknown tag errors (`UnknownTag`). Composable in one flag (`--principles default,tag:fp`).
-- Approach 3: a separate `--tags <list>` flag unioned with `--principles`. Also explicit, but two flags raise how-they-combine and ordering questions and add surface.
-
-Recommended: Approach 2. It is the smallest unambiguous extension of the existing selection grammar, preserves the unknown-token error (Principle 5), adds no new flag (Principle 2), and composes ids and tags in one ordered list (Principle 1). Tag groups expand in `default_order` and the whole list is de-duplicated preserving first occurrence, so results stay deterministic and still round-trip. Interactively, tag selection reuses the OQ-C filter (which matches tags), with an optional "include all visible matches" action layering tag-based bulk selection on top without new machinery.
+No open questions remain. The Step 5 design questions (OQ-B mode representation, OQ-C search/filter model, OQ-D tag-based selection) are resolved and folded into Step 5 below with the adopted decisions and reasoning; the earlier questions (tool form, ownership and update model, principle set and data model, template source, non-interactive selection UI, interactive TUI design) were resolved in earlier steps and the code.
 
 ## Implementation Steps
 
@@ -104,12 +72,33 @@ The interactive TUI (ratatui, `src/tui.rs`) is built and launches on `--interact
 - **Concurrency (sync now, one seam for later).** A blocking loop over a small `enum Event { Key(KeyEvent), Resize }` fed by one `next_event()` that currently wraps `event::read()` (filtering to key-press and resize events). No async, no tokio, no channel. `next_event()` is the single upgrade point: if a real concurrent producer ever lands (for example an isolation step streaming progress, or a live preview pane), it becomes a `std::sync::mpsc` receiver merging sources, still synchronous, without touching `update`/`ui`. This is void-installer's event-source decoupling minus its async runtime; full async stays off the table for a scaffolder.
 - **Order round-trips (gap closed).** Reordering overrides `default_order`. `resolve_selection` was re-sorting every result through `ordered_by_default`, so an explicit id list lost the user's order; it now keeps the given order (only `default`/`all` sort by `default_order`), so the printed `--principles` line reproduces the TUI result. The `selection_modes_resolve` test asserts list order accordingly.
 
-### 5. TUI polish (immediate next)
+### 5. TUI polish and tag-based selection
 
-Status: not started. Near-term selector improvements that build on the shipped TUI; none blocking, and each reuses the existing `App`/`update`/`ui` structure and the `next_event` seam.
+Status: not started (design resolved). Near-term selector improvements that build on the shipped TUI; each reuses the existing `App`/`update`/`ui` structure and the `next_event` seam. The sub-steps are ordered so each is validated before the next depends on it.
 
-- Search/filter in the selector: a filter mode (for example `/`) that narrows the focused pane by name or tag substring, so a specific principle is reachable without scrolling. Deferred from Step 4 (48 principles scroll acceptably), now the top follow-up. Adds a text-input sub-state (a small mode enum alongside `confirming`); the reducer stays unit-testable.
-- Tag-based selection and filtering: filter the Available pane by applicability tag (`universal`/`static-types`/`fp`/`oop`) or category, and optionally a non-interactive `--principles <tag>` form, reusing the `tags` data the pack already carries.
+Decisions adopted from the resolved open questions:
+
+- **Modes (from OQ-B).** A `Mode` enum (`Editing`, `Filtering { query }`, `Confirming { button }`) replaces the `confirming` bool and `confirm_button`, so filtering and confirming are mutually exclusive by construction (make illegal states unrepresentable) and later modes do not multiply bools.
+- **Filter (from OQ-C).** The filter narrows the Available pane only, live and incremental, a case-insensitive substring over name, id, and tags, with a hand-rolled query string (no new dependency) and a visible-to-underlying index projection for the cursor and toggle. Included is never filtered, so reordering is never over a partial view.
+- **Tags (from OQ-D).** `--principles` accepts `tag:<t>` tokens (bare tokens stay ids; `default`/`all`/`none` unchanged); each tag expands in `default_order`, the whole list is de-duplicated by first occurrence, and an unknown tag returns `SelectionError::UnknownTag`. Interactive tag selection reuses the filter (which matches tags), with an optional include-all-visible action on top.
+
+Each sub-step below carries the evidence-grounding discipline: validate the adopted approach with a proof-of-concept (build plus tests plus, where relevant, a functional run); on failure fall back to the recorded next-best approach; if all are exhausted, raise the impasse rather than force an unvalidated approach.
+
+#### 5a. Mode enum refactor
+
+Status: not started. Replace `confirming: bool` and `confirm_button` with `enum Mode { Editing, Filtering { query: String }, Confirming { button: Button } }`; `update` dispatches on `app.mode` and mode-specific data lives only in its variant. Lands first because the filter and any later modes build on it. Validate: the existing selector tests pass unchanged and behaviour is identical (open/save/cancel, editing keys ignored while confirming). Fallback: if identical behaviour cannot be preserved cleanly, keep the bool but add a `debug_assert` rejecting illegal mode combinations, and raise the friction.
+
+#### 5b. Non-interactive tag selection
+
+Status: not started. Extend `resolve_selection` so `--principles` accepts `tag:<t>` tokens alongside ids and the `default`/`all`/`none` keywords, expanding each tag in `default_order`, de-duplicating by first occurrence across the whole list, and returning `SelectionError::UnknownTag` for a tag no principle carries. Independent of the TUI, so it delivers value on its own and lands before the interactive filter. Validate: unit tests for tag expansion, mixed id-and-tag lists, unknown-tag error, dedup and order, and unchanged id/default/all/none behaviour; plus a functional `--principles tag:fp --list-principles`. Fallback: if the single-flag grammar proves ambiguous in practice, a separate `--tags` flag (OQ-D approach 3), with the reason surfaced.
+
+#### 5c. Interactive Available filter
+
+Status: not started. `/` enters `Mode::Filtering`; the Available pane narrows live to a case-insensitive substring over name, id, and tags; typing appends, Backspace deletes, Enter applies and returns to `Editing` (filter kept), Esc clears and returns. The Available cursor and toggle operate through a visible-to-underlying index projection; Included is never filtered. Depends on 5a. Validate: unit tests on the projection (a visible index maps to the correct underlying `available` entry), on toggle-under-filter moving the correct principle and preserving the partition, and on query editing; plus a manual run to confirm feel. Fallback: if the projection is error-prone, jump-to-first-match (cursor moves, no narrowing), surfaced as reduced scope.
+
+#### 5d. Optional include-all-visible
+
+Status: not started. While filtering, a key (for example `A`) moves every currently-visible Available match into Included in order, giving tag-based bulk selection on top of the filter. Depends on 5c. Validate: a unit test that all visible matches move in order and the partition holds. Gated as optional so the core stays simple; skip it if it complicates 5c. When 5c and 5d land, update the help line and the Step 4 key-bindings note (add `/`, and `A` if 5d ships).
 
 ### 6. Optional modules
 

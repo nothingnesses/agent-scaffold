@@ -17,13 +17,20 @@ use {
 	crate::pack::Principle,
 	ratatui::{
 		Frame,
-		crossterm::event::{
-			self,
-			Event as CtEvent,
-			KeyCode,
-			KeyEvent,
-			KeyEventKind,
-			KeyModifiers,
+		crossterm::{
+			event::{
+				self,
+				Event as CtEvent,
+				KeyCode,
+				KeyEvent,
+				KeyEventKind,
+				KeyModifiers,
+				KeyboardEnhancementFlags,
+				PopKeyboardEnhancementFlags,
+				PushKeyboardEnhancementFlags,
+			},
+			execute,
+			terminal::supports_keyboard_enhancement,
 		},
 		layout::{
 			Constraint,
@@ -89,8 +96,7 @@ struct App<'a> {
 	principles: &'a [Principle],
 	/// Included principle indices, in the user's chosen order.
 	included: Vec<usize>,
-	/// Available (not included) indices: seeded in `default_order`, then items
-	/// toggled out of Included are appended to the end.
+	/// Available (not included) indices, seeded in `default_order`.
 	available: Vec<usize>,
 	focus: Pane,
 	available_state: ListState,
@@ -195,8 +201,13 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Move the highlighted principle between the two panes.
-	fn toggle(&mut self) {
+	/// Move the highlighted principle to the other pane. `insert` decides where
+	/// it lands relative to that pane's cursor (before or after), and leaves the
+	/// destination cursor on the moved item.
+	fn toggle_with(
+		&mut self,
+		insert: fn(&mut Vec<usize>, &mut ListState, usize),
+	) {
 		let len = self.focused_len();
 		let Some(pos) = self.focused_state().selected() else {
 			return;
@@ -207,11 +218,11 @@ impl<'a> App<'a> {
 		match self.focus {
 			Pane::Available => {
 				let idx = self.available.remove(pos);
-				self.included.push(idx);
+				insert(&mut self.included, &mut self.included_state, idx);
 			}
 			Pane::Included => {
 				let idx = self.included.remove(pos);
-				self.available.push(idx);
+				insert(&mut self.available, &mut self.available_state, idx);
 			}
 		}
 		self.clamp_focused();
@@ -276,6 +287,36 @@ impl<'a> App<'a> {
 	}
 }
 
+/// Insert `idx` into `dest` just before its cursor and move the cursor onto the
+/// inserted item. An empty destination takes the item at the front.
+fn insert_before_cursor(
+	dest: &mut Vec<usize>,
+	state: &mut ListState,
+	idx: usize,
+) {
+	let at = match state.selected() {
+		Some(cursor) => cursor.min(dest.len()),
+		None => dest.len(),
+	};
+	dest.insert(at, idx);
+	state.select(Some(at));
+}
+
+/// Insert `idx` into `dest` just after its cursor and move the cursor onto the
+/// inserted item. An empty destination takes the item at the front.
+fn insert_after_cursor(
+	dest: &mut Vec<usize>,
+	state: &mut ListState,
+	idx: usize,
+) {
+	let at = match state.selected() {
+		Some(cursor) => (cursor + 1).min(dest.len()),
+		None => dest.len(),
+	};
+	dest.insert(at, idx);
+	state.select(Some(at));
+}
+
 /// The reducer: apply one event to the state and report what the loop should do.
 fn update(
 	app: &mut App,
@@ -289,7 +330,9 @@ fn update(
 	match key.code {
 		KeyCode::Char('q') | KeyCode::Esc => return Step::Abort,
 		KeyCode::Enter => return Step::Confirm,
-		KeyCode::Char(' ') => app.toggle(),
+		KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::SHIFT) =>
+			app.toggle_with(insert_after_cursor),
+		KeyCode::Char(' ') => app.toggle_with(insert_before_cursor),
 		KeyCode::Tab
 		| KeyCode::BackTab
 		| KeyCode::Left
@@ -403,7 +446,7 @@ fn ui(
 	);
 	frame.render_widget(
 		Paragraph::new(
-			"space toggle  tab/h/l focus  j/k move  J/K reorder  enter confirm  q abort",
+			"space/shift+space move before/after  tab/h/l focus  j/k cursor  J/K reorder  enter confirm  q abort",
 		)
 		.centered()
 		.dim(),
@@ -450,7 +493,23 @@ pub fn run_selection(
 	initial_included: &[usize],
 ) -> io::Result<Option<Vec<usize>>> {
 	let mut terminal = ratatui::init();
+	// Shift+Space is only distinguishable from Space on terminals that support
+	// the enhanced keyboard protocol. Enable it where supported (a no-op
+	// elsewhere) and restore the previous state before leaving.
+	let enhanced = matches!(supports_keyboard_enhancement(), Ok(true));
+	if enhanced {
+		let _ = execute!(
+			io::stdout(),
+			PushKeyboardEnhancementFlags(
+				KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+					| KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+			)
+		);
+	}
 	let outcome = run(&mut terminal, principles, initial_included);
+	if enhanced {
+		let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+	}
 	ratatui::restore();
 	outcome
 }
@@ -491,18 +550,46 @@ mod tests {
 		assert_eq!(app.available, vec![0, 1, 2]);
 		assert!(app.included.is_empty());
 
-		// Include 'a' (available[0]).
+		// Include the highlighted item ('a').
 		assert_eq!(update(&mut app, key(KeyCode::Char(' '))), Step::Continue);
 		assert_eq!(app.included, vec![0]);
 		assert_eq!(app.available, vec![1, 2]);
+		assert_eq!(app.included.len() + app.available.len(), principles.len());
 
-		// Switch to the included pane and exclude it again; it is appended to
-		// the end of Available (symmetric with toggling in), not re-sorted.
+		// Exclude it again from the Included pane; the partition still holds.
 		update(&mut app, key(KeyCode::Tab));
 		assert_eq!(app.focus, Pane::Included);
 		update(&mut app, key(KeyCode::Char(' ')));
-		assert_eq!(app.available, vec![1, 2, 0]);
 		assert!(app.included.is_empty());
+		assert_eq!(app.available.len(), 3);
+	}
+
+	#[test]
+	fn space_inserts_before_the_destination_cursor() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[1, 2]);
+		assert_eq!(app.available, vec![0]);
+
+		// The destination (Included) cursor sits on its second row; Space moves
+		// the item just before it, and the cursor follows to the moved item.
+		app.included_state.select(Some(1));
+		update(&mut app, key(KeyCode::Char(' ')));
+		assert_eq!(app.included, vec![1, 0, 2]);
+		assert_eq!(app.included_state.selected(), Some(1));
+	}
+
+	#[test]
+	fn shift_space_inserts_after_the_destination_cursor() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[1, 2]);
+		assert_eq!(app.available, vec![0]);
+
+		// With the destination cursor on its first row, Shift+Space moves the
+		// item just after it, and the cursor follows to the moved item.
+		app.included_state.select(Some(0));
+		update(&mut app, Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT)));
+		assert_eq!(app.included, vec![1, 0, 2]);
+		assert_eq!(app.included_state.selected(), Some(1));
 	}
 
 	#[test]

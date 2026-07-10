@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started; none is queued as required next work. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started. They were reordered so bring-your-own template support is Step 6 (it formalises the pack/manifest abstraction) and optional modules is Step 7; Step 6 is the next work and its design decisions are being worked. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -61,7 +61,7 @@ Status: complete. The non-interactive path: `--principles default|all|none|<ids>
 
 The interactive TUI (ratatui, `src/tui.rs`) is built and launches on `--interactive`/`-i`, seeded from the resolved `--principles` set. First-pass design as built:
 
-- **Scope: principles only.** Toggle inclusion and reorder principles. Modules are out of this pass, since they are specified but not yet built (Step 6); a module pane or mode is added when modules exist, reusing this pass's interaction code.
+- **Scope: principles only.** Toggle inclusion and reorder principles. Modules are out of this pass, since they are specified but not yet built (Step 7); a module pane or mode is added when modules exist, reusing this pass's interaction code.
 - **Layout: two-pane.** Left pane lists available (not included) principles; right pane lists included principles (numbered) in their chosen order. The focused pane is marked by border colour and the cursor highlight; the cursor wraps at both ends of a pane.
 - **Key bindings.** `i`/`a` move the highlighted principle to the other pane, inserting it before (`i`) or after (`a`) that pane's cursor, with the cursor following the moved item. (This replaced an earlier Space/Shift+Space scheme: Shift+Space is not distinguishable from Space without the enhanced keyboard protocol, which is unreliable, for example on Alacritty; plain letter keys work everywhere and match vim's insert/append.) `Tab`/`BackTab`/left/right/`h`/`l` switch focus; up/down or `j`/`k` move the cursor; with the Included pane focused, Shift+up/down or `K`/`J` reorder the highlighted principle, overriding `default_order`. `u` undoes and `U` redoes. `/` opens the Available filter (type to narrow by name/id/tag, Enter applies and keeps it, Esc clears it; added in Step 5c). `Enter` opens the save modal; `q` aborts, and Esc aborts from editing but cancels the modal.
 - **Undo/redo.** `u`/`U` step through whole-state snapshots. Each editing action (`i`/`a` move, `K`/`J` reorder) checkpoints the pre-edit state before mutating; a fresh edit clears the redo stack. Navigation (cursor, focus) does not checkpoint, so undo steps through edits rather than movement. Snapshots are valid states, so undo/redo cannot break the disjoint-partition invariant.
@@ -100,13 +100,13 @@ Status: complete. `/` enters `Mode::Filtering`; the Available pane narrows live 
 
 Status: skipped (by decision). A key to move every currently-visible Available match into Included at once (tag-based bulk selection on top of the filter). Skipped because the 5c `/` filter already makes finding and adding matches quick (filter, then `i`/`a` on each), so bulk-add is not needed now; it stays minimal-by-default and can be revisited if adding many tagged principles at once becomes common. No `A` binding was added; the Step 4 key-bindings reference already includes `/` from 5c.
 
-### 6. Optional modules
+### 6. Bring-your-own template support
 
-Status: not started. Package the confirmed modules as opt-in selections, each self-contained, none complicating the core.
+Status: not started (next; design decisions being worked). Support `--template <ref>`, where `ref` is a local path or a git URL (a Nix flake-ref is an optional extra for Nix users, not required, and the fetch must not depend on Nix), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default. Reordered ahead of the optional modules (now Step 7) because it formalises the pack/manifest abstraction that modules will slot into, avoiding a later retrofit.
 
-### 7. Bring-your-own template support
+### 7. Optional modules
 
-Status: not started. Support `--template <ref>`, where `ref` is a local path or a git URL (a Nix flake-ref is an optional extra for Nix users, not required, and the fetch must not depend on Nix), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default.
+Status: not started. Package the confirmed modules as opt-in selections, each self-contained, none complicating the core. Content modules (extra assets) are expected to live in the pack manifest introduced by Step 6; behavioural modules (for example container/worktree isolation) stay tool features toggled by flags rather than pack content.
 
 ### 8. Optional greenfield flake template
 

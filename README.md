@@ -66,8 +66,10 @@ but does not enforce it at runtime. Adherence comes from agents following
 `AGENTS.md`.
 
 The workflow the scaffolded `AGENTS.md` prescribes (an orchestrator drives every
-phase and keeps the review ledger; each review loops until it converges, or
-escalates after a bounded number of contested rounds):
+phase and keeps the review ledger). Each review loops until it converges;
+implementation iterates over the plan's steps; and the work stops only once every
+step is done and an acceptance review confirms the Success Criteria. Escalating to
+a human is a request for a decision, not a stop, the workflow resumes after it:
 
 ```mermaid
 ---
@@ -77,20 +79,26 @@ config:
 flowchart TB
     start(["Task"]) --> ctx["Front-load context"]
     ctx --> plan["Plan<br/>(planner)"]
-    plan --> preview["Review the plan<br/>(reviewers)"]
-    preview --> ptriage["Triage findings<br/>(triager)"]
-    ptriage --> pdec{"New valid findings?"}
-    pdec -->|new findings| previse["Planner revises"]
+    plan --> preview["Review the plan, then triage<br/>(reviewers, triager)"]
+    preview --> pdec{"Plan review converged?"}
+    pdec -->|new valid findings| previse["Planner revises"]
     previse --> preview
-    pdec -->|cap reached| escalate[["Escalate to a human"]]
-    pdec -->|converged| impl["Implement<br/>(implementer)"]
-    impl --> wreview["Review the work<br/>(reviewers, given the diff)"]
-    wreview --> wtriage["Triage findings<br/>(triager)"]
-    wtriage --> wdec{"New valid findings?"}
-    wdec -->|new findings| wfix["Implementer fixes"]
+    pdec -->|contested past the cap| escalate[["Escalate to a human"]]
+    pdec -->|converged| steps{"Pending steps<br/>in the roadmap?"}
+    steps -->|yes| impl["Implement the next step<br/>(implementer)"]
+    impl --> wreview["Review the work, then triage<br/>(reviewers, triager)"]
+    wreview --> wdec{"Work review converged?"}
+    wdec -->|new valid findings| wfix["Implementer fixes"]
     wfix --> wreview
-    wdec -->|cap reached| escalate
-    wdec -->|converged| done(["Accept the work"])
+    wdec -->|contested past the cap| escalate
+    wdec -->|converged| mark["Mark the step complete"]
+    mark --> steps
+    steps -->|no| accept["Acceptance review<br/>(reviewers)"]
+    accept --> adec{"Success Criteria met?"}
+    adec -->|no| plan
+    adec -->|yes| done(["Done: accept the work"])
+    escalate --> hres["Human resolves the impasse"]
+    hres --> steps
 ```
 
 ## Installation

@@ -20,14 +20,20 @@ review-then-triage round, decide from the triager's verdicts:
 - New valid findings: have the planner or implementer address them, then spawn
   another round (fresh reviewers, given the ledger) on the revised artifact.
 - No new valid findings (all dismissed, or ledger re-raises without new
-  evidence): the review has converged. Move on, to implementation after a plan
-  review, or to accepting the work after a work review.
-- Still-contested valid findings after a bounded number of rounds (default
-  three): stop looping and escalate to a human with the ledger. A valid finding
-  may instead be resolved by consciously accepting its residual risk and
-  recording that; an accepted risk does not block convergence.
+  evidence): the review has converged. Move on, start implementing after a plan
+  review, or mark the step complete and continue after a work review.
+- Still-contested valid findings after the round cap: escalate to a human with
+  the ledger for a decision, then apply it and resume. A valid finding may
+  instead be resolved by consciously accepting its residual risk and recording
+  that; an accepted risk does not block convergence.
+
+Implement step by step: while the plan's Roadmap has a pending step, have the
+implementer make it, review it to convergence, then mark it complete and move to
+the next. When no pending steps remain, run an acceptance review against the
+plan's Success Criteria. The workflow is done when every step is complete and
+that review confirms the Success Criteria are met; a shortfall is a finding that
+goes back to planning or implementation. Escalating to a human is a request for a
+decision, not a stop: apply their decision and resume.
 
 The ledger is transient working state; discard it when the task closes, and do
-not put individual findings in the plan's Open Questions section. Escalate
-genuine disagreements, blockers, or repeated non-convergence to a human rather
-than deciding them unilaterally.
+not put individual findings in the plan's Open Questions section.

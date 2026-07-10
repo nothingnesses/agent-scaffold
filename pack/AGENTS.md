@@ -39,31 +39,44 @@ Phases (the orchestrator drives these, spawning the role shown):
    acting.
 2. Plan. The orchestrator spawns a planner to draft a plan under `docs/plans/`
    from `docs/plans/TEMPLATE.md` (seed its Project Principles from this file's
-   principles, in order, then the project's own, consolidating overlaps) and to
+   principles, in order, then the project's own, consolidating overlaps; record
+   the implementation steps in the Roadmap and state the Success Criteria) and to
    resolve the open questions before implementation.
 3. Review the plan, then triage. The orchestrator spawns reviewers on the plan,
    then a triager on their findings; the planner revises per the valid verdicts.
-   Repeat per the convergence rule below, then proceed to implementation.
-4. Implement. The orchestrator spawns an implementer to make the changes.
-5. Review the work, then triage. The orchestrator spawns reviewers on the
-   finished changes (give them the before and after commit hashes or the diff
-   range), then a triager; the implementer fixes per the valid verdicts. Repeat
-   per the convergence rule, then accept the work.
+   Repeat per the convergence rule below, then start implementing.
+4. Implement and review, step by step. While the plan's Roadmap has a pending
+   step, the orchestrator spawns an implementer to make that step's change (small
+   and reviewable), then spawns reviewers on it (give them the before and after
+   commit hashes or the diff range) and a triager; the implementer fixes per the
+   valid verdicts. Repeat the review per the convergence rule, then mark the step
+   complete in the Roadmap and move to the next step.
+5. Accept. When no pending steps remain, the orchestrator spawns reviewers for an
+   acceptance review against the plan's Success Criteria. If the changes meet
+   every criterion, the work is done. If not, each shortfall is a finding that
+   goes back to planning (add or revise steps) or implementation.
 
-Convergence (when the orchestrator stops reviewing and moves on). After each
+Stop condition. The workflow is done when every step in the plan's Roadmap is
+complete and an acceptance review confirms the changes meet the plan's Success
+Criteria. Escalating to a human is not a stop: it is a request for a decision on
+an impasse, after which the orchestrator applies the decision and resumes the
+workflow where it paused.
+
+Convergence (when the orchestrator ends one review loop and moves on; distinct
+from the Stop condition above, which ends the whole workflow). After each
 review-then-triage round, the orchestrator decides from the triager's verdicts:
 
 - New valid findings this round: have the planner or implementer address them,
   then spawn another round (fresh reviewers, given the ledger) on the revised
   artifact.
 - No new valid findings this round (every finding was dismissed, or was a ledger
-  re-raise without new evidence): the review has converged. Move on, to
-  implementation after a plan review, or to accepting the work after a work
-  review.
+  re-raise without new evidence): the review has converged. Move on, start
+  implementing after a plan review, or mark the step complete and continue after
+  a work review.
 - Still-contested valid findings after a bounded number of rounds (default
-  three): stop looping and escalate to a human with the ledger. A valid finding
-  may instead be resolved by consciously accepting its residual risk and
-  recording that; an accepted risk does not block convergence.
+  three): escalate to a human with the ledger for a decision, then apply it and
+  resume. A valid finding may instead be resolved by consciously accepting its
+  residual risk and recording that; an accepted risk does not block convergence.
 
 Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
 (which implementation steps are done, in progress, or pending) lives durably in

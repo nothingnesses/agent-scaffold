@@ -159,7 +159,11 @@ fn scaffold(
 
 /// Scaffold the agent workflow into a project.
 #[derive(Parser)]
-#[command(name = "agent-scaffold", about, version)]
+#[command(
+	name = "agent-scaffold",
+	version,
+	about = "Scaffold the agent workflow into a project. On a terminal the principle selector opens by default. Pass --write or --dry-run for a non-interactive run."
+)]
 struct Cli {
 	/// Directory to scaffold into (defaults to the current directory).
 	#[arg(long, default_value = ".")]

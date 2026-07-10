@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is in progress; its design is resolved (OQ-B/C/D adopted) and broken into concrete sub-steps 5a to 5d, each evidence-grounded. Sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter) are complete; 5d (the optional include-all-visible action) is next. Steps 6 to 9 are optional extras and not started. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started; none is queued as required next work. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -74,7 +74,7 @@ The interactive TUI (ratatui, `src/tui.rs`) is built and launches on `--interact
 
 ### 5. TUI polish and tag-based selection
 
-Status: not started (design resolved). Near-term selector improvements that build on the shipped TUI; each reuses the existing `App`/`update`/`ui` structure and the `next_event` seam. The sub-steps are ordered so each is validated before the next depends on it.
+Status: complete (5d skipped). Near-term selector improvements that build on the shipped TUI; each reuses the existing `App`/`update`/`ui` structure and the `next_event` seam. The sub-steps are ordered so each is validated before the next depends on it.
 
 Decisions adopted from the resolved open questions:
 
@@ -98,7 +98,7 @@ Status: complete. `/` enters `Mode::Filtering`; the Available pane narrows live 
 
 #### 5d. Optional include-all-visible
 
-Status: not started. While filtering, a key (for example `A`) moves every currently-visible Available match into Included in order, giving tag-based bulk selection on top of the filter. Depends on 5c. Validate: a unit test that all visible matches move in order and the partition holds. Gated as optional so the core stays simple; skip it if it complicates 5c. When 5c and 5d land, update the help line and the Step 4 key-bindings note (add `/`, and `A` if 5d ships).
+Status: skipped (by decision). A key to move every currently-visible Available match into Included at once (tag-based bulk selection on top of the filter). Skipped because the 5c `/` filter already makes finding and adding matches quick (filter, then `i`/`a` on each), so bulk-add is not needed now; it stays minimal-by-default and can be revisited if adding many tagged principles at once becomes common. No `A` binding was added; the Step 4 key-bindings reference already includes `/` from 5c.
 
 ### 6. Optional modules
 

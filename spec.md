@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Steps 1 to 5 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, the full selection UI (non-interactive `--principles` with `default`/`all`/`none`/ids/`tag:`, plus the interactive two-pane ratatui TUI `--interactive` with `i`/`a` insert, `K`/`J` reorder, undo/redo, a `/` filter, and a save-confirmation modal), and Step 5's tag-based selection and filter (5d skipped by decision). No open questions remain. Steps 6 to 10 are optional extras. Step 6 (bring-your-own template) is complete: its design was resolved (OQ-E/F/G, then OQ-I/OQ-J adopted; OQ-H's git-URL fetch deferred to Step 10) and delivered across sub-steps 6a (pack manifest, `include_dir` embedding, and the behaviour-preserving refactor of `assets()` into the `manifest` loader), 6b (external local-path packs via `--template` plus `--var` with a `[[var]]` schema), and 6c (pack-owned principles, so a `--template` pack selects and renders its own `principles.toml`), each validated by tests, functional runs, and a byte-identical built-in scaffold. Steps 7 to 10 are not started and optional (7 optional modules, 8 greenfield flake template, 9 later enhancements, 10 git-URL fetch); 7 is the next candidate if taken up. The implementation lives in the repo (`src/`, `pack/`); this spec is the durable context for resuming after a compaction. Verification convention: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and ASCII-clean before each commit.
+Status: in progress. Name confirmed as `agent-scaffold`. Steps 1 to 5 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, the full selection UI (non-interactive `--principles` with `default`/`all`/`none`/ids/`tag:`, plus the interactive two-pane ratatui TUI `--interactive` with `i`/`a` insert, `K`/`J` reorder, undo/redo, a `/` filter, and a save-confirmation modal), and Step 5's tag-based selection and filter (5d skipped by decision). No open questions remain. Steps 6 to 10 are optional extras. Step 6 (bring-your-own template) is complete: its design was resolved (OQ-E/F/G, then OQ-I/OQ-J adopted; OQ-H's git-URL fetch deferred to Step 10) and delivered across sub-steps 6a (pack manifest, `include_dir` embedding, and the behaviour-preserving refactor of `assets()` into the `manifest` loader), 6b (external local-path packs via `--template` plus `--var` with a `[[var]]` schema), and 6c (pack-owned principles, so a `--template` pack selects and renders its own `principles.toml`), each validated by tests, functional runs, and a byte-identical built-in scaffold. Steps 7 to 10 are not started and optional (7 optional modules, 8 greenfield flake template, 9 later enhancements, 10 git-URL fetch); 7 is the next candidate if taken up, and needs a design-questions pass first. The implementation lives in the repo (`src/`, `pack/`); this spec is the durable context for resuming after a compaction, and the "Repository Layout and Current Architecture" section below maps the shipped code so a fresh implementor can continue without prior context. Verification convention: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and ASCII-clean before each commit.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -28,6 +28,39 @@ Note: the principles the tool _ships_ to other projects (the default `AGENTS.md`
 ## Documentation Protocol
 
 This plan is kept current during the work. Each Implementation Step carries a `Status:` line (`not started`, `in progress`, `blocked on <x>`, `complete`). Resolved Open Questions are removed from that section and folded into the relevant step as the adopted decision plus reasoning, rather than left as a pointer, so the document does not accumulate stale decision history. When no questions remain open, the section says so.
+
+## Repository Layout and Current Architecture
+
+This section maps the code as built, so the plan can be resumed without prior conversation context. The code in the repository is the source of truth; this is an index into it. The completed Implementation Steps below carry the reasoning; this carries the shape.
+
+Build, run, and verify (see `README.md` for full user-facing usage):
+
+- Use `just build` / `just test` / `just clippy` / `just fmt`, or plain `cargo` inside `nix develop` (with direnv, run `direnv allow` once). The justfile wraps the Nix environment.
+- Verification before each commit: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and all text ASCII-clean (no em-dashes, en-dashes, emoji, or other non-ASCII; use `->`, `>=`, `!=`).
+- The binary is a plain Rust program (edition 2021, MSRV 1.88) that runs without Nix. Nix, just, and direnv are development conveniences only. Dependencies: `clap` (derive), `serde`, `toml`, `ratatui = "0.30"`, `include_dir`.
+
+Directory layout:
+
+- `src/` holds the binary crate: four modules described below.
+- `pack/` is the built-in default pack: `pack.toml` (the manifest), `AGENTS.md`, `plan-template.md`, `principles.toml`, and `prompts/`. It is embedded into the binary at compile time with `include_dir`, and it also loads through the same manifest path as an external `--template` pack (the pack is dogfooded).
+- `flake.nix`, `.envrc`, `justfile`, `rustfmt.toml` are the dev environment (fenix toolchain, treefmt formatters, recipes). `LICENSE` is Blue Oak Model License 1.0.0.
+
+Modules and key types (all shipped and tested):
+
+- `src/main.rs` (CLI and orchestration). `Cli` (clap derive) exposes `--output-dir`, `--force`, `--principles`, `--principle-detail`, `--list-principles`, `-i`/`--interactive`, `--template <dir>`, and `--var key=value` (repeatable). `main` builds the active `manifest::PackSource` (the built-in pack, or a `--template` directory), parses `--var` into an overrides map, loads the active pack's principles via `pack_principles`, resolves the selection (or runs the TUI), then calls `scaffold`. Writing lives here: `Outcome` (`Created`/`Refreshed`/`SkippedExisting`/`Overwritten`), `write_asset` (honours ownership and `--force`), and `scaffold` (builds the `{{principles}}` variable from the selection, calls `manifest::load`, writes each asset). User errors print to stderr and exit 2.
+- `src/pack.rs` (principle data and selection). `Principle { id, name, summary, rationale, tags, default_selected, default_order, references, related }`. `parse_principles(&str)` parses a principles TOML file. `resolve_selection(principles, spec)` implements the `--principles` token grammar (comma-separated `default` / `all` / `none` / `tag:<t>` / bare-id, de-duplicated by first occurrence; keyword and tag tokens expand in `default_order`, id lists keep their given order) and returns `SelectionError { UnknownId, UnknownTag }`. `Detail { Name, Summary, Full }` with `render_principles` renders the selected set as a numbered list. `default_principles` / `DEFAULT_PRINCIPLES_TOML` are `#[cfg(test)]` only, because production reads principles through the active pack source (see `pack_principles`).
+- `src/manifest.rs` (the pack format and loader; the abstraction Step 7 builds on). `PackSource { Embedded(&Dir), Directory(PathBuf) }` with a public `read(rel)` and a private `manifest()`; `builtin()` returns the embedded pack. `Manifest { asset: Vec<AssetSpec>, var: Vec<VarSpec> }` deserializes `pack.toml` and ignores unknown keys, so a future `[[module]]` section is forward-compatible. `AssetSpec { source, dest, ownership, render }`, `VarSpec { name, default: Option<String> }`, and `Ownership { Reference, Working }`. `render(template, vars)` does minimal `{{key}}` substitution (unknown placeholders left as-is). `load(source, builtin_vars, overrides)` reads the manifest, resolves the variable map with `resolve_vars` (built-in vars first, then each declared default, then `--var` overrides; the name `principles` is reserved), and returns `Vec<Asset { dest, contents, ownership }>` or `LoadError { Io, UndeclaredVar, MissingRequiredVar, ReservedVar }` (all exit 2).
+- `src/tui.rs` (the interactive selector; TEA-lite, functions not traits). The only public item is `run_selection(principles, initial_included, save_summary) -> io::Result<Option<Vec<usize>>>`, which returns the chosen principle indices in order, or `None` on abort. Internally: one `App` value; `enum Mode { Editing, Filtering, Confirming { button } }`; `enum Event { Key, Resize }`; a pure `update(&mut App, Event) -> Step` reducer (`Step` is `Continue`/`Confirm`/`Abort`); a `ui` render function; and a blocking `run` loop over `next_event()` (the single seam where a concurrent event source could later be merged). No async, no custom traits. Key bindings are documented in Step 4.
+
+Pack format (the contract shared by the built-in pack and `--template` packs):
+
+- A pack is a directory containing `pack.toml` plus the source files it references. External packs are passed with `--template <dir>`.
+- `pack.toml` has `[[asset]]` entries `{ source, dest, ownership = "reference"|"working", render = true|false }` (one source may map to several assets; `render` defaults to false) and optional `[[var]]` entries `{ name, default? }` (an absent `default` makes the variable required).
+- `ownership = "reference"` assets (conventionally under `.agents/`) are always (re)written; `ownership = "working"` assets are created only if absent, unless `--force`.
+- `render = true` applies `{{name}}` substitution. `{{principles}}` is a reserved, tool-computed variable (the rendered selection); a pack may neither declare nor `--var`-set it. Other variables come from `[[var]]` defaults, overridden by `--var key=value`; setting an undeclared variable, or leaving a required one unset, is an error and nothing is written.
+- A pack that ships `principles.toml` has its principles drive selection, `--list-principles`, `--interactive`, and `{{principles}}`; a pack without one simply has no principles to select.
+
+One run's data flow: parse CLI, build the `PackSource`, read and parse the pack's `principles.toml`, `resolve_selection` (or the interactive TUI) chooses and orders principles, `render_principles` produces the `{{principles}}` value, `manifest::load` resolves the variables and reads/renders each asset, and `write_asset` drops each honouring ownership and `--force`.
 
 ## Open Questions, Decisions, Issues and Blockers
 
@@ -136,7 +169,21 @@ Status: complete. Principles are now a property of the active pack. `PackSource:
 
 ### 7. Optional modules
 
-Status: not started. Package the confirmed modules as opt-in selections, each self-contained, none complicating the core. Content modules (extra assets) are expected to live in the pack manifest introduced by Step 6; behavioural modules (for example container/worktree isolation) stay tool features toggled by flags rather than pack content.
+Status: not started; a design-questions pass is needed before implementing (as with Step 10). This is the next candidate step if the optional work is taken up.
+
+Goal: package opt-in additions as self-contained modules, each off by default, none complicating the core (Principle 2: adding a module must not change core behaviour when unused). Two kinds are expected:
+
+- Content modules: extra assets (for example a diagram prompt pack, a justfile of recipes, language starters). These are expected to live in the pack manifest via a `[[module]]` section, which `pack.toml` parsing already tolerates (unknown keys are ignored, so current packs stay valid). A module groups a set of `[[asset]]` entries (and possibly `[[var]]` entries) under a name the user opts into.
+- Behavioural modules: tool features rather than dropped files (for example container and worktree isolation, integrating the existing agent-box and agent-images projects). These are expected to be tool flags, not pack content, because they change how the tool runs rather than what it writes.
+
+Open sub-questions to resolve in the design pass (record them in Open Questions, with approaches, trade-offs, a recommendation, and reasoning judged against the Project Principles, before implementing):
+
+- The `[[module]]` schema: how a module names itself and references its assets/variables (for example an inline group, or asset entries tagged with a `module = "<name>"` key), and how the loader includes only opted-in modules while the unnamed core assets always load.
+- The selection mechanism: a `--module <name>` flag (repeatable), a manifest default-on/off per module, and whether the interactive TUI gains a module pane or mode (Step 4 deliberately scoped the TUI to principles and left room to reuse its interaction code for modules).
+- Behavioural-module scope: what container/worktree isolation actually does here, whether it belongs in this tool at all or stays a separate concern the scaffolded assets point to, and how it integrates agent-box/agent-images without a heavy dependency.
+- Interaction with `--template`: whether external packs may define their own modules (they should, since the manifest is the shared contract), and how `--module` validates against the active pack.
+
+Each resulting sub-step must be evidence-grounded: validate with a proof-of-concept (build plus tests plus, where relevant, a functional run); on failure fall back to the recorded next-best; if exhausted, raise the impasse. A guiding invariant for validation: with no module selected, the scaffold output must be byte-identical to today's core output.
 
 ### 8. Optional greenfield flake template
 

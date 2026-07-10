@@ -23,7 +23,11 @@ use {
 	std::{
 		collections::HashMap,
 		fs,
-		io,
+		io::{
+			self,
+			IsTerminal,
+			Write,
+		},
 		path::{
 			Path,
 			PathBuf,
@@ -41,26 +45,26 @@ enum Outcome {
 }
 
 impl Outcome {
-	fn label(&self) -> &'static str {
+	/// Present-tense label for the plan preview: what the action would do.
+	fn plan_label(&self) -> &'static str {
 		match self {
-			Outcome::Created => "created",
-			Outcome::Refreshed => "refreshed",
-			Outcome::SkippedExisting => "skipped (exists)",
-			Outcome::Overwritten => "overwritten",
+			Outcome::Created => "create",
+			Outcome::Refreshed => "refresh",
+			Outcome::SkippedExisting => "skip (exists)",
+			Outcome::Overwritten => "overwrite",
 		}
 	}
 }
 
-/// Write one asset under `root`, honouring its ownership and `force`.
-fn write_asset(
+/// Decide, without touching the filesystem, what would happen to `asset` under
+/// `root`. This drives the dry-run preview, so it must not write.
+fn outcome_of(
 	root: &Path,
 	asset: &Asset,
 	force: bool,
-) -> io::Result<Outcome> {
-	let dest = root.join(&asset.dest);
-	let exists = dest.exists();
-
-	let outcome = match asset.ownership {
+) -> Outcome {
+	let exists = root.join(&asset.dest).exists();
+	match asset.ownership {
 		Ownership::Reference =>
 			if exists {
 				Outcome::Refreshed
@@ -69,21 +73,27 @@ fn write_asset(
 			},
 		Ownership::Working =>
 			if exists {
-				if force {
-					Outcome::Overwritten
-				} else {
-					return Ok(Outcome::SkippedExisting);
-				}
+				if force { Outcome::Overwritten } else { Outcome::SkippedExisting }
 			} else {
 				Outcome::Created
 			},
-	};
+	}
+}
 
+/// Write `asset` under `root`, unless the planned outcome is to skip it.
+fn apply_asset(
+	root: &Path,
+	asset: &Asset,
+	outcome: &Outcome,
+) -> io::Result<()> {
+	if matches!(outcome, Outcome::SkippedExisting) {
+		return Ok(());
+	}
+	let dest = root.join(&asset.dest);
 	if let Some(parent) = dest.parent() {
 		fs::create_dir_all(parent)?;
 	}
-	fs::write(&dest, &asset.contents)?;
-	Ok(outcome)
+	fs::write(&dest, &asset.contents)
 }
 
 /// The active pack's principle set: parse its `principles.toml`, or an empty set
@@ -98,10 +108,34 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 	}
 }
 
-/// Scaffold a pack's asset set, returning each asset's path and outcome. Assets
-/// come from `source`'s manifest; `{{principles}}` is rendered from the current
-/// selection and `overrides` supplies the `--var` values for any variables the
-/// pack declares.
+/// Build the asset set to drop from the active pack: `{{principles}}` is
+/// rendered from the current selection and `overrides` supplies the `--var`
+/// values for any variables the pack declares. Building does not write.
+fn build_assets(
+	source: &manifest::PackSource,
+	selected: &[&pack::Principle],
+	detail: Detail,
+	overrides: &HashMap<String, String>,
+) -> Result<Vec<Asset>, manifest::LoadError> {
+	let mut builtin: HashMap<String, String> = HashMap::new();
+	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
+	manifest::load(source, &builtin, overrides)
+}
+
+/// Ask on the terminal whether to apply the previewed changes. The default is
+/// No, so an empty line (or anything but yes) declines.
+fn confirm_write() -> io::Result<bool> {
+	print!("Apply these changes? [y/N]: ");
+	io::stdout().flush()?;
+	let mut answer = String::new();
+	io::stdin().read_line(&mut answer)?;
+	Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+}
+
+/// Build and write the asset set, returning each asset's path and outcome. A
+/// convenience for tests; `main` drives build, plan, and apply separately so it
+/// can preview and confirm before writing.
+#[cfg(test)]
 fn scaffold(
 	source: &manifest::PackSource,
 	root: &Path,
@@ -110,11 +144,12 @@ fn scaffold(
 	overrides: &HashMap<String, String>,
 	force: bool,
 ) -> Result<Vec<(String, Outcome)>, manifest::LoadError> {
-	let mut builtin: HashMap<String, String> = HashMap::new();
-	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
-	manifest::load(source, &builtin, overrides)?
+	build_assets(source, selected, detail, overrides)?
 		.into_iter()
-		.map(|asset| write_asset(root, &asset, force).map(|outcome| (asset.dest, outcome)))
+		.map(|asset| {
+			let outcome = outcome_of(root, &asset, force);
+			apply_asset(root, &asset, &outcome).map(|()| (asset.dest, outcome))
+		})
 		.collect::<io::Result<Vec<_>>>()
 		.map_err(manifest::LoadError::from)
 }
@@ -129,6 +164,9 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
+	/// Write the changes. Without it a run previews the plan and, on a terminal, asks to confirm.
+	#[arg(long)]
+	write: bool,
 	/// Which principles to include: default, all, none, or a comma-separated list of ids.
 	#[arg(long, default_value = "default")]
 	principles: String,
@@ -234,22 +272,39 @@ fn main() -> io::Result<()> {
 		selected
 	};
 
-	let results = match scaffold(
-		&source,
-		&cli.output_dir,
-		&selected,
-		cli.principle_detail,
-		&overrides,
-		cli.force,
-	) {
-		Ok(results) => results,
+	let assets = match build_assets(&source, &selected, cli.principle_detail, &overrides) {
+		Ok(assets) => assets,
 		Err(error) => {
 			eprintln!("error: {error}");
 			std::process::exit(2);
 		}
 	};
-	for (path, outcome) in results {
-		println!("{:>16}  {}", outcome.label(), path);
+	let outcomes: Vec<Outcome> =
+		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
+
+	// Preview the plan, then decide whether to write. Writes are off by default:
+	// interactive Save (the modal) and --write both mean "write"; otherwise, on a
+	// terminal, ask for y/N (default No); with no terminal (a pipe or CI), stay a
+	// dry run and write nothing.
+	for (asset, outcome) in assets.iter().zip(&outcomes) {
+		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
+	}
+
+	let write = cli.interactive || cli.write || (io::stdin().is_terminal() && confirm_write()?);
+	if write {
+		for (asset, outcome) in assets.iter().zip(&outcomes) {
+			apply_asset(&cli.output_dir, asset, outcome)?;
+		}
+		let changed = outcomes.iter().filter(|o| !matches!(o, Outcome::SkippedExisting)).count();
+		let untouched = outcomes.len() - changed;
+		println!(
+			"Wrote to {} ({changed} changed, {untouched} left untouched).",
+			cli.output_dir.display()
+		);
+	} else if io::stdin().is_terminal() {
+		println!("Aborted; nothing written.");
+	} else {
+		println!("Dry run; nothing written. Pass --write to apply.");
 	}
 	Ok(())
 }
@@ -267,6 +322,23 @@ mod tests {
 		));
 		let _ = fs::remove_dir_all(&dir);
 		dir
+	}
+
+	#[test]
+	fn planning_does_not_write() {
+		// The dry-run preview computes outcomes without touching the filesystem.
+		let root = scratch("plan-only");
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let assets =
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new())
+				.unwrap();
+		let outcomes: Vec<Outcome> =
+			assets.iter().map(|asset| outcome_of(&root, asset, false)).collect();
+
+		assert!(!outcomes.is_empty());
+		assert!(outcomes.iter().all(|o| *o == Outcome::Created), "a fresh dir plans all-Created");
+		assert!(!root.exists(), "planning must not create the output directory");
 	}
 
 	#[test]

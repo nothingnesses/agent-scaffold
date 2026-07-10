@@ -68,20 +68,32 @@ nix develop        # or: direnv allow, if you use direnv
 
 ## Usage
 
-Scaffold into the current directory with the default principle set:
+Writes are off by default. A run always prints a plan of what it would do (one
+line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`) and then
+decides whether to write:
+
+- With `--write`, it applies the changes.
+- Without `--write`, on an interactive terminal it asks `Apply these changes?
+[y/N]` (default No).
+- Without `--write` and with no terminal (a pipe or CI), it stays a dry run and
+  writes nothing.
+
+Preview a scaffold of the current directory with the default principle set:
 
 ```sh
 agent-scaffold
 ```
 
-Scaffold into a specific directory:
+Apply it (into a specific directory):
 
 ```sh
-agent-scaffold --output-dir path/to/project
+agent-scaffold --output-dir path/to/project --write
 ```
 
 Re-running is safe and idempotent: reference assets are refreshed and existing
-working files are left untouched. Pass `--force` to overwrite working files too.
+working files are left untouched. Pass `--force` to overwrite working files too
+(`--force` decides overwrite-versus-skip; `--write` decides whether to write at
+all, so the two combine).
 
 ### Choosing principles
 

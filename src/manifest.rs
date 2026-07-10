@@ -49,12 +49,107 @@ struct AssetSpec {
 	render: bool,
 }
 
+/// One `[[var]]` entry: a variable a pack declares for `{{name}}` substitution.
+/// A present `default` makes the variable optional; an absent one makes it
+/// required, so it must be supplied with `--var`.
+#[derive(Debug, Clone, Deserialize)]
+struct VarSpec {
+	/// The variable name, referenced in assets as `{{name}}`.
+	name: String,
+	/// The default value, or `None` when the variable is required.
+	#[serde(default)]
+	default: Option<String>,
+}
+
 /// The on-disk shape of a `pack.toml`. Unknown keys are ignored, so a future
 /// `[[module]]` section can be added without breaking older loaders.
 #[derive(Debug, Deserialize)]
 struct Manifest {
 	#[serde(default)]
 	asset: Vec<AssetSpec>,
+	#[serde(default)]
+	var: Vec<VarSpec>,
+}
+
+/// Variable names the tool computes itself; a pack may neither declare them nor
+/// override them with `--var`.
+const RESERVED_VARS: &[&str] = &["principles"];
+
+/// An error loading a pack: reading or parsing its files, or resolving the
+/// variables its assets substitute.
+#[derive(Debug)]
+pub enum LoadError {
+	/// Reading a pack file or parsing its `pack.toml` failed.
+	Io(io::Error),
+	/// A `--var` named a variable the pack does not declare.
+	UndeclaredVar(String),
+	/// A required variable (declared with no default) was not supplied.
+	MissingRequiredVar(String),
+	/// A reserved variable name was declared by the pack or set with `--var`.
+	ReservedVar(String),
+}
+
+impl std::fmt::Display for LoadError {
+	fn fmt(
+		&self,
+		f: &mut std::fmt::Formatter<'_>,
+	) -> std::fmt::Result {
+		match self {
+			LoadError::Io(error) => write!(f, "{error}"),
+			LoadError::UndeclaredVar(name) =>
+				write!(f, "no variable named `{name}` is declared by the pack"),
+			LoadError::MissingRequiredVar(name) =>
+				write!(f, "required variable `{name}` was not supplied (use --var {name}=...)"),
+			LoadError::ReservedVar(name) =>
+				write!(f, "`{name}` is a reserved variable and cannot be declared or set"),
+		}
+	}
+}
+
+impl std::error::Error for LoadError {}
+
+impl From<io::Error> for LoadError {
+	fn from(error: io::Error) -> Self {
+		LoadError::Io(error)
+	}
+}
+
+/// Resolve the final substitution map from the pack's declared variables, the
+/// tool-computed built-in variables, and the `--var` overrides. Applies the
+/// variable rules: no override may name an undeclared or reserved variable, no
+/// pack may declare a reserved variable, and every required variable must be
+/// supplied by an override.
+fn resolve_vars(
+	specs: &[VarSpec],
+	builtin: &HashMap<String, String>,
+	overrides: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, LoadError> {
+	for spec in specs {
+		if RESERVED_VARS.contains(&spec.name.as_str()) {
+			return Err(LoadError::ReservedVar(spec.name.clone()));
+		}
+	}
+	for key in overrides.keys() {
+		if RESERVED_VARS.contains(&key.as_str()) {
+			return Err(LoadError::ReservedVar(key.clone()));
+		}
+		if !specs.iter().any(|spec| &spec.name == key) {
+			return Err(LoadError::UndeclaredVar(key.clone()));
+		}
+	}
+
+	let mut resolved = builtin.clone();
+	for spec in specs {
+		let value = match overrides.get(&spec.name) {
+			Some(value) => value.clone(),
+			None => match &spec.default {
+				Some(default) => default.clone(),
+				None => return Err(LoadError::MissingRequiredVar(spec.name.clone())),
+			},
+		};
+		resolved.insert(spec.name.clone(), value);
+	}
+	Ok(resolved)
 }
 
 /// A resolved asset ready to drop: destination, final contents, and ownership.
@@ -74,10 +169,6 @@ pub enum PackSource<'a> {
 	/// The built-in pack, embedded at compile time.
 	Embedded(&'a Dir<'a>),
 	/// An external pack loaded from a filesystem directory.
-	// `allow`, not `expect`: the loader test constructs this, so it is live in
-	// the test build (where `expect` would be unfulfilled); the binary does not
-	// construct it until Step 6b wires up `--template`.
-	#[allow(dead_code)]
 	Directory(PathBuf),
 }
 
@@ -125,19 +216,23 @@ pub fn render(
 }
 
 /// Load a pack from `source`, producing the assets to drop in manifest order.
-/// Each asset's content is read from the pack and rendered with `vars` when the
-/// manifest marks it `render = true`.
+/// The substitution map is resolved from the pack's declared variables, the
+/// tool-computed `builtin` variables (for example `{{principles}}`), and the
+/// `--var` `overrides`; each asset is then read from the pack and rendered with
+/// that map when the manifest marks it `render = true`.
 pub fn load(
 	source: &PackSource,
-	vars: &HashMap<String, String>,
-) -> io::Result<Vec<Asset>> {
+	builtin: &HashMap<String, String>,
+	overrides: &HashMap<String, String>,
+) -> Result<Vec<Asset>, LoadError> {
 	let manifest = source.manifest()?;
+	let vars = resolve_vars(&manifest.var, builtin, overrides)?;
 	manifest
 		.asset
 		.into_iter()
 		.map(|spec| {
 			let raw = source.read(&spec.source)?;
-			let contents = if spec.render { render(&raw, vars) } else { raw };
+			let contents = if spec.render { render(&raw, &vars) } else { raw };
 			Ok(Asset {
 				dest: spec.dest,
 				contents,
@@ -175,7 +270,7 @@ mod tests {
 
 	#[test]
 	fn builtin_manifest_lists_the_expected_assets() {
-		let assets = load(&builtin(), &HashMap::new()).unwrap();
+		let assets = load(&builtin(), &HashMap::new(), &HashMap::new()).unwrap();
 		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
 		assert_eq!(
 			dests,
@@ -195,7 +290,7 @@ mod tests {
 	fn builtin_renders_only_the_rendered_assets() {
 		let mut vars = HashMap::new();
 		vars.insert("principles".to_string(), "SENTINEL-LIST".to_string());
-		let assets = load(&builtin(), &vars).unwrap();
+		let assets = load(&builtin(), &vars, &HashMap::new()).unwrap();
 		let by_dest = |dest: &str| assets.iter().find(|a| a.dest == dest).unwrap();
 
 		// The two guidance copies are rendered: the placeholder is gone and the
@@ -216,27 +311,125 @@ mod tests {
 		assert!(!principles.contents.contains("SENTINEL-LIST"));
 	}
 
+	/// Write a filesystem pack fixture (a `pack.toml` plus one source file) and
+	/// return its `Directory` source root.
+	fn fixture_pack(
+		name: &str,
+		pack_toml: &str,
+		source_name: &str,
+		source_body: &str,
+	) -> PathBuf {
+		let root = scratch(name);
+		fs::create_dir_all(&root).unwrap();
+		fs::write(root.join("pack.toml"), pack_toml).unwrap();
+		fs::write(root.join(source_name), source_body).unwrap();
+		root
+	}
+
 	#[test]
 	fn directory_source_loads_through_the_same_path() {
 		// A minimal external pack on the filesystem exercises the Directory
 		// source and proves the loader is source-agnostic.
-		let root = scratch("dir-source");
-		fs::create_dir_all(&root).unwrap();
-		fs::write(
-			root.join("pack.toml"),
+		let root = fixture_pack(
+			"dir-source",
 			"[[asset]]\nsource = \"greeting.md\"\ndest = \"out/greeting.md\"\nownership = \"working\"\nrender = true\n",
-		)
-		.unwrap();
-		fs::write(root.join("greeting.md"), "hi {{who}}\n").unwrap();
-
-		let mut vars = HashMap::new();
-		vars.insert("who".to_string(), "there".to_string());
-		let assets = load(&PackSource::Directory(root.clone()), &vars).unwrap();
+			"greeting.md",
+			"hi {{who}}\n",
+		);
+		// `who` supplied as a tool-side built-in variable to keep this test to the
+		// source-reading path; declared-variable resolution is covered below.
+		let mut builtin = HashMap::new();
+		builtin.insert("who".to_string(), "there".to_string());
+		let assets = load(&PackSource::Directory(root.clone()), &builtin, &HashMap::new()).unwrap();
 
 		assert_eq!(assets.len(), 1);
 		assert_eq!(assets[0].dest, "out/greeting.md");
 		assert_eq!(assets[0].ownership, Ownership::Working);
 		assert_eq!(assets[0].contents, "hi there\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	/// A pack declaring one optional variable (`greeting`, with a default) and
+	/// one required variable (`who`, no default), used by the variable tests.
+	fn var_fixture(name: &str) -> PathBuf {
+		fixture_pack(
+			name,
+			"[[asset]]\nsource = \"msg.md\"\ndest = \"msg.md\"\nownership = \"working\"\nrender = true\n\n\
+			 [[var]]\nname = \"greeting\"\ndefault = \"hi\"\n\n\
+			 [[var]]\nname = \"who\"\n",
+			"msg.md",
+			"{{greeting}} {{who}}\n",
+		)
+	}
+
+	#[test]
+	fn declared_default_applies_and_override_wins() {
+		let root = var_fixture("var-default");
+		let source = PackSource::Directory(root.clone());
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+
+		// `greeting` falls back to its default; `who` takes the override.
+		let assets = load(&source, &HashMap::new(), &overrides).unwrap();
+		assert_eq!(assets[0].contents, "hi world\n");
+
+		// Overriding the optional variable too.
+		overrides.insert("greeting".to_string(), "hey".to_string());
+		let assets = load(&source, &HashMap::new(), &overrides).unwrap();
+		assert_eq!(assets[0].contents, "hey world\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn missing_required_variable_errors() {
+		let root = var_fixture("var-missing");
+		let result = load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new());
+		match result {
+			Err(LoadError::MissingRequiredVar(name)) => assert_eq!(name, "who"),
+			other => panic!("expected MissingRequiredVar, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn undeclared_override_errors() {
+		let root = var_fixture("var-undeclared");
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+		overrides.insert("nope".to_string(), "x".to_string());
+		let result = load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides);
+		match result {
+			Err(LoadError::UndeclaredVar(name)) => assert_eq!(name, "nope"),
+			other => panic!("expected UndeclaredVar, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn reserved_variable_is_rejected() {
+		// A pack may not declare the reserved `principles` variable.
+		let declared = fixture_pack(
+			"var-reserved-declared",
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[var]]\nname = \"principles\"\ndefault = \"x\"\n",
+			"a.md",
+			"a\n",
+		);
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new()) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "principles"),
+			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&declared).unwrap();
+
+		// Nor may `--var` set it.
+		let root = var_fixture("var-reserved-override");
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+		overrides.insert("principles".to_string(), "x".to_string());
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "principles"),
+			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
+		}
 		fs::remove_dir_all(&root).unwrap();
 	}
 }

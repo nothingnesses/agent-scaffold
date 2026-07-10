@@ -86,21 +86,25 @@ fn write_asset(
 	Ok(outcome)
 }
 
-/// Scaffold the whole asset set, returning each asset's path and outcome. The
-/// asset set is built from the built-in pack's manifest, with the selected
-/// principles rendered in for the `{{principles}}` variable.
+/// Scaffold a pack's asset set, returning each asset's path and outcome. Assets
+/// come from `source`'s manifest; `{{principles}}` is rendered from the current
+/// selection and `overrides` supplies the `--var` values for any variables the
+/// pack declares.
 fn scaffold(
+	source: &manifest::PackSource,
 	root: &Path,
 	selected: &[&pack::Principle],
 	detail: Detail,
+	overrides: &HashMap<String, String>,
 	force: bool,
-) -> io::Result<Vec<(String, Outcome)>> {
-	let mut vars: HashMap<String, String> = HashMap::new();
-	vars.insert("principles".to_string(), pack::render_principles(selected, detail));
-	manifest::load(&manifest::builtin(), &vars)?
+) -> Result<Vec<(String, Outcome)>, manifest::LoadError> {
+	let mut builtin: HashMap<String, String> = HashMap::new();
+	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
+	manifest::load(source, &builtin, overrides)?
 		.into_iter()
 		.map(|asset| write_asset(root, &asset, force).map(|outcome| (asset.dest, outcome)))
-		.collect()
+		.collect::<io::Result<Vec<_>>>()
+		.map_err(manifest::LoadError::from)
 }
 
 /// Scaffold the agent workflow into a project.
@@ -125,10 +129,37 @@ struct Cli {
 	/// Choose principles interactively in a two-pane selector, seeded from `--principles`.
 	#[arg(long, short)]
 	interactive: bool,
+	/// Scaffold from a user-supplied pack directory instead of the built-in one.
+	#[arg(long)]
+	template: Option<PathBuf>,
+	/// Set a pack-declared variable, as `--var key=value` (repeatable).
+	#[arg(long = "var", value_name = "KEY=VALUE")]
+	var: Vec<String>,
 }
 
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
+
+	// The active pack: the built-in one, or an external directory via --template.
+	let source = match &cli.template {
+		Some(path) => manifest::PackSource::Directory(path.clone()),
+		None => manifest::builtin(),
+	};
+
+	// Parse --var key=value overrides. Validation against the pack's declared
+	// variables happens in the loader; here we only reject malformed entries.
+	let mut overrides: HashMap<String, String> = HashMap::new();
+	for entry in &cli.var {
+		match entry.split_once('=') {
+			Some((key, value)) => {
+				overrides.insert(key.to_string(), value.to_string());
+			}
+			None => {
+				eprintln!("error: --var expects key=value, got `{entry}`");
+				std::process::exit(2);
+			}
+		}
+	}
 
 	let principles = pack::default_principles();
 	let selected = match pack::resolve_selection(&principles, &cli.principles) {
@@ -183,7 +214,21 @@ fn main() -> io::Result<()> {
 		selected
 	};
 
-	for (path, outcome) in scaffold(&cli.output_dir, &selected, cli.principle_detail, cli.force)? {
+	let results = match scaffold(
+		&source,
+		&cli.output_dir,
+		&selected,
+		cli.principle_detail,
+		&overrides,
+		cli.force,
+	) {
+		Ok(results) => results,
+		Err(error) => {
+			eprintln!("error: {error}");
+			std::process::exit(2);
+		}
+	};
+	for (path, outcome) in results {
 		println!("{:>16}  {}", outcome.label(), path);
 	}
 	Ok(())
@@ -209,7 +254,15 @@ mod tests {
 		let root = scratch("first-run");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		let results = scaffold(&root, &selected, Detail::Summary, false).unwrap();
+		let results = scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+		)
+		.unwrap();
 		assert!(results.iter().all(|(_, o)| *o == Outcome::Created));
 		assert!(root.join("AGENTS.md").exists());
 		assert!(root.join(".agents/principles.toml").exists());
@@ -221,7 +274,8 @@ mod tests {
 		let root = scratch("generated");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&root, &selected, Detail::Summary, false).unwrap();
+		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
+			.unwrap();
 		let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
 		assert!(!agents.contains("{{principles}}"));
 		assert!(agents.contains("1. "));
@@ -233,12 +287,21 @@ mod tests {
 		let root = scratch("rerun");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&root, &selected, Detail::Summary, false).unwrap();
+		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
+			.unwrap();
 
 		// A user edits a working file after the first run.
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
 
-		let results = scaffold(&root, &selected, Detail::Summary, false).unwrap();
+		let results = scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+		)
+		.unwrap();
 		let outcome_of =
 			|p: &str| results.iter().find(|(path, _)| *path == p).map(|(_, o)| o).unwrap();
 
@@ -254,10 +317,19 @@ mod tests {
 		let root = scratch("force");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&root, &selected, Detail::Summary, false).unwrap();
+		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
+			.unwrap();
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
 
-		let results = scaffold(&root, &selected, Detail::Summary, true).unwrap();
+		let results = scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+		)
+		.unwrap();
 		let agents = results.iter().find(|(path, _)| *path == "AGENTS.md").map(|(_, o)| o).unwrap();
 		assert_eq!(*agents, Outcome::Overwritten);
 		let contents = fs::read_to_string(root.join("AGENTS.md")).unwrap();

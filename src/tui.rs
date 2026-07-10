@@ -78,13 +78,15 @@ impl Button {
 	}
 }
 
-/// Which interaction mode the selector is in. Exactly one holds at a time, and
-/// mode-specific data lives only in its variant, so states like "confirming and
-/// filtering at once" or "a focused button while not confirming" are
-/// unrepresentable. The `Filtering` variant is added in Step 5c.
+/// Which interaction mode the selector is in. Exactly one holds at a time, so
+/// states like "confirming and filtering at once" or "a focused button while
+/// not confirming" are unrepresentable. `Filtering` means keystrokes edit the
+/// `App::filter` query; the applied filter itself lives on `App` because its
+/// narrowing of the Available pane persists back in `Editing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
 	Editing,
+	Filtering,
 	Confirming { button: Button },
 }
 
@@ -137,8 +139,11 @@ struct App<'a> {
 	undo_stack: Vec<Snapshot>,
 	/// Snapshots undone and available to redo (most recent last).
 	redo_stack: Vec<Snapshot>,
-	/// The current interaction mode (editing, or the save-confirmation modal).
+	/// The current interaction mode (editing, filtering, or the save modal).
 	mode: Mode,
+	/// The active Available-pane filter (case-insensitive substring over name,
+	/// id, and tags). Empty means no filter. Narrows only the Available pane.
+	filter: String,
 	/// Caller-supplied lines describing what saving will do, shown in the modal.
 	save_summary: Vec<String>,
 }
@@ -173,7 +178,48 @@ impl<'a> App<'a> {
 			undo_stack: Vec::new(),
 			redo_stack: Vec::new(),
 			mode: Mode::Editing,
+			filter: String::new(),
 			save_summary,
+		}
+	}
+
+	/// Whether principle `idx` matches the active filter (always true when the
+	/// filter is empty). Case-insensitive substring over name, id, and tags.
+	fn matches_filter(
+		&self,
+		idx: usize,
+	) -> bool {
+		if self.filter.is_empty() {
+			return true;
+		}
+		let needle = self.filter.to_lowercase();
+		let p = &self.principles[idx];
+		p.name.to_lowercase().contains(&needle)
+			|| p.id.to_lowercase().contains(&needle)
+			|| p.tags.iter().any(|t| t.to_lowercase().contains(&needle))
+	}
+
+	/// Positions into `self.available` that match the filter, in `available`
+	/// order. With an empty filter this is `0 .. available.len()`. This is the
+	/// projection the Available cursor and toggle map through.
+	fn available_visible(&self) -> Vec<usize> {
+		self.available
+			.iter()
+			.enumerate()
+			.filter(|(_, &idx)| self.matches_filter(idx))
+			.map(|(pos, _)| pos)
+			.collect()
+	}
+
+	/// Keep the Available cursor within its visible (filtered) length.
+	fn clamp_available(&mut self) {
+		let len = self.available_visible().len();
+		match len {
+			0 => self.available_state.select(None),
+			_ => {
+				let clamped = self.available_state.selected().unwrap_or(0).min(len - 1);
+				self.available_state.select(Some(clamped));
+			}
 		}
 	}
 
@@ -188,7 +234,9 @@ impl<'a> App<'a> {
 		}
 	}
 
-	/// Restore a captured snapshot.
+	/// Restore a captured snapshot. The active filter is view state and is left
+	/// as-is, so the restored Available selection is re-clamped to the current
+	/// visible length.
 	fn restore(
 		&mut self,
 		snap: Snapshot,
@@ -198,6 +246,7 @@ impl<'a> App<'a> {
 		self.focus = snap.focus;
 		self.available_state.select(snap.available_selected);
 		self.included_state.select(snap.included_selected);
+		self.clamp_available();
 	}
 
 	/// Record the pre-edit state so the edit can be undone, and drop the redo
@@ -227,7 +276,7 @@ impl<'a> App<'a> {
 
 	fn focused_len(&self) -> usize {
 		match self.focus {
-			Pane::Available => self.available.len(),
+			Pane::Available => self.available_visible().len(),
 			Pane::Included => self.included.len(),
 		}
 	}
@@ -294,32 +343,58 @@ impl<'a> App<'a> {
 		}
 	}
 
+	/// Enter filter mode, focusing Available (the only filtered pane).
+	fn enter_filter(&mut self) {
+		self.focus = Pane::Available;
+		self.mode = Mode::Filtering;
+		self.clamp_available();
+	}
+
 	/// Move the highlighted principle to the other pane. `insert` decides where
 	/// it lands relative to that pane's cursor (before or after), and leaves the
 	/// destination cursor on the moved item.
+	///
+	/// The Available cursor is an index into the filtered projection, so moving
+	/// out of Available maps that visible index back to the underlying position.
+	/// When a filter is active, an item returned to Available is appended (the
+	/// Available pool order is not user-meaningful, and "before/after cursor" is
+	/// ambiguous under a projection); with no filter, behaviour is unchanged.
 	fn toggle_with(
 		&mut self,
 		insert: fn(&mut Vec<usize>, &mut ListState, usize),
 	) {
-		let len = self.focused_len();
-		let Some(pos) = self.focused_state().selected() else {
-			return;
-		};
-		if pos >= len {
-			return;
-		}
-		self.checkpoint();
 		match self.focus {
 			Pane::Available => {
-				let idx = self.available.remove(pos);
+				let visible = self.available_visible();
+				let Some(sel) = self.available_state.selected() else {
+					return;
+				};
+				let Some(&ap) = visible.get(sel) else {
+					return;
+				};
+				self.checkpoint();
+				let idx = self.available.remove(ap);
 				insert(&mut self.included, &mut self.included_state, idx);
+				self.clamp_available();
 			}
 			Pane::Included => {
+				let Some(pos) = self.included_state.selected() else {
+					return;
+				};
+				if pos >= self.included.len() {
+					return;
+				}
+				self.checkpoint();
 				let idx = self.included.remove(pos);
-				insert(&mut self.available, &mut self.available_state, idx);
+				if self.filter.is_empty() {
+					insert(&mut self.available, &mut self.available_state, idx);
+				} else {
+					self.available.push(idx);
+					self.clamp_available();
+				}
+				self.clamp_focused();
 			}
 		}
-		self.clamp_focused();
 		debug_assert_eq!(
 			self.included.len() + self.available.len(),
 			self.principles.len(),
@@ -359,14 +434,20 @@ impl<'a> App<'a> {
 		self.included_state.select(Some(pos + 1));
 	}
 
-	/// The principle currently under the focused cursor, if any.
+	/// The underlying principle indices currently shown in the Available pane
+	/// (its filtered projection), in display order.
+	fn available_display(&self) -> Vec<usize> {
+		self.available_visible().iter().map(|&ap| self.available[ap]).collect()
+	}
+
+	/// The principle currently under the focused cursor, if any. The Available
+	/// cursor indexes the filtered projection.
 	fn highlighted(&self) -> Option<&Principle> {
-		let (indices, state) = match self.focus {
-			Pane::Available => (&self.available, &self.available_state),
-			Pane::Included => (&self.included, &self.included_state),
+		let idx = match self.focus {
+			Pane::Available => *self.available_display().get(self.available_state.selected()?)?,
+			Pane::Included => *self.included.get(self.included_state.selected()?)?,
 		};
-		let pos = state.selected()?;
-		indices.get(pos).map(|&idx| &self.principles[idx])
+		Some(&self.principles[idx])
 	}
 
 	/// The detail-footer text for the highlighted principle.
@@ -459,6 +540,29 @@ fn update(
 		return Step::Continue;
 	}
 
+	// While filtering, keystrokes edit the query and the Available pane narrows
+	// live; Enter applies (keeping the filter), Esc clears it.
+	if app.mode == Mode::Filtering {
+		match key.code {
+			KeyCode::Enter => app.mode = Mode::Editing,
+			KeyCode::Esc => {
+				app.filter.clear();
+				app.mode = Mode::Editing;
+				app.clamp_available();
+			}
+			KeyCode::Backspace => {
+				app.filter.pop();
+				app.clamp_available();
+			}
+			KeyCode::Char(c) => {
+				app.filter.push(c);
+				app.clamp_available();
+			}
+			_ => {}
+		}
+		return Step::Continue;
+	}
+
 	match key.code {
 		KeyCode::Char('q') | KeyCode::Esc => return Step::Abort,
 		KeyCode::Enter =>
@@ -468,6 +572,7 @@ fn update(
 			},
 		KeyCode::Char('i') => app.toggle_with(insert_before_cursor),
 		KeyCode::Char('a') => app.toggle_with(insert_after_cursor),
+		KeyCode::Char('/') => app.enter_filter(),
 		KeyCode::Tab
 		| KeyCode::BackTab
 		| KeyCode::Left
@@ -488,8 +593,8 @@ fn update(
 }
 
 /// The fixed presentation of a pane (its varying-per-pane, non-state fields).
-struct PaneSpec<'a> {
-	title: &'a str,
+struct PaneSpec {
+	title: String,
 	focused: bool,
 	numbered: bool,
 }
@@ -523,8 +628,7 @@ fn render_pane(
 	} else {
 		Style::default().fg(Color::DarkGray)
 	};
-	let block =
-		Block::bordered().title(format!("{title} ({})", indices.len())).border_style(border);
+	let block = Block::bordered().title(title).border_style(border);
 	let highlight =
 		if focused { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default() };
 	let list = List::new(items)
@@ -540,6 +644,13 @@ fn ui(
 	app: &mut App,
 ) {
 	let detail = app.detail_text();
+	let available_display = app.available_display();
+	let available_title = if app.filter.is_empty() {
+		format!("Available ({})", available_display.len())
+	} else {
+		format!("Available ({})  /{}", available_display.len(), app.filter)
+	};
+	let included_title = format!("Included ({})", app.included.len());
 
 	let [content_area, detail_area, help_area] =
 		Layout::vertical([Constraint::Fill(1), Constraint::Length(6), Constraint::Length(1)])
@@ -552,10 +663,10 @@ fn ui(
 		frame,
 		available_area,
 		app.principles,
-		&app.available,
+		&available_display,
 		&mut app.available_state,
 		PaneSpec {
-			title: "Available",
+			title: available_title,
 			focused: app.focus == Pane::Available,
 			numbered: false,
 		},
@@ -567,7 +678,7 @@ fn ui(
 		&app.included,
 		&mut app.included_state,
 		PaneSpec {
-			title: "Included",
+			title: included_title,
 			focused: app.focus == Pane::Included,
 			numbered: true,
 		},
@@ -581,14 +692,17 @@ fn ui(
 			.block(Block::bordered().title("Details")),
 		detail_area,
 	);
-	frame.render_widget(
+
+	let help = if app.mode == Mode::Filtering {
+		Paragraph::new(format!("filter> {}    enter: apply   esc: clear", app.filter))
+	} else {
 		Paragraph::new(
-			"i/a insert before/after  J/K reorder  u/U undo/redo  tab/h/l focus  j/k cursor  enter save  q abort",
+			"i/a insert  J/K reorder  u/U undo/redo  / filter  tab/h/l focus  j/k cursor  enter save  q abort",
 		)
 		.centered()
-		.dim(),
-		help_area,
-	);
+		.dim()
+	};
+	frame.render_widget(help, help_area);
 
 	if let Mode::Confirming {
 		button,
@@ -927,5 +1041,84 @@ mod tests {
 		// Esc cancels the modal.
 		update(&mut app, key(KeyCode::Esc));
 		assert_eq!(app.mode, Mode::Editing);
+	}
+
+	// -- Step 5c: the interactive Available filter. `sample()` names/ids are
+	// "a"/"b"/"c" and every principle carries the tag "t", so a query like "b"
+	// matches by name/id and "t" matches by tag.
+
+	#[test]
+	fn filter_narrows_the_available_projection_and_persists() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[], Vec::new());
+
+		update(&mut app, key(KeyCode::Char('/')));
+		assert_eq!(app.mode, Mode::Filtering);
+		update(&mut app, key(KeyCode::Char('b')));
+		assert_eq!(app.available_display(), vec![1]);
+		assert_eq!(app.available_state.selected(), Some(0));
+
+		// Enter applies and keeps the filter back in Editing.
+		update(&mut app, key(KeyCode::Enter));
+		assert_eq!(app.mode, Mode::Editing);
+		assert_eq!(app.filter, "b");
+		assert_eq!(app.available_display(), vec![1]);
+	}
+
+	#[test]
+	fn filter_matches_tags_not_only_names() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[], Vec::new());
+		update(&mut app, key(KeyCode::Char('/')));
+		update(&mut app, key(KeyCode::Char('t'))); // tag on all; no name contains "t"
+		assert_eq!(app.available_display(), vec![0, 1, 2]);
+	}
+
+	#[test]
+	fn editing_keys_type_into_the_filter_while_filtering() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[], Vec::new());
+		update(&mut app, key(KeyCode::Char('/')));
+		update(&mut app, key(KeyCode::Char('i'))); // 'i' is query text here, not a toggle
+		assert_eq!(app.filter, "i");
+		assert!(app.included.is_empty());
+	}
+
+	#[test]
+	fn backspace_edits_and_esc_clears_the_filter() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[], Vec::new());
+		update(&mut app, key(KeyCode::Char('/')));
+		update(&mut app, key(KeyCode::Char('b')));
+		update(&mut app, key(KeyCode::Char('x'))); // "bx" matches nothing
+		assert!(app.available_display().is_empty());
+
+		update(&mut app, key(KeyCode::Backspace)); // back to "b"
+		assert_eq!(app.filter, "b");
+		assert_eq!(app.available_display(), vec![1]);
+
+		update(&mut app, key(KeyCode::Esc)); // clear
+		assert_eq!(app.mode, Mode::Editing);
+		assert_eq!(app.filter, "");
+		assert_eq!(app.available_display(), vec![0, 1, 2]);
+	}
+
+	#[test]
+	fn toggle_under_filter_moves_the_matched_principle() {
+		let principles = sample();
+		let mut app = App::new(&principles, &[], Vec::new());
+		update(&mut app, key(KeyCode::Char('/')));
+		update(&mut app, key(KeyCode::Char('c'))); // only c (idx 2) matches
+		update(&mut app, key(KeyCode::Enter));
+		assert_eq!(app.available_display(), vec![2]);
+
+		// Include the highlighted match; the correct principle moves.
+		update(&mut app, key(KeyCode::Char('i')));
+		assert_eq!(app.included, vec![2]);
+		assert_eq!(app.available, vec![0, 1]);
+		// With the filter still "c", nothing remains visible; the cursor clears.
+		assert!(app.available_display().is_empty());
+		assert_eq!(app.available_state.selected(), None);
+		assert_eq!(app.included.len() + app.available.len(), principles.len());
 	}
 }

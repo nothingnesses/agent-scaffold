@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started. They were reordered so bring-your-own template support is Step 6 (it formalises the pack/manifest abstraction) and optional modules is Step 7; Step 6 is the next work; three of its design decisions are open (OQ-E to OQ-G) and await decisions before implementation, while OQ-H is resolved (local paths only; git-URL fetch deferred to the new optional Step 10). The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started. They were reordered so bring-your-own template support is Step 6 (it formalises the pack/manifest abstraction) and optional modules is Step 7; Step 6 is the next work; its design is resolved (OQ-E/F/G adopted, OQ-H deferred to Step 10) and broken into concrete sub-steps 6a and 6b, each evidence-grounded. 6a (the pack manifest and behaviour-preserving built-in refactor) is next to implement. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -31,33 +31,7 @@ This plan is kept current during the work. Each Implementation Step carries a `S
 
 ## Open Questions, Decisions, Issues and Blockers
 
-Earlier questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 TUI-polish questions OQ-B/C/D) are all resolved and folded into the steps and code. Step 6 (bring-your-own template) raises decisions recorded below with viable approaches, trade-offs, a recommendation, and reasoning against the Project Principles. Three remain open (OQ-E, OQ-F, OQ-G) and gate Step 6. OQ-H (git-URL fetch) is resolved: Step 6 supports local paths only, and git-URL fetch is deferred to Step 10 as a much-later optional extra, because the raw clone is small but doing it well (ref selection, in-repo subdirectory, caching, and a fallback when `git` is absent) adds surface that is not needed for the core bring-your-own value (minimal by default).
-
-Context they share: the current `assets()` in `src/main.rs` hardcodes the mapping from each built-in pack file to its destination path, ownership (reference vs working), and whether it is rendered (substituted) or copied verbatim; one source can fan out to several assets (`AGENTS.md` becomes both the working root file and the `.agents/` reference, both rendered). Step 6 turns that hardcoded mapping into data so an external pack can supply its own.
-
-### OQ-E: Introduce a pack manifest, and load the built-in pack through it?
-
-- Approach 1: no manifest; an external pack must mirror the built-in filenames, and the fixed mapping in `assets()` applies. Smallest change, but rigid (no custom destinations, ownership, or variables), and it leaves two code paths (built-in vs external).
-- Approach 2: a `pack.toml` manifest declaring the pack's assets and variables; the built-in pack ships the same manifest and loads through the one path.
-
-Recommended: Approach 2, dogfooding the built-in pack through the manifest. It encodes the valid pack structure as data rather than hardcoding it (Principle 5), gives a single load path with no built-in-versus-external special-casing (Principle 1), and is the abstraction optional modules (Step 7) slot into without complicating the core (Principle 2). The cost is up-front schema, but it replaces the hardcoded `assets()` mapping with data, a net simplification once external packs exist.
-
-### OQ-F: Manifest schema (asset model, variable substitution, modules placeholder)
-
-- Assets: each entry is `{ source, dest, ownership = reference|working, render = bool }`; `render = true` applies substitution (so `AGENTS.md` fans out to two rendered destinations). Mirrors today's mapping directly.
-- Variables: Approach 1, minimal `{{name}}` string substitution with no template engine (`{{principles}}` becomes one built-in variable; packs declare other variables with defaults, overridable via a `--var key=value` flag). Approach 2, a real template engine (minijinja/tera) for conditionals and loops.
-- Modules: reserve a `[[module]]` section (name, description, its own asset list) in the schema now, even though Step 7 implements selection.
-
-Recommended: explicit per-asset fields, minimal `{{name}}` substitution (Principle 2: no engine dependency; scaffolding does not need conditionals/loops), and reserve `[[module]]` so bring-your-own packs can ship content modules and Step 7 slots in. Behavioural modules (container/worktree isolation) stay tool features toggled by flags, not manifest content, so the manifest does not over-reach.
-
-### OQ-G: How the built-in pack embeds
-
-If the built-in pack dogfoods the manifest (OQ-E), the loader reads a manifest plus files from either embedded (built-in) or a directory (external).
-
-- Approach 1: a `PackSource` enum, `Embedded` uses `include_str!` plus a small filename-to-content map, `Dir(path)` reads from disk. Dependency-free, but reintroduces a hand-maintained filename-to-content map (the boilerplate the manifest aims to remove).
-- Approach 2: the `include_dir` crate embeds `pack/` as a directory tree so built-in and external both present as "a directory of files," with no manual map. A new but small, pure-macro dependency.
-
-Recommended: leaning Approach 2 (`include_dir`), because it deletes the drift-prone manual map and unifies the load path (Principle 1); tension with dependency-minimalism (Principle 2) makes this the one decision to confirm with the user rather than adopt unilaterally.
+No open questions remain. Step 6's design questions (OQ-E manifest and dogfooding, OQ-F schema and variables, OQ-G embedding) are resolved and folded into Step 6 below with the adopted decisions and reasoning; OQ-H (git-URL fetch) was resolved by deferring it to Step 10. Earlier questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 questions OQ-B/C/D) were resolved in earlier steps and the code.
 
 ## Implementation Steps
 
@@ -65,7 +39,7 @@ Decisions carried from the resolved open questions:
 
 - **Form.** A standalone Rust binary (clap CLI plus a ratatui TUI) that runs without Nix; Nix is a development-only dependency (the dev shell). Distributed via `cargo install` or prebuilt binaries, with an optional flake app for Nix users. Runs from any working directory and writes to any target via `--output-dir`, defaulting to the current directory with a namespaced layout.
 - **Ownership (two-tier).** Tool-owned reference assets under `.agents/` are always refreshed; user working files (the root `AGENTS.md`, plans under `docs/plans/`) are create-if-absent, with `--force` to overwrite. An existing `AGENTS.md` is left untouched and the namespaced reference copy is refreshed for the user to merge from. Marked-block co-tenancy and a 3-way-merge `update` were considered and deferred (Step 9).
-- **Template source.** A built-in default pack, with optional `--template <ref>` (a local path or a git URL; the fetch must not depend on Nix, and a flake-ref is only an optional extra) for bring-your-own packs.
+- **Template source.** A built-in default pack, with optional `--template <local-path>` for bring-your-own packs (Step 6); git-URL fetch is deferred to Step 10 (must not depend on Nix) and a flake-ref stays out of scope.
 - **Principle data.** Structured TOML (`pack/principles.toml`). Each principle has `id`, `name`, `summary`, `rationale`, `tags` (category tags plus applicability tags `universal`/`static-types`/`fp`/`oop`), `default_selected`, `default_order`, and optional `references`/`related`. The selected set renders as a numbered list ordered by `default_order`, at `name`, `summary`, or `full` detail. The default set is about 21 principles, applicability-tagged so it adapts to the project type; the shipped prompts and guidance stay principle-agnostic and defer to the selected set.
 - **Optional modules (not yet built).** A diagram prompt pack, container and worktree isolation (integrating agent-box and agent-images), a justfile of recipes, and language starters.
 
@@ -128,7 +102,25 @@ Status: skipped (by decision). A key to move every currently-visible Available m
 
 ### 6. Bring-your-own template support
 
-Status: not started (next; OQ-E/F/G still open). Support `--template <ref>`, where `ref` is a local path (git-URL fetch is deferred to Step 10 per the OQ-H decision; a Nix flake-ref stays out of scope), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default. Reordered ahead of the optional modules (now Step 7) because it formalises the pack/manifest abstraction that modules will slot into, avoiding a later retrofit.
+Status: in progress (design resolved; not yet implemented). Support `--template <local-path>` so a project can scaffold from a user-supplied pack, not only the built-in one (git-URL fetch is deferred to Step 10; a Nix flake-ref stays out of scope). Reordered ahead of optional modules (Step 7) because it formalises the pack/manifest abstraction modules slot into.
+
+Background: the current `assets()` in `src/main.rs` hardcodes the mapping from each built-in pack file to its destination path, ownership (reference vs working), and whether it is rendered (substituted) or copied verbatim; one source can fan out to several assets (`AGENTS.md` becomes both the working root file and the `.agents/` reference, both rendered). Step 6 turns that mapping into data.
+
+Decisions adopted from the resolved open questions:
+
+- **Manifest, dogfooded (OQ-E).** A pack is a directory with a `pack.toml` manifest declaring its assets and variables; the built-in pack ships the same manifest and loads through one path, replacing the hardcoded mapping in `assets()`. Encodes the pack structure as data (Principle 5), one load path with no built-in-versus-external special-casing (Principle 1).
+- **Schema (OQ-F).** Each `[[asset]]` is `{ source, dest, ownership = reference|working, render }`; a source may map to several assets. `render = true` applies minimal `{{name}}` substitution with no template engine (Principle 2): `{{principles}}` is a built-in variable computed from the selection, and packs declare other variables (with defaults) that `--var key=value` overrides. A `[[module]]` section is reserved by keeping the parser tolerant of unknown keys (serde ignores them), so Step 6 carries no dead field and Step 7 adds the field when it consumes modules. Behavioural modules (isolation) stay tool flags, not manifest content.
+- **Embedding (OQ-G).** The built-in `pack/` is embedded with the `include_dir` crate so built-in and external packs both present as a directory of files under one loader, removing the hand-maintained filename-to-content map (Principle 1); accepted over dependency-free `include_str!` per the user's decision.
+
+Each sub-step is evidence-grounded: validate the approach with a proof-of-concept (build plus tests plus, where relevant, a functional run); on failure fall back to the recorded next-best; if exhausted, raise the impasse.
+
+#### 6a. Pack manifest and built-in refactor
+
+Status: not started. Add `pack.toml` to the built-in pack (its assets and any variables), embed `pack/` via `include_dir`, and add a manifest model plus a loader that resolves each asset's content from a pack source (an embedded directory or a filesystem directory), renders it when `render = true`, and produces the asset set. Replace the hardcoded `assets()` with this manifest-driven builder over the built-in pack. Behaviour-preserving refactor. Validate: the scaffold output is byte-identical to before and all existing drop tests pass unchanged. Fallback: if the manifest-driven build cannot reproduce the exact asset set and paths, keep the hardcoded `assets()` and raise the mismatch.
+
+#### 6b. External local-path packs and variables
+
+Status: not started. Add `--template <path>` to load a pack from a directory through the same manifest loader, plus `--var key=value` (repeatable) and manifest-declared variable defaults for substitution. Rules: an undeclared `--var` key errors; a declared variable with no default and no `--var` errors (must be supplied); `{{principles}}` stays built-in. Depends on 6a. Validate: a fixture pack (a temp directory with a `pack.toml` and a templated asset using a variable) scaffolds correctly, honouring ownership, render, and `--var`, while the built-in still works with no `--template`. Fallback: if a filesystem source cannot share the embedded loader cleanly, split the loaders but keep one manifest schema, and raise it.
 
 ### 7. Optional modules
 

@@ -10,12 +10,7 @@ use {
 };
 
 /// One principle in a pack.
-///
-/// `id`, `tags`, and `related` are not read by the binary yet: they are part of
-/// the pack schema, are exercised by the tests, and will drive the selection
-/// flags and tag filtering as the tool grows.
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct Principle {
 	/// Stable slug, used in flags, config, and the selection record.
 	pub id: String,
@@ -34,8 +29,10 @@ pub struct Principle {
 	/// Optional links or citations.
 	#[serde(default)]
 	pub references: Vec<String>,
-	/// Optional related principle ids.
+	/// Optional related principle ids. Part of the pack schema and exercised by
+	/// the tests, but not yet read by the binary.
 	#[serde(default)]
+	#[allow(dead_code)]
 	pub related: Vec<String>,
 }
 
@@ -71,6 +68,8 @@ pub fn ordered_by_default(mut principles: Vec<&Principle>) -> Vec<&Principle> {
 pub enum SelectionError {
 	/// A requested id is not present in the pack.
 	UnknownId(String),
+	/// A `tag:<t>` token names a tag that no principle carries.
+	UnknownTag(String),
 }
 
 impl std::fmt::Display for SelectionError {
@@ -80,6 +79,7 @@ impl std::fmt::Display for SelectionError {
 	) -> std::fmt::Result {
 		match self {
 			SelectionError::UnknownId(id) => write!(f, "unknown principle id: {id}"),
+			SelectionError::UnknownTag(tag) => write!(f, "unknown tag: {tag}"),
 		}
 	}
 }
@@ -88,31 +88,58 @@ impl std::error::Error for SelectionError {}
 
 /// Resolve a `--principles` selection spec into a principle list.
 ///
-/// `spec` is `default`, `all`, `none`, or a comma-separated list of ids. The
-/// `default` and `all` sets come out sorted by `default_order`; an explicit id
-/// list preserves the order it was given, so a selection recorded by the
-/// interactive selector (which overrides `default_order`) round-trips through
-/// `--principles`.
+/// `spec` is a comma-separated list of tokens, each one of:
+///
+/// - `default` / `all` / `none`: the default-selected set, every principle, or
+///   nothing (the first two ordered by `default_order`).
+/// - `tag:<t>`: every principle carrying tag `<t>`, ordered by `default_order`;
+///   a tag no principle carries is a `SelectionError::UnknownTag`.
+/// - a bare id: that one principle; an id not in the pack is a
+///   `SelectionError::UnknownId`.
+///
+/// Tokens are concatenated in the order given and de-duplicated by first
+/// occurrence, so a bare id list preserves its order (a selection recorded by
+/// the interactive selector round-trips through `--principles`) while keyword
+/// and tag tokens contribute their `default_order` expansions.
 pub fn resolve_selection<'a>(
 	principles: &'a [Principle],
 	spec: &str,
 ) -> Result<Vec<&'a Principle>, SelectionError> {
-	match spec {
-		"default" =>
-			Ok(ordered_by_default(principles.iter().filter(|p| p.default_selected).collect())),
-		"all" => Ok(ordered_by_default(principles.iter().collect())),
-		"none" => Ok(Vec::new()),
-		list => {
-			let mut out = Vec::new();
-			for id in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-				match principles.iter().find(|p| p.id == id) {
-					Some(principle) => out.push(principle),
-					None => return Err(SelectionError::UnknownId(id.to_string())),
-				}
+	use std::collections::HashSet;
+
+	let mut out: Vec<&Principle> = Vec::new();
+	let mut seen: HashSet<&str> = HashSet::new();
+
+	for token in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+		let expansion: Vec<&Principle> = match token {
+			"default" =>
+				ordered_by_default(principles.iter().filter(|p| p.default_selected).collect()),
+			"all" => ordered_by_default(principles.iter().collect()),
+			"none" => Vec::new(),
+			_ =>
+				if let Some(tag) = token.strip_prefix("tag:") {
+					let matches = ordered_by_default(
+						principles.iter().filter(|p| p.tags.iter().any(|t| t == tag)).collect(),
+					);
+					if matches.is_empty() {
+						return Err(SelectionError::UnknownTag(tag.to_string()));
+					}
+					matches
+				} else {
+					match principles.iter().find(|p| p.id == token) {
+						Some(principle) => vec![principle],
+						None => return Err(SelectionError::UnknownId(token.to_string())),
+					}
+				},
+		};
+		for principle in expansion {
+			if seen.insert(principle.id.as_str()) {
+				out.push(principle);
 			}
-			Ok(out)
 		}
 	}
+
+	Ok(out)
 }
 
 /// How much of each principle to render into the output.
@@ -254,5 +281,74 @@ mod tests {
 		assert_eq!(two[1].id, "verify-dont-trust");
 
 		assert!(resolve_selection(&principles, "no-such-id").is_err());
+	}
+
+	/// The ids of the pack's principles carrying `tag`, in `default_order`.
+	fn ids_with_tag(
+		principles: &[Principle],
+		tag: &str,
+	) -> Vec<String> {
+		ordered_by_default(principles.iter().filter(|p| p.tags.iter().any(|t| t == tag)).collect())
+			.iter()
+			.map(|p| p.id.clone())
+			.collect()
+	}
+
+	#[test]
+	fn tag_token_expands_in_default_order() {
+		let principles = default_principles();
+		let resolved: Vec<String> = resolve_selection(&principles, "tag:fp")
+			.unwrap()
+			.iter()
+			.map(|p| p.id.clone())
+			.collect();
+		let expected = ids_with_tag(&principles, "fp");
+		assert!(!expected.is_empty(), "the pack must carry fp-tagged principles for this test");
+		assert_eq!(resolved, expected);
+	}
+
+	#[test]
+	fn keywords_ids_and_tags_compose_with_dedup() {
+		let principles = default_principles();
+		let resolved = resolve_selection(&principles, "default,tag:fp").unwrap();
+		let ids: Vec<&str> = resolved.iter().map(|p| p.id.as_str()).collect();
+
+		// No duplicates across the concatenated expansions.
+		let unique: HashSet<&str> = ids.iter().copied().collect();
+		assert_eq!(unique.len(), ids.len(), "the result must be de-duplicated");
+
+		// The default set comes first (first occurrence wins), in default_order.
+		let default_ids: Vec<&str> =
+			ordered_by_default(principles.iter().filter(|p| p.default_selected).collect())
+				.iter()
+				.map(|p| p.id.as_str())
+				.collect();
+		assert_eq!(&ids[.. default_ids.len()], default_ids.as_slice());
+
+		// Every fp-tagged principle is present.
+		for id in ids_with_tag(&principles, "fp") {
+			assert!(unique.contains(id.as_str()), "{id} should be included");
+		}
+	}
+
+	#[test]
+	fn unknown_tag_is_an_error() {
+		let principles = default_principles();
+		match resolve_selection(&principles, "tag:no-such-tag") {
+			Err(SelectionError::UnknownTag(tag)) => assert_eq!(tag, "no-such-tag"),
+			other => panic!("expected UnknownTag, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn no_id_collides_with_a_reserved_selection_token() {
+		for p in default_principles() {
+			assert!(
+				!matches!(p.id.as_str(), "default" | "all" | "none"),
+				"id {} collides with a keyword token",
+				p.id
+			);
+			assert!(!p.id.starts_with("tag:"), "id {} collides with the tag prefix", p.id);
+		}
 	}
 }

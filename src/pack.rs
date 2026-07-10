@@ -45,16 +45,20 @@ struct PrinciplesFile {
 	principle: Vec<Principle>,
 }
 
-/// The embedded source of the built-in default pack.
-pub const DEFAULT_PRINCIPLES_TOML: &str = include_str!("../pack/principles.toml");
-
 /// Parse a principles file's TOML source into its principles.
 pub fn parse_principles(source: &str) -> Result<Vec<Principle>, toml::de::Error> {
 	Ok(toml::from_str::<PrinciplesFile>(source)?.principle)
 }
 
-/// The built-in default principles. Panics if the embedded pack is malformed,
-/// which is a build-time invariant rather than a runtime condition.
+/// The embedded source of the built-in default pack, for tests that need the
+/// built-in principle set directly. Production code reads `principles.toml`
+/// through the active `PackSource` instead (see `main`), so this is test-only.
+#[cfg(test)]
+pub const DEFAULT_PRINCIPLES_TOML: &str = include_str!("../pack/principles.toml");
+
+/// The built-in default principles, for tests. Panics if the embedded pack is
+/// malformed, which is a build-time invariant rather than a runtime condition.
+#[cfg(test)]
 pub fn default_principles() -> Vec<Principle> {
 	parse_principles(DEFAULT_PRINCIPLES_TOML).expect("built-in principles.toml must parse")
 }

@@ -173,8 +173,10 @@ pub enum PackSource<'a> {
 }
 
 impl PackSource<'_> {
-	/// Read a file within the pack by its relative path.
-	fn read(
+	/// Read a file within the pack by its relative path. Public so callers can
+	/// read pack files the manifest does not itself resolve, such as the pack's
+	/// `principles.toml`.
+	pub fn read(
 		&self,
 		rel: &str,
 	) -> io::Result<String> {

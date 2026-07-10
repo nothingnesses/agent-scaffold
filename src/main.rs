@@ -86,6 +86,18 @@ fn write_asset(
 	Ok(outcome)
 }
 
+/// The active pack's principle set: parse its `principles.toml`, or an empty set
+/// when the pack ships none. A malformed `principles.toml` is a parse error. For
+/// the built-in pack this reads the same embedded file the drop uses, so the
+/// selection and the dropped `principles.toml` stay consistent.
+fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>, toml::de::Error> {
+	match source.read("principles.toml") {
+		Ok(toml) => pack::parse_principles(&toml),
+		// A pack that ships no principles.toml simply has no principles to select.
+		Err(_) => Ok(Vec::new()),
+	}
+}
+
 /// Scaffold a pack's asset set, returning each asset's path and outcome. Assets
 /// come from `source`'s manifest; `{{principles}}` is rendered from the current
 /// selection and `overrides` supplies the `--var` values for any variables the
@@ -161,7 +173,15 @@ fn main() -> io::Result<()> {
 		}
 	}
 
-	let principles = pack::default_principles();
+	// Principles are a property of the active pack: the built-in set, or the
+	// external pack's own principles.toml under --template.
+	let principles = match pack_principles(&source) {
+		Ok(principles) => principles,
+		Err(error) => {
+			eprintln!("error: could not parse the pack's principles.toml: {error}");
+			std::process::exit(2);
+		}
+	};
 	let selected = match pack::resolve_selection(&principles, &cli.principles) {
 		Ok(selected) => selected,
 		Err(error) => {
@@ -247,6 +267,40 @@ mod tests {
 		));
 		let _ = fs::remove_dir_all(&dir);
 		dir
+	}
+
+	#[test]
+	fn builtin_principles_come_from_the_embedded_pack() {
+		// The built-in path reads through the same source the scaffold uses and
+		// matches the convenience helper the other tests rely on.
+		let via_source = pack_principles(&manifest::builtin()).unwrap();
+		assert!(!via_source.is_empty());
+		assert_eq!(via_source.len(), pack::default_principles().len());
+	}
+
+	#[test]
+	fn template_principles_come_from_the_pack_not_the_builtin() {
+		let root = scratch("tpl-principles");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("principles.toml"),
+			"[[principle]]\nid = \"custom-one\"\nname = \"Custom One\"\nsummary = \"s\"\n\
+			 rationale = \"r\"\ntags = [\"x\"]\ndefault_selected = true\ndefault_order = 1\n",
+		)
+		.unwrap();
+		let principles = pack_principles(&manifest::PackSource::Directory(root.clone())).unwrap();
+		assert_eq!(principles.len(), 1);
+		assert_eq!(principles[0].id, "custom-one");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_pack_without_principles_has_an_empty_set() {
+		let root = scratch("tpl-no-principles");
+		fs::create_dir_all(&root).unwrap();
+		let principles = pack_principles(&manifest::PackSource::Directory(root.clone())).unwrap();
+		assert!(principles.is_empty());
+		fs::remove_dir_all(&root).unwrap();
 	}
 
 	#[test]

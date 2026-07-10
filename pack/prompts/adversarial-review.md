@@ -20,3 +20,7 @@ not asked for.
 Report each finding with a severity and concrete evidence: cite the file and
 line, or the specific step, rather than describing it in general terms. If you
 find nothing of a given severity, say so explicitly rather than inventing issues.
+
+If you are given a review ledger of already-settled findings, do not re-raise one
+unless you have new evidence that its verdict was wrong; say what the new evidence
+is.

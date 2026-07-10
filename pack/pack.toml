@@ -22,6 +22,16 @@ ownership = "reference"
 render = true
 
 [[asset]]
+source = "prompts/orchestrator.md"
+dest = ".agents/prompts/orchestrator.md"
+ownership = "reference"
+
+[[asset]]
+source = "prompts/planner.md"
+dest = ".agents/prompts/planner.md"
+ownership = "reference"
+
+[[asset]]
 source = "prompts/clarifying-questions.md"
 dest = ".agents/prompts/clarifying-questions.md"
 ownership = "reference"
@@ -34,6 +44,16 @@ ownership = "reference"
 [[asset]]
 source = "prompts/adversarial-review.md"
 dest = ".agents/prompts/adversarial-review.md"
+ownership = "reference"
+
+[[asset]]
+source = "prompts/triage.md"
+dest = ".agents/prompts/triage.md"
+ownership = "reference"
+
+[[asset]]
+source = "prompts/implementer.md"
+dest = ".agents/prompts/implementer.md"
 ownership = "reference"
 
 [[asset]]

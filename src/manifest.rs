@@ -280,9 +280,13 @@ mod tests {
 				"AGENTS.md",
 				"docs/plans/TEMPLATE.md",
 				".agents/AGENTS.reference.md",
+				".agents/prompts/orchestrator.md",
+				".agents/prompts/planner.md",
 				".agents/prompts/clarifying-questions.md",
 				".agents/prompts/open-questions-gate.md",
 				".agents/prompts/adversarial-review.md",
+				".agents/prompts/triage.md",
+				".agents/prompts/implementer.md",
 				".agents/principles.toml",
 			]
 		);

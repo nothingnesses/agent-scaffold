@@ -7,70 +7,75 @@ point here rather than duplicate it.
 ## Workflow
 
 Roles are separated so no agent grades its own work. Where the harness supports
-independent sub-agents, run each role as a separate, isolated agent that sees
-only the artifacts it needs, not the other roles' reasoning or opinions. Where it
-does not, one agent plays the roles in sequence but still writes down each role's
-output, so the separation holds on paper. Match the ceremony to the stakes:
-collapse roles for a trivial change, keep them distinct for anything non-trivial
-or risky.
+independent sub-agents, the orchestrator runs each role as a separate, isolated
+agent: it spawns a fresh agent, hands it that role's prompt from
+`.agents/prompts/`, and gives it only the context it needs, not another role's
+reasoning or opinions. Where sub-agents are unavailable, one agent plays the
+roles in sequence but still writes down each role's output, so the separation
+holds on paper. Match the ceremony to the stakes: collapse roles for a trivial
+change, keep them distinct for anything non-trivial or risky.
 
-Roles:
+Roles and their prompts (in `.agents/prompts/`):
 
-- Orchestrator. Owns the plan and its status, drives the phases, decides what
-  context each role receives, enforces the review loop, and escalates to a human
-  on impasse. It does not plan, implement, review, or triage itself.
-- Planner. Drafts the plan (see phase 2).
-- Reviewers. Independently and adversarially review an artifact, assuming there
-  are issues, and report each finding with a severity and concrete evidence.
-  Prefer several reviewers with different lenses, and different models where
-  available, since same-model reviewers share blind spots.
-- Triager. Judges the reviewers' findings on their evidence and severity and
-  returns a verdict for each (valid or not, and why). The triager must not be the
-  agent that produced the artifact under review.
-- Implementer. Makes small, reviewable changes to satisfy the plan and the
-  triager's verdicts, keeping the plan's status current.
+- Orchestrator (`orchestrator.md`). Owns the plan and its status, drives the
+  phases, spawns the other roles and routes context to them, runs the review
+  loop, and escalates to a human on impasse. It does not plan, implement, review,
+  or triage itself.
+- Planner (`planner.md`, with `clarifying-questions.md` and
+  `open-questions-gate.md`). Drafts the plan.
+- Reviewers (`adversarial-review.md`). Independently and adversarially review an
+  artifact, assuming there are issues, and report each finding with a severity
+  and concrete evidence. Prefer several reviewers with different lenses, and
+  different models where available, since same-model reviewers share blind spots.
+- Triager (`triage.md`). Judges the reviewers' findings on their evidence and
+  severity and returns a verdict for each. The triager must not be the agent that
+  produced the artifact under review.
+- Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the
+  plan and the triager's valid verdicts, keeping the plan's status current.
 
-Phases (the orchestrator drives these):
+Phases (the orchestrator drives these, spawning the role shown):
 
-1. Front-load context. Read the relevant code and docs before acting.
-2. Plan. For non-trivial work, the planner drafts a plan under `docs/plans/` from
-   `docs/plans/TEMPLATE.md`. Seed its Project Principles from this file's
-   principles (below), in order, then add the project's own after them,
-   consolidating any overlap into a single amended principle. Resolve the open
-   questions before implementing.
-3. Review the plan, then triage. Reviewers review the plan (give each the plan
-   file and the task, and tell them to assume it has problems); the triager
-   adjudicates their findings; the planner revises. Loop until the review
-   converges (below) before implementing.
-4. Implement. The implementer makes the changes.
-5. Review the work, then triage. Reviewers review the finished changes (give each
-   the means to see exactly what changed, the before and after commit hashes or
-   the diff range, plus the task and the relevant files); the triager
-   adjudicates; the implementer fixes. Loop until convergence before accepting
-   the work.
+1. Front-load context. The relevant role reads the code and docs it needs before
+   acting.
+2. Plan. The orchestrator spawns a planner to draft a plan under `docs/plans/`
+   from `docs/plans/TEMPLATE.md` (seed its Project Principles from this file's
+   principles, in order, then the project's own, consolidating overlaps) and to
+   resolve the open questions before implementation.
+3. Review the plan, then triage. The orchestrator spawns reviewers on the plan,
+   then a triager on their findings; the planner revises per the valid verdicts.
+   Repeat per the convergence rule below, then proceed to implementation.
+4. Implement. The orchestrator spawns an implementer to make the changes.
+5. Review the work, then triage. The orchestrator spawns reviewers on the
+   finished changes (give them the before and after commit hashes or the diff
+   range), then a triager; the implementer fixes per the valid verdicts. Repeat
+   per the convergence rule, then accept the work.
 
-Review loop, and preventing relitigation. The orchestrator keeps a review ledger
-for the task: each finding, the triager's verdict, the reasoning, and the action
-taken (fixed in `<commit>`, or dismissed because `<reason>`). On every new round
-it gives the reviewers and triager the ledger and this rule: do not re-raise a
-settled finding unless you bring new evidence that its verdict was wrong; a
-settled finding re-raised without new evidence is dismissed by the ledger, not
-re-argued. For a genuinely contested finding, the triager may hold a short
-debate, the producer arguing it is invalid and a reviewer arguing it is valid,
-before ruling. The loop converges when a round produces no new valid findings; if
-findings stay contested after a few rounds, the orchestrator escalates to a human
-rather than looping forever. The ledger is transient working state for the task
-(keep it as scratch notes, not in the plan) and is discarded when the task
-closes; only durable decisions, the ones that change the plan, are folded into
-the plan's steps, and individual findings are never kept in the Open Questions
-section. The same "new evidence required" rule guards a folded decision: once
-recorded with its reasoning, it is reopened only by evidence that beats that
-reasoning.
+Convergence (when the orchestrator stops reviewing and moves on). After each
+review-then-triage round, the orchestrator decides from the triager's verdicts:
 
-The prompts in `.agents/prompts/` support these phases: clarifying questions
-before starting, the open-questions gate before implementing, and adversarial
-review (hand `adversarial-review.md` to each reviewer). The triager and
-orchestrator follow the roles above.
+- New valid findings this round: have the planner or implementer address them,
+  then spawn another round (fresh reviewers, given the ledger) on the revised
+  artifact.
+- No new valid findings this round (every finding was dismissed, or was a ledger
+  re-raise without new evidence): the review has converged. Move on, to
+  implementation after a plan review, or to accepting the work after a work
+  review.
+- Still-contested valid findings after a bounded number of rounds (default
+  three): stop looping and escalate to a human with the ledger. A valid finding
+  may instead be resolved by consciously accepting its residual risk and
+  recording that; an accepted risk does not block convergence.
+
+Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
+the task: each finding, the triager's verdict, the reasoning, and the action
+taken (fixed in `<commit>`, or dismissed because `<reason>`). It hands the ledger
+to each new round under the rule: do not re-raise a settled finding without new
+evidence that its verdict was wrong. For a genuinely contested finding, the
+triager may hold a short debate, the producer arguing it is invalid and a
+reviewer arguing it is valid, before ruling. The ledger is transient working
+state, keep it as scratch notes, discard it when the task closes, and never put
+individual findings in the plan's Open Questions section; only durable decisions,
+the ones that change the plan, fold into the plan's steps, and a folded decision
+reopens only by evidence that beats its recorded reasoning.
 
 ## Principles
 

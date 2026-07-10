@@ -31,7 +31,31 @@ This plan is kept current during the work. Each Implementation Step carries a `S
 
 ## Open Questions, Decisions, Issues and Blockers
 
-No open questions remain. Step 6's design questions (OQ-E manifest and dogfooding, OQ-F schema and variables, OQ-G embedding) are resolved and folded into Step 6 below with the adopted decisions and reasoning; OQ-H (git-URL fetch) was resolved by deferring it to Step 10. Earlier questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 questions OQ-B/C/D) were resolved in earlier steps and the code.
+Two open questions must be resolved before Step 6b (external local-path packs and variables) proceeds. Earlier questions were resolved and folded into their steps: Step 6's OQ-E (manifest and dogfooding), OQ-F (schema and variables), and OQ-G (embedding) are in Step 6; OQ-H (git-URL fetch) was deferred to Step 10; and the pre-6 questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 questions OQ-B/C/D) were resolved in earlier steps and the code.
+
+### OQ-I. Variable declaration schema in the manifest
+
+Step 6b lets a pack declare variables with defaults, with `--var key=value` overriding, an undeclared `--var` an error, and a declared variable with no default and no `--var` a "must be supplied" error. The manifest therefore needs to express both optional variables (have a default) and required variables (no default, must be supplied). The schema for that is undecided.
+
+Viable approaches:
+
+- **A. `[vars]` table, `name = "default"`.** A TOML table mapping each variable name to its default string. Simplest to read and write, but every declared variable necessarily has a default, so a required "must be supplied" variable cannot be expressed, and there is no room for per-variable metadata later without a breaking change.
+- **B. `[[var]]` array of tables, `{ name, default? }`.** Each variable is a table with a `name` and an optional `default` (present means optional, absent means required). Matches the existing `[[asset]]` array-of-tables convention already in `pack.toml`, expresses the required-versus-optional distinction directly, and leaves room for future keys (a description, say) without breaking older manifests.
+- **C. `[vars]` table with string-or-table values.** A table whose value is either a string (the default) or a table `{ default?, ... }`, deserialized untagged. Expresses everything A and B do, but needs untagged deserialization and mixed value types, which is more complex to parse and to report errors against.
+
+Recommended approach: **B.** Reasoning: it directly encodes the required-versus-optional distinction the step already committed to (Principle 5, make illegal states unrepresentable: a required variable is `default: None`, not a sentinel default), it stays consistent with the `[[asset]]` array-of-tables style already in the manifest (Principle 1, internal coherence), and it is the minimal schema that covers the rules with no template engine (Principle 2). A cannot express a required variable; C adds untagged-parsing complexity for no present gain.
+
+### OQ-J. Source of the `{{principles}}` value (and principle selection) under `--template`
+
+The manifest treats `{{principles}}` as a built-in (tool-computed) variable. When a user scaffolds from an external pack via `--template`, it is unresolved whether `{{principles}}` (and, with it, the selection UI, `--list-principles`, and `--principles`) draws from the built-in principle set or from the external pack's own `principles.toml`.
+
+Viable approaches:
+
+- **J1. Always the built-in set.** `{{principles}}` and selection stay on the tool's embedded principle set whatever pack is active. Simplest, but an external pack's rendered guidance would list the tool's principles rather than the pack author's, which is surprising when the pack ships its own `principles.toml`.
+- **J2. Built-in pack only.** `{{principles}}` is injected only for the built-in pack; external packs get only their declared variables. No wrong-principles footgun, but a template that references `{{principles}}` renders it literally (unknown placeholders are left as-is), which is its own footgun, and it forecloses an external pack ever rendering a principle list.
+- **J3. Pack-owned principles.** The active pack source's `principles.toml` supplies the principle set for selection, `--list-principles`, `--interactive`, and the `{{principles}}` value (falling back to an empty set when the pack ships none). Most coherent; and the selection layer (`resolve_selection`, `run_selection`, `render_principles`) already takes the principle list as a parameter, so the only new work is reading `principles.toml` from the active pack source in `main`.
+
+Recommended approach: **J3 as the end-state, delivered in two steps.** Step 6b ships `--template` plus variables with `{{principles}}` still computed from the built-in set (a documented interim limitation) while threading the pack source through `main` so the later change is localized; a new Step 6c makes principles pack-owned. Reasoning: J3 is the coherent design (Principle 1: a pack is self-contained, its principles included) and is cheap because the selection code is already parameterized by the principle list; splitting the work into 6b then 6c keeps each an independently validated increment (Principle 6) that stays minimal-by-default (Principle 2); and threading the pack source through `main` in 6b avoids a later refactor, so 6c does not back-track. J1 alone leaves external packs rendering the wrong principles; J2 leaves literal placeholders and blocks pack principle lists entirely.
 
 ## Implementation Steps
 

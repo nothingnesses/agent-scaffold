@@ -32,6 +32,8 @@ pub struct Principle {
 	/// Optional related principle ids. Part of the pack schema and exercised by
 	/// the tests, but not yet read by the binary.
 	#[serde(default)]
+	// `allow`, not `expect`: the field is read in the test build, so `expect`
+	// would be unfulfilled there.
 	#[allow(dead_code)]
 	pub related: Vec<String>,
 }

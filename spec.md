@@ -66,7 +66,7 @@ Pack format (the contract shared by the built-in pack and `--template` packs):
 - `render = true` applies `{{name}}` substitution. `{{principles}}` is a reserved, tool-computed variable (the rendered selection); a pack may neither declare nor `--var`-set it. Other variables come from `[[var]]` defaults, overridden by `--var key=value`; setting an undeclared variable, or leaving a required one unset, is an error and nothing is written.
 - A pack that ships `principles.toml` has its principles drive selection, `--list-principles`, the interactive selector, and `{{principles}}`; a pack without one simply has no principles to select.
 
-One run's data flow: parse CLI, build the `PackSource`, read and parse the pack's `principles.toml`, `resolve_selection` (or the interactive TUI) chooses and orders principles, `render_principles` produces the `{{principles}}` value, `manifest::load` resolves the variables and reads/renders each asset, and `write_asset` drops each honouring ownership and `--force`.
+One run's data flow: parse CLI, build the `PackSource`, read and parse the pack's `principles.toml`, `resolve_selection` (or the interactive TUI) chooses and orders principles, `render_principles` produces the `{{principles}}` value, `manifest::load` resolves the variables and reads/renders each asset, `outcome_of` computes each asset's plan outcome, and, once writing is confirmed, `apply_asset` drops each honouring ownership and `--force`.
 
 ## Open Questions, Decisions, Issues and Blockers
 

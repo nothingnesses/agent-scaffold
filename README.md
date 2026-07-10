@@ -188,3 +188,7 @@ just run -- --help
 
 The verification convention before each commit is `cargo clippy --all-targets --
 -D warnings`, `nix fmt`, and keeping all text ASCII-clean.
+
+## License
+
+This project is licensed under the [Blue Oak Model License 1.0.0](LICENSE).

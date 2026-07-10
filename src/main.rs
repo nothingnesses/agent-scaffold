@@ -95,6 +95,56 @@ fn apply_asset(
 	fs::write(&dest, &asset.contents)
 }
 
+/// The planned VCS action for `--init`, decided from a read only (drives the
+/// preview, so it must not write).
+#[derive(Debug, PartialEq, Eq)]
+enum InitPlan {
+	/// `--init` was not given; no VCS action.
+	None,
+	/// The output directory is already a repository; skip it.
+	SkipExists,
+	/// Initialise a new git repository.
+	Init,
+}
+
+/// Decide the VCS action without writing: `--init` initialises a git repository
+/// unless the output directory already is one (a `.git` entry is present).
+fn init_plan(
+	init: bool,
+	output_dir: &Path,
+) -> InitPlan {
+	if !init {
+		InitPlan::None
+	} else if output_dir.join(".git").exists() {
+		InitPlan::SkipExists
+	} else {
+		InitPlan::Init
+	}
+}
+
+/// Initialise a git repository in `dir` by shelling out to `git init`. Exits 2
+/// if the `git` binary is not installed.
+fn run_git_init(dir: &Path) -> io::Result<()> {
+	// `git init <dir>` creates the directory if it does not exist.
+	match std::process::Command::new("git")
+		.arg("init")
+		.arg(dir)
+		.stdout(std::process::Stdio::null())
+		.status()
+	{
+		Ok(status) if status.success() => Ok(()),
+		Ok(status) => {
+			eprintln!("error: `git init` failed ({status})");
+			std::process::exit(2);
+		}
+		Err(error) if error.kind() == io::ErrorKind::NotFound => {
+			eprintln!("error: --init needs the `git` binary, which was not found");
+			std::process::exit(2);
+		}
+		Err(error) => Err(error),
+	}
+}
+
 /// The active pack's principle set: parse its `principles.toml`, or an empty set
 /// when the pack ships none. A malformed `principles.toml` is a parse error. For
 /// the built-in pack this reads the same embedded file the drop uses, so the
@@ -171,6 +221,9 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
+	/// Initialise an empty git repository in the output directory if it is not one already.
+	#[arg(long)]
+	init: bool,
 	/// Apply the changes non-interactively, without the selector. Off a terminal, writes need this flag.
 	#[arg(long)]
 	write: bool,
@@ -290,13 +343,23 @@ fn main() -> io::Result<()> {
 	};
 	let outcomes: Vec<Outcome> =
 		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
+	let vcs = init_plan(cli.init, &cli.output_dir);
 
-	// Always show the plan, then write only if confirmed.
+	// Always show the plan, then write only if confirmed. The repository line, if
+	// any, comes first: the repo is initialised before the assets are dropped.
+	match vcs {
+		InitPlan::Init => println!("{:>16}  git repository", "init"),
+		InitPlan::SkipExists => println!("{:>16}  git repository", "skip (exists)"),
+		InitPlan::None => {}
+	}
 	for (asset, outcome) in assets.iter().zip(&outcomes) {
 		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
 	}
 
 	if write {
+		if matches!(vcs, InitPlan::Init) {
+			run_git_init(&cli.output_dir)?;
+		}
 		for (asset, outcome) in assets.iter().zip(&outcomes) {
 			apply_asset(&cli.output_dir, asset, outcome)?;
 		}
@@ -325,6 +388,19 @@ mod tests {
 		));
 		let _ = fs::remove_dir_all(&dir);
 		dir
+	}
+
+	#[test]
+	fn init_plan_reflects_the_flag_and_existing_repo() {
+		let root = scratch("init-plan");
+		// Without --init there is no VCS action, regardless of the directory.
+		assert_eq!(init_plan(false, &root), InitPlan::None);
+		// With --init and no repository present, it would initialise.
+		assert_eq!(init_plan(true, &root), InitPlan::Init);
+		// With a repository already present, it skips (never reinitialises).
+		fs::create_dir_all(root.join(".git")).unwrap();
+		assert_eq!(init_plan(true, &root), InitPlan::SkipExists);
+		let _ = fs::remove_dir_all(&root);
 	}
 
 	#[test]

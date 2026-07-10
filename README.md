@@ -118,6 +118,11 @@ working files are left untouched. Pass `--force` to overwrite working files too
 (`--force` decides overwrite-versus-skip; `--write` decides whether to write at
 all, so the two combine).
 
+Pass `--init` to also initialise an empty git repository in the output directory.
+It shows up in the plan and runs only on write; if the directory is already a
+repository it is skipped, never reinitialised, and the repository is left empty
+(committing the scaffolded files is up to you).
+
 ### Choosing principles
 
 `--principles` takes a comma-separated list of tokens:

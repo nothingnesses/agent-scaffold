@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started. They were reordered so bring-your-own template support is Step 6 (it formalises the pack/manifest abstraction) and optional modules is Step 7; Step 6 is the next work; its design decisions are recorded as open questions (OQ-E to OQ-H) and await decisions before implementation. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is complete: its design was resolved (OQ-B/C/D adopted) and implemented as sub-steps 5a (the `Mode` enum refactor), 5b (non-interactive `tag:` selection), and 5c (the interactive Available filter); 5d (the optional include-all-visible action) was skipped by decision. Steps 6 to 9 are optional extras and not started. They were reordered so bring-your-own template support is Step 6 (it formalises the pack/manifest abstraction) and optional modules is Step 7; Step 6 is the next work; three of its design decisions are open (OQ-E to OQ-G) and await decisions before implementation, while OQ-H is resolved (local paths only; git-URL fetch deferred to the new optional Step 10). The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -31,7 +31,7 @@ This plan is kept current during the work. Each Implementation Step carries a `S
 
 ## Open Questions, Decisions, Issues and Blockers
 
-Earlier questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 TUI-polish questions OQ-B/C/D) are all resolved and folded into the steps and code. Step 6 (bring-your-own template) raises four decisions, recorded below with viable approaches, trade-offs, a recommendation, and reasoning against the Project Principles. No decision is adopted yet; they gate Step 6.
+Earlier questions (tool form, ownership and update model, principle set and data model, non-interactive selection UI, interactive TUI design, and the Step 5 TUI-polish questions OQ-B/C/D) are all resolved and folded into the steps and code. Step 6 (bring-your-own template) raises decisions recorded below with viable approaches, trade-offs, a recommendation, and reasoning against the Project Principles. Three remain open (OQ-E, OQ-F, OQ-G) and gate Step 6. OQ-H (git-URL fetch) is resolved: Step 6 supports local paths only, and git-URL fetch is deferred to Step 10 as a much-later optional extra, because the raw clone is small but doing it well (ref selection, in-repo subdirectory, caching, and a fallback when `git` is absent) adds surface that is not needed for the core bring-your-own value (minimal by default).
 
 Context they share: the current `assets()` in `src/main.rs` hardcodes the mapping from each built-in pack file to its destination path, ownership (reference vs working), and whether it is rendered (substituted) or copied verbatim; one source can fan out to several assets (`AGENTS.md` becomes both the working root file and the `.agents/` reference, both rendered). Step 6 turns that hardcoded mapping into data so an external pack can supply its own.
 
@@ -58,16 +58,6 @@ If the built-in pack dogfoods the manifest (OQ-E), the loader reads a manifest p
 - Approach 2: the `include_dir` crate embeds `pack/` as a directory tree so built-in and external both present as "a directory of files," with no manual map. A new but small, pure-macro dependency.
 
 Recommended: leaning Approach 2 (`include_dir`), because it deletes the drift-prone manual map and unifies the load path (Principle 1); tension with dependency-minimalism (Principle 2) makes this the one decision to confirm with the user rather than adopt unilaterally.
-
-### OQ-H: Fetching git-URL packs without Nix
-
-`--template <ref>` accepts a local path or a git URL (flake-ref optional; the fetch must not depend on Nix).
-
-- Approach 1: local path only in Step 6; git URLs in a follow-up. Smallest, delivers the core value first.
-- Approach 2: shell out to `git clone` into a temp/cache directory; local paths read directly. No heavy dependency, satisfies "no Nix," assumes `git` on PATH.
-- Approach 3: a Rust git crate (`git2` pulls libgit2 C dependencies; `gix` is pure-Rust but large).
-
-Recommended: Approach 2, staged behind Approach 1, implement local-path loading first (validated in tests, delivers value), then add git clone as a thin layer with a clear fallback error if `git` is absent. Shelling to `git` needs no heavy dependency (Principle 2) and matches the "no Nix" constraint; the crates in Approach 3 are disproportionate for an occasional clone.
 
 ## Implementation Steps
 
@@ -138,7 +128,7 @@ Status: skipped (by decision). A key to move every currently-visible Available m
 
 ### 6. Bring-your-own template support
 
-Status: not started (next; design decisions being worked). Support `--template <ref>`, where `ref` is a local path or a git URL (a Nix flake-ref is an optional extra for Nix users, not required, and the fetch must not depend on Nix), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default. Reordered ahead of the optional modules (now Step 7) because it formalises the pack/manifest abstraction that modules will slot into, avoiding a later retrofit.
+Status: not started (next; OQ-E/F/G still open). Support `--template <ref>`, where `ref` is a local path (git-URL fetch is deferred to Step 10 per the OQ-H decision; a Nix flake-ref stays out of scope), with a small manifest and minimal named-variable substitution; the built-in agent-workflow pack is the default. Reordered ahead of the optional modules (now Step 7) because it formalises the pack/manifest abstraction that modules will slot into, avoiding a later retrofit.
 
 ### 7. Optional modules
 
@@ -151,6 +141,10 @@ Status: not started. Expose a `nix flake new` template as a convenience for the 
 ### 9. Optional later enhancements
 
 Status: not started. Marked-block augmentation of an existing `AGENTS.md`, and an opt-in merge `update` command (3-way merge), if the create-or-overwrite model proves too blunt in practice.
+
+### 10. Optional git-URL template fetch
+
+Status: not started (deferred). Extend `--template` to accept a git URL, fetching the pack (shell out to `git`, no Nix dependency) into a cache directory and then loading it through the same manifest path as a local pack (Step 6). Adopted from OQ-H: deferred as a much-later optional extra because the core bring-your-own value is delivered by local-path packs; this adds ref selection, an optional in-repo subdirectory, caching, and a fallback when `git` is absent. When taken up, run the design-questions pass on those sub-decisions first.
 
 ## Success Criteria
 

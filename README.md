@@ -106,11 +106,17 @@ flowchart TB
 
 ## Installation
 
-agent-scaffold is a standalone Rust binary that runs without Nix. Build it from
-source with a recent Rust toolchain (Rust 1.88 or newer):
+agent-scaffold is a standalone Rust binary that runs without Nix. Install the
+latest release from crates.io:
 
 ```sh
-git clone <this-repository> agent-scaffold
+cargo install agent-scaffold
+```
+
+Or build from source with a recent Rust toolchain (Rust 1.88 or newer):
+
+```sh
+git clone https://github.com/nothingnesses/agent-scaffold
 cd agent-scaffold
 
 # Install the `agent-scaffold` binary into ~/.cargo/bin:

@@ -1,9 +1,14 @@
 [package]
 name = "agent-scaffold"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
+rust-version = "1.88"
 license = "BlueOak-1.0.0"
 description = "Scaffold the agent workflow into a project."
+repository = "https://github.com/nothingnesses/agent-scaffold"
+readme = "README.md"
+keywords = ["agent", "workflow", "ai", "scaffold", "template"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

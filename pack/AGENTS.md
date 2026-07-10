@@ -8,7 +8,10 @@ point here rather than duplicate it.
 
 1. Front-load context. Read the relevant code and docs before acting.
 2. Plan. For non-trivial work, draft a plan under `docs/plans/` from
-   `docs/plans/TEMPLATE.md`, and resolve the open questions before implementing.
+   `docs/plans/TEMPLATE.md`. Seed its Project Principles from this file's
+   principles (below), in order, then add the project's own after them,
+   consolidating any overlap into a single amended principle. Resolve the open
+   questions before implementing.
 3. Review the plan. Before building, have it reviewed adversarially. Where the
    harness supports sub-agents, spawn separate, independent reviewers rather than
    reviewing it yourself: give each the plan file and the task, and tell them to

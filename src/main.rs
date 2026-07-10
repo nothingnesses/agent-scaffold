@@ -14,7 +14,10 @@ mod pack;
 mod tui;
 
 use {
-	clap::Parser,
+	clap::{
+		Parser,
+		ValueEnum,
+	},
 	manifest::{
 		Asset,
 		Ownership,
@@ -95,31 +98,53 @@ fn apply_asset(
 	fs::write(&dest, &asset.contents)
 }
 
-/// The planned VCS action for `--init`, decided from a read only (drives the
-/// preview, so it must not write).
+/// Version-control system to initialise in the output directory. Git by default;
+/// `none` skips it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Vcs {
+	/// Initialise a git repository (the default).
+	Git,
+	/// Do not initialise any repository.
+	None,
+}
+
+/// The planned VCS action, decided from a read only (drives the preview, so it
+/// must not write).
 #[derive(Debug, PartialEq, Eq)]
 enum InitPlan {
-	/// `--init` was not given; no VCS action.
+	/// No repository is initialised (`--vcs none`).
 	None,
-	/// The output directory is already a repository; skip it.
+	/// The output directory is already inside a repository; skip it.
 	SkipExists,
 	/// Initialise a new git repository.
 	Init,
 }
 
-/// Decide the VCS action without writing: `--init` initialises a git repository
-/// unless the output directory already is one (a `.git` entry is present).
+/// Whether `dir` is already inside a git repository (a `.git` entry at `dir` or
+/// any ancestor), in which case a new repository would nest and must be skipped.
+/// A relative `dir` is resolved against the current directory so an enclosing
+/// repository is found even when scaffolding into a subdirectory.
+fn inside_git_repo(dir: &Path) -> io::Result<bool> {
+	let absolute =
+		if dir.is_absolute() { dir.to_path_buf() } else { std::env::current_dir()?.join(dir) };
+	Ok(absolute.ancestors().any(|ancestor| ancestor.join(".git").exists()))
+}
+
+/// Decide the VCS action without writing: git (the default) initialises a
+/// repository unless the output directory is already inside one; `none` skips.
 fn init_plan(
-	init: bool,
+	vcs: Vcs,
 	output_dir: &Path,
-) -> InitPlan {
-	if !init {
-		InitPlan::None
-	} else if output_dir.join(".git").exists() {
-		InitPlan::SkipExists
-	} else {
-		InitPlan::Init
-	}
+) -> io::Result<InitPlan> {
+	Ok(match vcs {
+		Vcs::None => InitPlan::None,
+		Vcs::Git =>
+			if inside_git_repo(output_dir)? {
+				InitPlan::SkipExists
+			} else {
+				InitPlan::Init
+			},
+	})
 }
 
 /// Initialise a git repository in `dir` by shelling out to `git init`. Exits 2
@@ -138,7 +163,10 @@ fn run_git_init(dir: &Path) -> io::Result<()> {
 			std::process::exit(2);
 		}
 		Err(error) if error.kind() == io::ErrorKind::NotFound => {
-			eprintln!("error: --init needs the `git` binary, which was not found");
+			eprintln!(
+				"error: initialising a git repository needs the `git` binary, which was not found; \
+				 pass `--vcs none` to skip"
+			);
 			std::process::exit(2);
 		}
 		Err(error) => Err(error),
@@ -221,9 +249,9 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
-	/// Initialise an empty git repository in the output directory if it is not one already.
-	#[arg(long)]
-	init: bool,
+	/// Version-control system to initialise in the output directory (git by default; use `none` to skip).
+	#[arg(long, value_enum, default_value_t = Vcs::Git)]
+	vcs: Vcs,
 	/// Apply the changes non-interactively, without the selector. Off a terminal, writes need this flag.
 	#[arg(long)]
 	write: bool,
@@ -343,11 +371,11 @@ fn main() -> io::Result<()> {
 	};
 	let outcomes: Vec<Outcome> =
 		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
-	let vcs = init_plan(cli.init, &cli.output_dir);
+	let repo = init_plan(cli.vcs, &cli.output_dir)?;
 
 	// Always show the plan, then write only if confirmed. The repository line, if
 	// any, comes first: the repo is initialised before the assets are dropped.
-	match vcs {
+	match repo {
 		InitPlan::Init => println!("{:>16}  git repository", "init"),
 		InitPlan::SkipExists => println!("{:>16}  git repository", "skip (exists)"),
 		InitPlan::None => {}
@@ -357,7 +385,7 @@ fn main() -> io::Result<()> {
 	}
 
 	if write {
-		if matches!(vcs, InitPlan::Init) {
+		if matches!(repo, InitPlan::Init) {
 			run_git_init(&cli.output_dir)?;
 		}
 		for (asset, outcome) in assets.iter().zip(&outcomes) {
@@ -391,15 +419,20 @@ mod tests {
 	}
 
 	#[test]
-	fn init_plan_reflects_the_flag_and_existing_repo() {
+	fn init_plan_defaults_to_git_and_skips_inside_a_repo() {
 		let root = scratch("init-plan");
-		// Without --init there is no VCS action, regardless of the directory.
-		assert_eq!(init_plan(false, &root), InitPlan::None);
-		// With --init and no repository present, it would initialise.
-		assert_eq!(init_plan(true, &root), InitPlan::Init);
-		// With a repository already present, it skips (never reinitialises).
+		fs::create_dir_all(&root).unwrap();
+		// Git (the default) in a fresh, non-repo directory would initialise.
+		assert_eq!(init_plan(Vcs::Git, &root).unwrap(), InitPlan::Init);
+		// `--vcs none` never initialises.
+		assert_eq!(init_plan(Vcs::None, &root).unwrap(), InitPlan::None);
+		// A directory that is already a repository is skipped (never reinitialised).
 		fs::create_dir_all(root.join(".git")).unwrap();
-		assert_eq!(init_plan(true, &root), InitPlan::SkipExists);
+		assert_eq!(init_plan(Vcs::Git, &root).unwrap(), InitPlan::SkipExists);
+		// A subdirectory of a repository is skipped too, so no repo is nested.
+		let sub = root.join("sub");
+		fs::create_dir_all(&sub).unwrap();
+		assert_eq!(init_plan(Vcs::Git, &sub).unwrap(), InitPlan::SkipExists);
 		let _ = fs::remove_dir_all(&root);
 	}
 

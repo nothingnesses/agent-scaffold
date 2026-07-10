@@ -13,10 +13,12 @@ fill each section in.>
 
 <The design and quality tenets that govern this work, and that an agent should
 honour when making decisions and writing code. These shape the output more than
-any single instruction, so make them concrete. Start from the repository's
-AGENTS.md principles (a numbered list) and add project-specific ones. Keep them a
-numbered list, as in AGENTS.md, so they can be referenced by number (for example
-"Principle 3").>
+any single instruction, so make them concrete. Begin with the repository's
+AGENTS.md principles, in their order, then add the project-specific ones after
+them. Where a project-specific principle overlaps or duplicates one from
+AGENTS.md, consolidate the two into a single principle, amending it to encompass
+both rather than listing near-duplicates. Keep the result a numbered list, as in
+AGENTS.md, so they can be referenced by number (for example "Principle 3").>
 
 1. <A principle, stated concretely.>
 

@@ -65,6 +65,34 @@ The tool's job ends at dropping well-structured assets: it sets the workflow up
 but does not enforce it at runtime. Adherence comes from agents following
 `AGENTS.md`.
 
+The workflow the scaffolded `AGENTS.md` prescribes (an orchestrator drives every
+phase and keeps the review ledger; each review loops until it converges, or
+escalates after a bounded number of contested rounds):
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+    start(["Task"]) --> ctx["Front-load context"]
+    ctx --> plan["Plan<br/>(planner)"]
+    plan --> preview["Review the plan<br/>(reviewers)"]
+    preview --> ptriage["Triage findings<br/>(triager)"]
+    ptriage --> pdec{"New valid findings?"}
+    pdec -->|new findings| previse["Planner revises"]
+    previse --> preview
+    pdec -->|cap reached| escalate[["Escalate to a human"]]
+    pdec -->|converged| impl["Implement<br/>(implementer)"]
+    impl --> wreview["Review the work<br/>(reviewers, given the diff)"]
+    wreview --> wtriage["Triage findings<br/>(triager)"]
+    wtriage --> wdec{"New valid findings?"}
+    wdec -->|new findings| wfix["Implementer fixes"]
+    wfix --> wreview
+    wdec -->|cap reached| escalate
+    wdec -->|converged| done(["Accept the work"])
+```
+
 ## Installation
 
 agent-scaffold is a standalone Rust binary that runs without Nix. Build it from

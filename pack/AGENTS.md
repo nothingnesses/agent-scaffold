@@ -25,6 +25,18 @@ point here rather than duplicate it.
    tell them to assume there are issues and to hunt for them. Do not offer your
    own opinions; let each reviewer investigate and reach its own conclusions.
 
+Acting on review findings (steps 3 and 5): when the reviewers return, judge each
+finding on its evidence and severity, not on who raised it or on your own
+confidence. Address the valid ones, revising the plan after a plan review or
+fixing the code (and updating the plan's status) after a work review, and record
+why any finding is dismissed so no concern is silently dropped. If the artifact
+changed materially, review it again with fresh reviewers, iterating until the
+findings are resolved. Only move on (to implementation after a plan review, or to
+accepting the work after a work review) once every finding is resolved or a
+remaining risk is consciously accepted and noted. Surface genuine disagreements
+or unresolved blockers for a human decision rather than settling them
+unilaterally.
+
 The prompts in `.agents/prompts/` support these steps: clarifying questions
 before starting, the open-questions gate before implementing, and adversarial
 review of the plan and the work (hand `adversarial-review.md` to each reviewer

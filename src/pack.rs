@@ -175,7 +175,9 @@ fn render_one(
 	}
 }
 
-/// Render principles as a numbered list at the given detail level.
+/// Render principles as a numbered list at the given detail level. This is the
+/// value substituted for the `{{principles}}` variable when a pack asset is
+/// rendered (see the `manifest` module).
 pub fn render_principles(
 	selected: &[&Principle],
 	detail: Detail,
@@ -186,16 +188,6 @@ pub fn render_principles(
 		.map(|(i, principle)| render_one(i + 1, principle, detail))
 		.collect::<Vec<_>>()
 		.join("\n")
-}
-
-/// Render an `AGENTS.md` template, substituting the selected principles for the
-/// `{{principles}}` placeholder.
-pub fn render_agents(
-	template: &str,
-	selected: &[&Principle],
-	detail: Detail,
-) -> String {
-	template.replace("{{principles}}", &render_principles(selected, detail))
 }
 
 #[cfg(test)]
@@ -255,13 +247,13 @@ mod tests {
 	}
 
 	#[test]
-	fn rendering_substitutes_and_numbers() {
+	fn rendering_numbers_and_formats() {
 		let principles = default_principles();
 		let selected = resolve_selection(&principles, "default").unwrap();
-		let out = render_agents("before\n{{principles}}\nafter", &selected, Detail::Summary);
-		assert!(!out.contains("{{principles}}"), "placeholder must be replaced");
+		let out = render_principles(&selected, Detail::Summary);
 		assert!(out.contains("1. ") && out.contains(" - "), "list must be numbered and formatted");
-		assert!(out.contains("before") && out.contains("after"), "surrounding text kept");
+		// Each principle is on its own line, so the count of lines matches.
+		assert_eq!(out.lines().count(), selected.len());
 	}
 
 	#[test]

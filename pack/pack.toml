@@ -1,0 +1,42 @@
+# Built-in default pack manifest. Declares which assets this pack drops and how:
+# the source file each comes from, where it lands, whether it is a tool-owned
+# reference asset or a user working file, and whether it is rendered (variable
+# substitution) or copied verbatim. One source may map to several assets (the
+# guidance is dropped as both the working root file and the reference copy).
+
+[[asset]]
+source = "AGENTS.md"
+dest = "AGENTS.md"
+ownership = "working"
+render = true
+
+[[asset]]
+source = "plan-template.md"
+dest = "docs/plans/TEMPLATE.md"
+ownership = "working"
+
+[[asset]]
+source = "AGENTS.md"
+dest = ".agents/AGENTS.reference.md"
+ownership = "reference"
+render = true
+
+[[asset]]
+source = "prompts/clarifying-questions.md"
+dest = ".agents/prompts/clarifying-questions.md"
+ownership = "reference"
+
+[[asset]]
+source = "prompts/open-questions-gate.md"
+dest = ".agents/prompts/open-questions-gate.md"
+ownership = "reference"
+
+[[asset]]
+source = "prompts/adversarial-review.md"
+dest = ".agents/prompts/adversarial-review.md"
+ownership = "reference"
+
+[[asset]]
+source = "principles.toml"
+dest = ".agents/principles.toml"
+ownership = "reference"

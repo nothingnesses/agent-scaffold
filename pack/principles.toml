@@ -296,7 +296,7 @@ rationale = """
 Keep one authoritative source for each piece of data and derive the rest, \
 rather than duplicating it and risking the copies drifting apart."""
 tags = ["data-modelling", "universal"]
-default_selected = false
+default_selected = true
 default_order = 230
 
 [[principle]]

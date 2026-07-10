@@ -62,6 +62,14 @@ Criteria. Escalating to a human is not a stop: it is a request for a decision on
 an impasse, after which the orchestrator applies the decision and resumes the
 workflow where it paused.
 
+Human requests (interrupts). A human may add or change requests at any point. The
+orchestrator routes the request to the planner to fold into the plan, revising
+the Roadmap steps and the Success Criteria and resolving any new open questions,
+then re-enters the plan review and continues. Human input is authoritative and
+always enters through the plan, so it is captured durably in the Roadmap and
+Success Criteria rather than done ad hoc. This is the push counterpart to
+escalation, where the orchestrator pulls a human decision on an impasse.
+
 Convergence (when the orchestrator ends one review loop and moves on; distinct
 from the Stop condition above, which ends the whole workflow). After each
 review-then-triage round, the orchestrator decides from the triager's verdicts:

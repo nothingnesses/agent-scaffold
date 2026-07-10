@@ -69,7 +69,9 @@ The workflow the scaffolded `AGENTS.md` prescribes (an orchestrator drives every
 phase and keeps the review ledger). Each review loops until it converges;
 implementation iterates over the plan's steps; and the work stops only once every
 step is done and an acceptance review confirms the Success Criteria. Escalating to
-a human is a request for a decision, not a stop, the workflow resumes after it:
+a human is a request for a decision (the workflow resumes at the paused review
+after it), not a stop; and a human may add or change requests at any time, which
+re-enter through the plan:
 
 ```mermaid
 ---
@@ -83,22 +85,23 @@ flowchart TB
     preview --> pdec{"Plan review converged?"}
     pdec -->|new valid findings| previse["Planner revises"]
     previse --> preview
-    pdec -->|contested past the cap| escalate[["Escalate to a human"]]
+    pdec -->|contested past the cap| pesc[["Escalate to a human"]]
+    pesc -->|decision applied, resume| preview
     pdec -->|converged| steps{"Pending steps<br/>in the roadmap?"}
     steps -->|yes| impl["Implement the next step<br/>(implementer)"]
     impl --> wreview["Review the work, then triage<br/>(reviewers, triager)"]
     wreview --> wdec{"Work review converged?"}
     wdec -->|new valid findings| wfix["Implementer fixes"]
     wfix --> wreview
-    wdec -->|contested past the cap| escalate
+    wdec -->|contested past the cap| wesc[["Escalate to a human"]]
+    wesc -->|decision applied, resume| wreview
     wdec -->|converged| mark["Mark the step complete"]
     mark --> steps
     steps -->|no| accept["Acceptance review<br/>(reviewers)"]
     accept --> adec{"Success Criteria met?"}
     adec -->|no| plan
     adec -->|yes| done(["Done: accept the work"])
-    escalate --> hres["Human resolves the impasse"]
-    hres --> steps
+    interrupt["Human adds or changes<br/>requests (at any time)"] -.->|re-plan| plan
 ```
 
 ## Installation

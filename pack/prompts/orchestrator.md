@@ -35,5 +35,11 @@ that review confirms the Success Criteria are met; a shortfall is a finding that
 goes back to planning or implementation. Escalating to a human is a request for a
 decision, not a stop: apply their decision and resume.
 
+If a human adds or changes requests at any point, route the request to the
+planner to fold into the plan (revise the Roadmap steps and Success Criteria,
+resolve any new open questions), then re-enter the plan review and continue.
+Human input is authoritative and always enters through the plan, so it is
+captured durably rather than done ad hoc.
+
 The ledger is transient working state; discard it when the task closes, and do
 not put individual findings in the plan's Open Questions section.

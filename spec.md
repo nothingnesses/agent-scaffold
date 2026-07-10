@@ -1,6 +1,6 @@
 # agent-scaffold spec
 
-Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is the immediate next work; its design is resolved (OQ-B/C/D adopted) and broken into concrete sub-steps 5a to 5d, each evidence-grounded. Steps 6 to 9 are optional extras. None of Steps 5 to 9 are started (5a is next to implement). The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
+Status: in progress. Name confirmed as `agent-scaffold`. Implementation Steps 1 to 4 are complete: the core assets, the file-dropper with two-tier ownership, the idempotency/safety pass, and the full selection UI (non-interactive flags plus the interactive two-pane ratatui TUI, `--interactive`, with undo/redo and a save-confirmation modal). Step 5 (TUI polish: search/filter and tag-based selection) is in progress; its design is resolved (OQ-B/C/D adopted) and broken into concrete sub-steps 5a to 5d, each evidence-grounded. Sub-step 5a (the `Mode` enum refactor) is complete; 5b (non-interactive `tag:` selection) is next. Steps 6 to 9 are optional extras and not started. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -86,7 +86,7 @@ Each sub-step below carries the evidence-grounding discipline: validate the adop
 
 #### 5a. Mode enum refactor
 
-Status: not started. Replace `confirming: bool` and `confirm_button` with `enum Mode { Editing, Filtering { query: String }, Confirming { button: Button } }`; `update` dispatches on `app.mode` and mode-specific data lives only in its variant. Lands first because the filter and any later modes build on it. Validate: the existing selector tests pass unchanged and behaviour is identical (open/save/cancel, editing keys ignored while confirming). Fallback: if identical behaviour cannot be preserved cleanly, keep the bool but add a `debug_assert` rejecting illegal mode combinations, and raise the friction.
+Status: complete. Replaced `confirming: bool` and `confirm_button` with `enum Mode { Editing, Confirming { button: Button } }`; `update` dispatches on `app.mode` and the focused button exists only inside `Confirming`. The `Filtering { query }` variant is introduced in 5c, where it is first used, so every commit stays free of unused-variant warnings. Validated by proof-of-concept: the 24 existing selector tests pass unchanged (retargeted from the old bool to `Mode`) and behaviour is identical (open/save/cancel, editing keys ignored while confirming); clippy `-D warnings` clean. The fallback (keep the bool with a `debug_assert`) was not needed.
 
 #### 5b. Non-interactive tag selection
 

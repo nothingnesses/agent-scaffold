@@ -78,6 +78,16 @@ impl Button {
 	}
 }
 
+/// Which interaction mode the selector is in. Exactly one holds at a time, and
+/// mode-specific data lives only in its variant, so states like "confirming and
+/// filtering at once" or "a focused button while not confirming" are
+/// unrepresentable. The `Filtering` variant is added in Step 5c.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+	Editing,
+	Confirming { button: Button },
+}
+
 /// An input event the loop reacts to. `Resize` triggers a redraw; the loop
 /// redraws every iteration, so it carries no payload. This enum is the seam a
 /// future concurrent producer would extend.
@@ -127,10 +137,8 @@ struct App<'a> {
 	undo_stack: Vec<Snapshot>,
 	/// Snapshots undone and available to redo (most recent last).
 	redo_stack: Vec<Snapshot>,
-	/// Whether the save-confirmation modal is open.
-	confirming: bool,
-	/// Which modal button is focused while `confirming`.
-	confirm_button: Button,
+	/// The current interaction mode (editing, or the save-confirmation modal).
+	mode: Mode,
 	/// Caller-supplied lines describing what saving will do, shown in the modal.
 	save_summary: Vec<String>,
 }
@@ -164,9 +172,7 @@ impl<'a> App<'a> {
 			included_state,
 			undo_stack: Vec::new(),
 			redo_stack: Vec::new(),
-			confirming: false,
-			// Default to Cancel so an accidental confirm never writes.
-			confirm_button: Button::Cancel,
+			mode: Mode::Editing,
 			save_summary,
 		}
 	}
@@ -429,19 +435,25 @@ fn update(
 
 	// While the save modal is open it is modal: only button navigation and
 	// activate/cancel are handled; editing keys are ignored.
-	if app.confirming {
+	if let Mode::Confirming {
+		button,
+	} = app.mode
+	{
 		match key.code {
 			KeyCode::Left
 			| KeyCode::Right
 			| KeyCode::Tab
 			| KeyCode::BackTab
 			| KeyCode::Char('h')
-			| KeyCode::Char('l') => app.confirm_button = app.confirm_button.other(),
-			KeyCode::Enter => match app.confirm_button {
+			| KeyCode::Char('l') =>
+				app.mode = Mode::Confirming {
+					button: button.other(),
+				},
+			KeyCode::Enter => match button {
 				Button::Save => return Step::Confirm,
-				Button::Cancel => app.confirming = false,
+				Button::Cancel => app.mode = Mode::Editing,
 			},
-			KeyCode::Esc => app.confirming = false,
+			KeyCode::Esc => app.mode = Mode::Editing,
 			_ => {}
 		}
 		return Step::Continue;
@@ -449,11 +461,11 @@ fn update(
 
 	match key.code {
 		KeyCode::Char('q') | KeyCode::Esc => return Step::Abort,
-		KeyCode::Enter => {
-			// Open the save modal; focus Cancel by default.
-			app.confirm_button = Button::Cancel;
-			app.confirming = true;
-		}
+		KeyCode::Enter =>
+		// Open the save modal; focus Cancel by default so an accidental confirm never writes.
+			app.mode = Mode::Confirming {
+				button: Button::Cancel,
+			},
 		KeyCode::Char('i') => app.toggle_with(insert_before_cursor),
 		KeyCode::Char('a') => app.toggle_with(insert_after_cursor),
 		KeyCode::Tab
@@ -578,8 +590,11 @@ fn ui(
 		help_area,
 	);
 
-	if app.confirming {
-		render_confirm_modal(frame, app);
+	if let Mode::Confirming {
+		button,
+	} = app.mode
+	{
+		render_confirm_modal(frame, app, button);
 	}
 }
 
@@ -624,6 +639,7 @@ fn render_button(
 fn render_confirm_modal(
 	frame: &mut Frame,
 	app: &App,
+	button: Button,
 ) {
 	let message = app.confirm_message();
 	// message lines + a blank + the button row (3) + the outer border (2).
@@ -647,8 +663,8 @@ fn render_confirm_modal(
 	let [save_area, cancel_area] =
 		Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
 			.areas(buttons_area);
-	render_button(frame, save_area, "Save", app.confirm_button == Button::Save);
-	render_button(frame, cancel_area, "Cancel", app.confirm_button == Button::Cancel);
+	render_button(frame, save_area, "Save", button == Button::Save);
+	render_button(frame, cancel_area, "Cancel", button == Button::Cancel);
 }
 
 /// Read the next event the loop cares about, ignoring the rest.
@@ -874,17 +890,26 @@ mod tests {
 
 		// Enter opens the modal (does not save yet) and focuses Cancel.
 		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Continue);
-		assert!(app.confirming);
-		assert_eq!(app.confirm_button, Button::Cancel);
+		assert_eq!(
+			app.mode,
+			Mode::Confirming {
+				button: Button::Cancel
+			}
+		);
 
 		// Enter on Cancel closes the modal without saving.
 		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Continue);
-		assert!(!app.confirming);
+		assert_eq!(app.mode, Mode::Editing);
 
 		// Reopen, move focus to Save, then Enter saves.
 		update(&mut app, key(KeyCode::Enter));
 		update(&mut app, key(KeyCode::Right));
-		assert_eq!(app.confirm_button, Button::Save);
+		assert_eq!(
+			app.mode,
+			Mode::Confirming {
+				button: Button::Save
+			}
+		);
 		assert_eq!(update(&mut app, key(KeyCode::Enter)), Step::Confirm);
 		assert_eq!(app.included, vec![1]);
 	}
@@ -898,9 +923,9 @@ mod tests {
 		// An editing key does nothing while the modal is open.
 		update(&mut app, key(KeyCode::Char('i')));
 		assert_eq!(app.included, before);
-		assert!(app.confirming);
+		assert!(matches!(app.mode, Mode::Confirming { .. }));
 		// Esc cancels the modal.
 		update(&mut app, key(KeyCode::Esc));
-		assert!(!app.confirming);
+		assert_eq!(app.mode, Mode::Editing);
 	}
 }

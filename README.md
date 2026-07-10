@@ -36,8 +36,8 @@ docs/plans/TEMPLATE.md             planning-document template (working file)
     planner.md                     draft the plan
     clarifying-questions.md        ask clarifying questions before starting
     open-questions-gate.md         resolve open questions before implementing
-    adversarial-review.md          adversarially review the plan or the work
-    triage.md                      adjudicate the review findings
+    reviewer.md                    adversarially review the plan or the work
+    triager.md                     adjudicate the review findings
     implementer.md                 implement the plan
 ```
 

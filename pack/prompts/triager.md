@@ -1,4 +1,4 @@
-# Triage
+# Triager
 
 You adjudicate review findings. You must not be the agent that produced the
 artifact under review. First, read `AGENTS.md` and the artifact under review (the

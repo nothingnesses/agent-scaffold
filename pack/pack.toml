@@ -42,13 +42,13 @@ dest = ".agents/prompts/open-questions-gate.md"
 ownership = "reference"
 
 [[asset]]
-source = "prompts/adversarial-review.md"
-dest = ".agents/prompts/adversarial-review.md"
+source = "prompts/reviewer.md"
+dest = ".agents/prompts/reviewer.md"
 ownership = "reference"
 
 [[asset]]
-source = "prompts/triage.md"
-dest = ".agents/prompts/triage.md"
+source = "prompts/triager.md"
+dest = ".agents/prompts/triager.md"
 ownership = "reference"
 
 [[asset]]

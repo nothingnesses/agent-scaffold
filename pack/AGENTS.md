@@ -23,11 +23,11 @@ Roles and their prompts (in `.agents/prompts/`):
   or triage itself.
 - Planner (`planner.md`, with `clarifying-questions.md` and
   `open-questions-gate.md`). Drafts the plan.
-- Reviewers (`adversarial-review.md`). Independently and adversarially review an
-  artifact, assuming there are issues, and report each finding with a severity
-  and concrete evidence. Prefer several reviewers with different lenses, and
-  different models where available, since same-model reviewers share blind spots.
-- Triager (`triage.md`). Judges the reviewers' findings on their evidence and
+- Reviewers (`reviewer.md`). Independently and adversarially review an artifact,
+  assuming there are issues, and report each finding with a severity and concrete
+  evidence. Prefer several reviewers with different lenses, and different models
+  where available, since same-model reviewers share blind spots.
+- Triager (`triager.md`). Judges the reviewers' findings on their evidence and
   severity and returns a verdict for each. The triager must not be the agent that
   produced the artifact under review.
 - Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the
@@ -65,17 +65,26 @@ review-then-triage round, the orchestrator decides from the triager's verdicts:
   may instead be resolved by consciously accepting its residual risk and
   recording that; an accepted risk does not block convergence.
 
+Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
+(which implementation steps are done, in progress, or pending) lives durably in
+the plan's Roadmap, the status table described in the plan's Documentation
+Protocol; the implementer keeps it current. Round-level state (the review loop)
+lives in the orchestrator's review ledger, which is transient.
+
 Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
-the task: each finding, the triager's verdict, the reasoning, and the action
-taken (fixed in `<commit>`, or dismissed because `<reason>`). It hands the ledger
-to each new round under the rule: do not re-raise a settled finding without new
-evidence that its verdict was wrong. For a genuinely contested finding, the
-triager may hold a short debate, the producer arguing it is invalid and a
-reviewer arguing it is valid, before ruling. The ledger is transient working
-state, keep it as scratch notes, discard it when the task closes, and never put
-individual findings in the plan's Open Questions section; only durable decisions,
-the ones that change the plan, fold into the plan's steps, and a folded decision
-reopens only by evidence that beats its recorded reasoning.
+the task, one row per finding: the round it was raised in, the triager's verdict,
+the reasoning, and the action taken (fixed in `<commit>`, or dismissed because
+`<reason>`). The orchestrator counts rounds from the ledger and applies the
+convergence rule (a clean round ends the loop; the default of three contested
+rounds triggers escalation). It hands the ledger to each new round under the
+rule: do not re-raise a settled finding without new evidence that its verdict was
+wrong. For a genuinely contested finding, the triager may hold a short debate, the
+producer arguing it is invalid and a reviewer arguing it is valid, before ruling.
+The ledger is transient working state, keep it as scratch notes (not in the
+plan), discard it when the task closes, and never put individual findings in the
+plan's Open Questions section; only durable decisions, the ones that change the
+plan, fold into the plan's steps, and a folded decision reopens only by evidence
+that beats its recorded reasoning.
 
 ## Principles
 

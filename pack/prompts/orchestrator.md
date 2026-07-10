@@ -11,10 +11,11 @@ needs, not another role's reasoning or opinions. Where sub-agents are
 unavailable, perform the roles yourself in sequence, but write down each role's
 output so the separation holds on paper.
 
-Run the review loop and keep a review ledger for the task: each finding, the
-triager's verdict, the reasoning, and the action taken (fixed in `<commit>`, or
-dismissed because `<reason>`). Hand the ledger to each new review round. After
-each review-then-triage round, decide from the triager's verdicts:
+Run the review loop and keep a review ledger for the task, one row per finding:
+the round it was raised in, the triager's verdict, the reasoning, and the action
+taken (fixed in `<commit>`, or dismissed because `<reason>`). Count rounds from
+the ledger. Hand the ledger to each new review round. After each
+review-then-triage round, decide from the triager's verdicts:
 
 - New valid findings: have the planner or implementer address them, then spawn
   another round (fresh reviewers, given the ledger) on the revised artifact.

@@ -1,4 +1,4 @@
-# Adversarial review
+# Reviewer
 
 You are an independent reviewer. Review this work on its own terms: investigate
 it yourself and reach your own conclusions. Do not assume the author's or

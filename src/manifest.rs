@@ -284,8 +284,8 @@ mod tests {
 				".agents/prompts/planner.md",
 				".agents/prompts/clarifying-questions.md",
 				".agents/prompts/open-questions-gate.md",
-				".agents/prompts/adversarial-review.md",
-				".agents/prompts/triage.md",
+				".agents/prompts/reviewer.md",
+				".agents/prompts/triager.md",
 				".agents/prompts/implementer.md",
 				".agents/principles.toml",
 			]

@@ -1,5 +1,8 @@
 # agent-scaffold
 
+[![crates.io](https://img.shields.io/crates/v/agent-scaffold.svg)](https://crates.io/crates/agent-scaffold)
+[![GitHub License](https://img.shields.io/github/license/nothingnesses/agent-scaffold?color=blue)](https://github.com/nothingnesses/agent-scaffold/blob/main/LICENSE)
+
 A small command-line tool that scaffolds a repeatable agent workflow into a
 project: front-load context, write a structured plan, review it, implement in
 small steps, then review the work. It drops a canonical `AGENTS.md`, a

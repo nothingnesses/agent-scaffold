@@ -14,7 +14,11 @@ fill each section in.>
 <The design and quality tenets that govern this work, and that an agent should
 honour when making decisions and writing code. These shape the output more than
 any single instruction, so make them concrete. Start from the repository's
-AGENTS.md principles and add project-specific ones.>
+AGENTS.md principles (a numbered list) and add project-specific ones. Keep them a
+numbered list, as in AGENTS.md, so they can be referenced by number (for example
+"Principle 3").>
+
+1. <A principle, stated concretely.>
 
 ## Documentation Protocol
 

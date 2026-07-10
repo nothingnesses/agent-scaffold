@@ -234,14 +234,20 @@ default_order = 180
 [[principle]]
 id = "make-illegal-states-unrepresentable"
 name = "Make illegal states unrepresentable"
-summary = "Encode the valid states in types so invalid combinations cannot be constructed."
+summary = "Encode the valid states and invariants in types so invalid combinations cannot be constructed."
 rationale = """
 Encode the valid states and transitions in types so an invalid combination is \
-a compile error rather than a runtime check you must remember to write."""
+a compile error rather than a runtime check you must remember to write. More \
+generally, push invariants into types wherever the language allows, and fall \
+back to a checked boundary or a documented invariant only when the type system \
+cannot express them."""
 tags = ["data-modelling", "static-types"]
 default_selected = true
 default_order = 190
-related = ["encode-invariants-in-types", "make-failure-and-absence-explicit"]
+related = [
+  "make-failure-and-absence-explicit",
+  "prefer-compile-time-enforcement",
+]
 
 [[principle]]
 id = "parse-dont-validate"
@@ -292,19 +298,6 @@ rather than duplicating it and risking the copies drifting apart."""
 tags = ["data-modelling", "universal"]
 default_selected = false
 default_order = 230
-
-[[principle]]
-id = "encode-invariants-in-types"
-name = "Encode invariants in types"
-summary = "Push invariants into types; fall back to checked boundaries only when needed."
-rationale = """
-Encode invariants in types where the language allows, and fall back to a \
-checked boundary or a documented invariant only when the type system cannot \
-express them."""
-tags = ["data-modelling", "static-types"]
-default_selected = false
-default_order = 240
-related = ["make-illegal-states-unrepresentable"]
 
 [[principle]]
 id = "prefer-immutability"
@@ -506,6 +499,24 @@ default_selected = true
 default_order = 410
 
 [[principle]]
+id = "make-documentation-self-contained"
+name = "Make documentation self-contained"
+summary = "Explain names, acronyms, and jargon so a reader without prior context can follow."
+rationale = """
+Explain the names, acronyms, and domain terms a document relies on, and gloss \
+anything a newcomer would not know, so it stands on its own rather than \
+assuming the author's context; define a term where it first appears, or point \
+to where it is defined, so a reader arriving cold can still follow."""
+tags = ["documentation", "universal"]
+default_selected = true
+default_order = 415
+related = [
+  "document-the-why-not-the-what",
+  "leave-durable-notes",
+  "keep-docs-next-to-code",
+]
+
+[[principle]]
 id = "treat-types-and-tests-as-documentation"
 name = "Treat types and tests as documentation"
 summary = "Types and tests document behaviour the compiler and test runner keep honest."
@@ -543,26 +554,17 @@ default_order = 440
 
 [[principle]]
 id = "validate-and-parse-untrusted-input"
-name = "Validate and parse untrusted input at the boundary"
-summary = "Check untrusted input at the boundary, using framework APIs where they exist."
+name = "Never trust external input; validate and parse it at the boundary"
+summary = "Treat all external input as untrusted, and check and parse it at the boundary."
 rationale = """
-Validate and parse untrusted input at the boundary, using framework APIs where \
-they exist, so malformed or hostile data does not reach the core."""
+Treat all external input (users, files, APIs, imported data) as untrusted until \
+checked, and assume it may be malformed or malicious; validate and parse it at \
+the boundary, using framework APIs where they exist, so hostile or malformed \
+data is turned into trusted, well-typed values before it reaches the core."""
 tags = ["security", "universal"]
 default_selected = true
 default_order = 450
-related = ["parse-dont-validate", "never-trust-external-input"]
-
-[[principle]]
-id = "never-trust-external-input"
-name = "Never trust external input"
-summary = "Treat all external input as untrusted until checked."
-rationale = """
-Treat all external input (users, files, APIs, imported data) as untrusted \
-until checked, and assume it may be malformed or malicious."""
-tags = ["security", "universal"]
-default_selected = true
-default_order = 460
+related = ["parse-dont-validate", "sandbox-or-isolate-untrusted-execution"]
 
 [[principle]]
 id = "keep-secrets-out-of-code-and-logs"

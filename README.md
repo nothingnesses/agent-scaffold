@@ -68,23 +68,27 @@ nix develop        # or: direnv allow, if you use direnv
 
 ## Usage
 
-Writes are off by default. A run always prints a plan of what it would do (one
-line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`) and then
-decides whether to write:
+Writes are off unless confirmed, and a run always prints a plan of what it would
+do (one line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`).
 
-- With `--write`, it applies the changes.
-- Without `--write`, on an interactive terminal it asks `Apply these changes?
-[y/N]` (default No).
-- Without `--write` and with no terminal (a pipe or CI), it stays a dry run and
-  writes nothing.
+On an interactive terminal, running `agent-scaffold` with no flags opens the
+two-pane selector; choosing Save in its confirmation modal writes the scaffold
+(Cancel or quit writes nothing). For non-interactive use:
 
-Preview a scaffold of the current directory with the default principle set:
+- `--write` applies the changes directly (using `--principles`), skipping the
+  selector. Off a terminal, this is the only way writes happen.
+- `--dry-run` prints the plan and exits without writing and without opening the
+  selector.
+- With no flag and no terminal (a pipe or CI), it prints the plan and writes
+  nothing.
+
+Open the selector for the current directory:
 
 ```sh
 agent-scaffold
 ```
 
-Apply it (into a specific directory):
+Apply directly, without the selector (into a specific directory):
 
 ```sh
 agent-scaffold --output-dir path/to/project --write
@@ -124,7 +128,8 @@ agent-scaffold --principles kiss,verify-dont-trust,tag:fp
 
 ### Interactive selection
 
-`-i` / `--interactive` opens a two-pane selector, seeded from `--principles`:
+On a terminal, the two-pane selector opens by default (seeded from
+`--principles`); pass `--write` or `--dry-run` to skip it:
 
 - Left pane lists available principles; right pane lists the included ones in
   order.

@@ -26,7 +26,6 @@ use {
 		io::{
 			self,
 			IsTerminal,
-			Write,
 		},
 		path::{
 			Path,
@@ -122,14 +121,18 @@ fn build_assets(
 	manifest::load(source, &builtin, overrides)
 }
 
-/// Ask on the terminal whether to apply the previewed changes. The default is
-/// No, so an empty line (or anything but yes) declines.
-fn confirm_write() -> io::Result<bool> {
-	print!("Apply these changes? [y/N]: ");
-	io::stdout().flush()?;
-	let mut answer = String::new();
-	io::stdin().read_line(&mut answer)?;
-	Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+/// Whether the two-pane selector should open: only on a real terminal (both
+/// input and output), when there is something to select, and when neither
+/// `--write` nor `--dry-run` has asked for a non-interactive run.
+fn use_selector(
+	cli: &Cli,
+	principles: &[pack::Principle],
+) -> bool {
+	!cli.write
+		&& !cli.dry_run
+		&& !principles.is_empty()
+		&& io::stdin().is_terminal()
+		&& io::stdout().is_terminal()
 }
 
 /// Build and write the asset set, returning each asset's path and outcome. A
@@ -164,9 +167,12 @@ struct Cli {
 	/// Overwrite existing user working files instead of leaving them untouched.
 	#[arg(long)]
 	force: bool,
-	/// Write the changes. Without it a run previews the plan and, on a terminal, asks to confirm.
+	/// Apply the changes non-interactively, without the selector. Off a terminal, writes need this flag.
 	#[arg(long)]
 	write: bool,
+	/// Preview the plan and exit without writing and without opening the selector.
+	#[arg(long, conflicts_with = "write")]
+	dry_run: bool,
 	/// Which principles to include: default, all, none, or a comma-separated list of ids.
 	#[arg(long, default_value = "default")]
 	principles: String,
@@ -176,9 +182,6 @@ struct Cli {
 	/// Print the default-selected principles (numbered) and exit, without scaffolding.
 	#[arg(long)]
 	list_principles: bool,
-	/// Choose principles interactively in a two-pane selector, seeded from `--principles`.
-	#[arg(long, short)]
-	interactive: bool,
 	/// Scaffold from a user-supplied pack directory instead of the built-in one.
 	#[arg(long)]
 	template: Option<PathBuf>,
@@ -233,10 +236,11 @@ fn main() -> io::Result<()> {
 		return Ok(());
 	}
 
-	// Interactive selection overrides the resolved set, seeded from it. On
-	// confirm it prints a `--principles` line so the exact selection and order
-	// can be replayed non-interactively; on abort nothing is written.
-	let selected = if cli.interactive {
+	// On a terminal the selector opens by default: its Save modal is the write
+	// confirmation, so Save both records the selection and means "write". --write
+	// and --dry-run take the non-interactive path instead. On abort, nothing is
+	// written.
+	let (selected, write) = if use_selector(&cli, &principles) {
 		let initial: Vec<usize> = selected
 			.iter()
 			.map(|p| {
@@ -261,7 +265,7 @@ fn main() -> io::Result<()> {
 				let chosen: Vec<&pack::Principle> = order.iter().map(|&i| &principles[i]).collect();
 				let ids: Vec<&str> = chosen.iter().map(|p| p.id.as_str()).collect();
 				println!("selection: --principles {}", ids.join(","));
-				chosen
+				(chosen, true)
 			}
 			None => {
 				eprintln!("aborted; nothing written");
@@ -269,7 +273,8 @@ fn main() -> io::Result<()> {
 			}
 		}
 	} else {
-		selected
+		// Non-interactive: apply only when --write was given.
+		(selected, cli.write)
 	};
 
 	let assets = match build_assets(&source, &selected, cli.principle_detail, &overrides) {
@@ -282,15 +287,11 @@ fn main() -> io::Result<()> {
 	let outcomes: Vec<Outcome> =
 		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
 
-	// Preview the plan, then decide whether to write. Writes are off by default:
-	// interactive Save (the modal) and --write both mean "write"; otherwise, on a
-	// terminal, ask for y/N (default No); with no terminal (a pipe or CI), stay a
-	// dry run and write nothing.
+	// Always show the plan, then write only if confirmed.
 	for (asset, outcome) in assets.iter().zip(&outcomes) {
 		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
 	}
 
-	let write = cli.interactive || cli.write || (io::stdin().is_terminal() && confirm_write()?);
 	if write {
 		for (asset, outcome) in assets.iter().zip(&outcomes) {
 			apply_asset(&cli.output_dir, asset, outcome)?;
@@ -301,8 +302,6 @@ fn main() -> io::Result<()> {
 			"Wrote to {} ({changed} changed, {untouched} left untouched).",
 			cli.output_dir.display()
 		);
-	} else if io::stdin().is_terminal() {
-		println!("Aborted; nothing written.");
 	} else {
 		println!("Dry run; nothing written. Pass --write to apply.");
 	}

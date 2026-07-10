@@ -42,6 +42,25 @@ guidance template. The `.agents/` assets are tool-owned and refreshed on every
 run; the working files are created once and then left alone (so your edits are
 safe) unless `--force` is given.
 
+## How it's used
+
+agent-scaffold is used at two moments, by two audiences:
+
+- You (the human) run it once to set a project up. Choose which principles apply
+  (in the selector, or with `--principles`), review the plan, and write the
+  assets, then commit them to version control.
+- Agents then work inside the scaffolded project. They read `AGENTS.md` (the
+  canonical, harness-agnostic guidance) and follow the workflow it describes:
+  front-load context, draft a plan under `docs/plans/`, review the plan,
+  implement in small steps, then review the work. The prompts in
+  `.agents/prompts/` support those steps (clarifying questions, an open-questions
+  gate, and adversarial review). Agents consume these assets; they do not
+  normally run the tool.
+
+The tool's job ends at dropping well-structured assets: it sets the workflow up
+but does not enforce it at runtime. Adherence comes from agents following
+`AGENTS.md`.
+
 ## Installation
 
 agent-scaffold is a standalone Rust binary that runs without Nix. Build it from

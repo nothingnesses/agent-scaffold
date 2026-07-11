@@ -84,16 +84,18 @@ config:
 flowchart TB
     start(["Task"]) --> ctx["Front-load context"]
     ctx --> plan["Plan<br/>(planner)"]
-    plan --> preview["Review the plan, then triage<br/>(reviewers, triager)"]
-    preview --> pdec{"Plan review converged?"}
+    plan --> preview["Review the plan<br/>(reviewers)"]
+    preview --> ptriage["Triage the findings<br/>(triager)"]
+    ptriage --> pdec{"Plan review converged?"}
     pdec -->|new valid findings| previse["Planner revises"]
     previse --> preview
     pdec -->|contested past the cap| pesc[["Escalate to a human"]]
     pesc -->|decision applied, resume| preview
     pdec -->|converged| steps{"Pending steps<br/>in the roadmap?"}
     steps -->|yes| impl["Implement the next step<br/>(implementer)"]
-    impl --> wreview["Review the work, then triage<br/>(reviewers, triager)"]
-    wreview --> wdec{"Work review converged?"}
+    impl --> wreview["Review the work<br/>(reviewers)"]
+    wreview --> wtriage["Triage the findings<br/>(triager)"]
+    wtriage --> wdec{"Work review converged?"}
     wdec -->|new valid findings| wfix["Implementer fixes"]
     wfix --> wreview
     wdec -->|contested past the cap| wesc[["Escalate to a human"]]

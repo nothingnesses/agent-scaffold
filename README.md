@@ -74,7 +74,7 @@ implementation iterates over the plan's steps; and the work stops only once ever
 step is done and an acceptance review confirms the Success Criteria. Escalating to
 a human is a request for a decision (the workflow resumes at the paused review
 after it), not a stop; and a human may add or change requests at any time, which
-re-enter through the plan:
+are assessed at intake and, when non-trivial, re-enter through the plan:
 
 ```mermaid
 ---
@@ -89,7 +89,7 @@ flowchart TB
     ptriage --> pdec{"Plan review converged?"}
     pdec -->|new valid findings| previse["Planner revises"]
     previse --> preview
-    pdec -->|contested past the cap| pesc[["Escalate to a human"]]
+    pdec -->|contested or round cap hit| pesc[["Escalate to a human"]]
     pesc -->|decision applied, resume| preview
     pdec -->|converged| steps{"Pending steps<br/>in the roadmap?"}
     steps -->|yes| impl["Implement the next step<br/>(implementer)"]
@@ -98,15 +98,18 @@ flowchart TB
     wtriage --> wdec{"Work review converged?"}
     wdec -->|new valid findings| wfix["Implementer fixes"]
     wfix --> wreview
-    wdec -->|contested past the cap| wesc[["Escalate to a human"]]
+    wdec -->|contested or round cap hit| wesc[["Escalate to a human"]]
     wesc -->|decision applied, resume| wreview
     wdec -->|converged| mark["Mark the step complete"]
     mark --> steps
     steps -->|no| accept["Acceptance review<br/>(reviewers)"]
-    accept --> adec{"Success Criteria met?"}
+    accept --> atriage["Triage the findings<br/>(triager)"]
+    atriage --> adec{"Success Criteria met?"}
     adec -->|no| plan
     adec -->|yes| done(["Done: accept the work"])
-    interrupt["Human adds or changes<br/>requests (at any time)"] -.->|re-plan| plan
+    interrupt["Human adds or changes<br/>requests (at any time)"] -.-> intake["Intake: assess and advise<br/>(human decides routing)"]
+    intake -.->|non-trivial| plan
+    intake -.->|trivial| impl
 ```
 
 ## Installation

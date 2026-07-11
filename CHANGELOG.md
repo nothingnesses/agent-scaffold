@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Hardened the scaffolded workflow guidance (`AGENTS.md` and the role prompts)
+  after a design review. The review ledger and orchestrator round state move to a
+  durable scratch file so the workflow survives the orchestrator losing context.
+  Convergence now requires consecutive clean rounds scaled to the stakes, guarded
+  by a contested-rounds cap (default three) and a total-round cap (default five)
+  that both escalate. A dismissed high-severity finding is re-checked by a second
+  independent triager. The acceptance review gains a triager, matching the other
+  review phases. A human interrupt now goes through a bounded intake assessment
+  that advises on impact and gives feedback on the request, routing trivial
+  requests directly and non-trivial ones through the plan.
+- Split the review and triage steps into separate nodes in the README workflow
+  diagram, so the triager owns the convergence decision.
+
 ## [0.0.1] - 2026-07-10
 
 ### Added

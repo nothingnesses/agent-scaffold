@@ -13,33 +13,50 @@ output so the separation holds on paper.
 
 Run the review loop and keep a review ledger for the task, one row per finding:
 the round it was raised in, the triager's verdict, the reasoning, and the action
-taken (fixed in `<commit>`, or dismissed because `<reason>`). Count rounds from
-the ledger. Hand the ledger to each new review round. After each
-review-then-triage round, decide from the triager's verdicts:
+taken (fixed in `<commit>`, or dismissed because `<reason>`); also record each
+round's outcome (new valid findings, or clean). Keep the ledger in a durable
+scratch file (keyed by the task, not committed) so it survives you losing context
+or being re-spawned. Count rounds from the ledger and hand it to each new review
+round. After each review-then-triage round, decide from the triager's verdicts:
 
 - New valid findings: have the planner or implementer address them, then spawn
   another round (fresh reviewers, given the ledger) on the revised artifact.
-- No new valid findings (all dismissed, or ledger re-raises without new
-  evidence): the review has converged. Move on, start implementing after a plan
-  review, or mark the step complete and continue after a work review.
-- Still-contested valid findings after the round cap: escalate to a human with
-  the ledger for a decision, then apply it and resume. A valid finding may
-  instead be resolved by consciously accepting its residual risk and recording
+- A clean round (all dismissed, or ledger re-raises without new evidence): a
+  candidate for convergence. Require consecutive clean rounds before converging,
+  scaled to stakes (one for a trivial or low-risk artifact, two for a risky one),
+  since fresh reviewers make a single clean round weak evidence. Before a
+  dismissed high-severity finding counts towards a clean round, have a second,
+  independent triager (or a human) confirm the dismissal. On convergence, move on,
+  start implementing after a plan review, or mark the step complete and continue
+  after a work review.
+- Still-contested valid findings after the contested-rounds cap (default three),
+  or any artifact exceeding the total-round cap (default five): escalate to a
+  human with the ledger for a decision, then apply it and resume. A valid finding
+  may instead be resolved by consciously accepting its residual risk and recording
   that; an accepted risk does not block convergence.
 
 Implement step by step: while the plan's Roadmap has a pending step, have the
 implementer make it, review it to convergence, then mark it complete and move to
 the next. When no pending steps remain, run an acceptance review against the
-plan's Success Criteria. The workflow is done when every step is complete and
-that review confirms the Success Criteria are met; a shortfall is a finding that
-goes back to planning or implementation. Escalating to a human is a request for a
-decision, not a stop: apply their decision and resume.
+plan's Success Criteria (reviewers, then a triager, as in the other review
+phases). The workflow is done when every step is complete and the triager confirms
+the Success Criteria are met; a valid shortfall is a finding that goes back to
+planning or implementation. Escalating to a human is a request for a decision, not
+a stop: apply their decision and resume.
 
-If a human adds or changes requests at any point, route the request to the
-planner to fold into the plan (revise the Roadmap steps and Success Criteria,
-resolve any new open questions), then re-enter the plan review and continue.
-Human input is authoritative and always enters through the plan, so it is
-captured durably rather than done ad hoc.
+If a human adds or changes requests at any point, first run a single bounded
+intake assessment (yourself, or a short planner pass, not a full plan cycle) and
+report back: what the request touches, whether it changes the Roadmap scope or
+Success Criteria, its risk, any ambiguity or contradiction with the plan, and a
+recommended routing; the human decides, and this is also where you give feedback
+on the request so the human can refine it. Fold a trivial request (local,
+reversible, no change to scope or Success Criteria, no new open question) in
+directly; route anything non-trivial to the planner to fold into the plan (revise
+the Roadmap steps and Success Criteria, resolve any new open questions), then
+re-enter plan review. Human input is authoritative and, when non-trivial, always
+enters through the plan. Default to the durable path when the assessment is
+uncertain.
 
-The ledger is transient working state; discard it when the task closes, and do
-not put individual findings in the plan's Open Questions section.
+The ledger is working state, not part of the plan: keep it in the scratch file,
+discard it when the task closes, and do not put individual findings in the plan's
+Open Questions section.

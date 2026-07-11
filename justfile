@@ -32,3 +32,8 @@ clippy:
 # Format all files through the Nix formatter.
 fmt:
 	{{ direnv_prefix }} nix fmt
+
+# Regenerate the project's own scaffolded assets from the pack, so the committed
+# `AGENTS.md`, `.agents/`, and plan template stay in sync with the pack (dogfooding).
+scaffold-self:
+	{{ direnv_prefix }} cargo run -- --output-dir . --write --force --principles default

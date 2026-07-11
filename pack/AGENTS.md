@@ -95,8 +95,9 @@ review-then-triage round, the orchestrator decides from the triager's verdicts:
 - A clean round (every finding dismissed, or a ledger re-raise without new
   evidence): a candidate for convergence. Because fresh reviewers are sampled each
   round, one clean round is weak evidence on its own, so require consecutive clean
-  rounds before converging, scaled to the stakes: one for a trivial or low-risk
-  artifact, two for a risky or high-blast-radius one. On reaching that, the review
+  rounds before converging (a round with new valid findings resets the streak),
+  scaled to the stakes: one for a trivial or low-risk artifact, two for a risky or
+  high-blast-radius one. On reaching that, the review
   has converged: move on, start implementing after a plan review, or mark the step
   complete and continue after a work review.
 - Still-contested valid findings after a bounded number of rounds (default three):
@@ -121,8 +122,8 @@ Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
 (which implementation steps are done, in progress, or pending) lives durably in
 the plan's Roadmap, the status table described in the plan's Documentation
 Protocol; the implementer keeps it current. Round-level state (the review loop)
-lives in the orchestrator's review ledger, a scratch file kept outside the plan
-and discarded when the task closes.
+lives in the orchestrator's review ledger, a versioned file kept beside the plan
+(separate from it) and deleted when the task closes.
 
 Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
 the task, one row per finding: the round it was raised in, the triager's verdict,
@@ -137,10 +138,11 @@ rounds total, trigger escalation). It hands the ledger to each new round under t
 rule: do not re-raise a settled finding without new evidence that its verdict was
 wrong. For a genuinely contested finding, the triager may hold a short debate, the
 producer arguing it is invalid and a reviewer arguing it is valid, before ruling.
-The ledger is working state, not part of the plan: keep it in a durable scratch
-file (keyed by the task, for example under a tmp or gitignored path, not
-committed) so it survives the orchestrator losing context or being re-spawned, and
-discard it when the task closes. Never put individual findings in the plan's Open
+The ledger is separate from the plan, but versioned like it: keep it in a file
+tracked in version control beside its plan (for example
+`docs/plans/<task>.ledger.md`) and commit it, so it survives the orchestrator
+losing context and travels across machines and sessions; delete it, committing the
+deletion, when the task closes. Never put individual findings in the plan's Open
 Questions section; only durable decisions, the ones that change the plan, fold
 into the plan's steps, and a folded decision reopens only by evidence that beats
 its recorded reasoning.

@@ -13,27 +13,34 @@ output so the separation holds on paper.
 
 Run the review loop and keep a review ledger for the task, one row per finding:
 the round it was raised in, the triager's verdict, the reasoning, and the action
-taken (fixed in `<commit>`, or dismissed because `<reason>`); also record each
-round's outcome (new valid findings, or clean). Keep the ledger in a durable
-scratch file (keyed by the task, not committed) so it survives you losing context
-or being re-spawned. Count rounds from the ledger and hand it to each new review
-round. After each review-then-triage round, decide from the triager's verdicts:
+taken (fixed in `<commit>`, or dismissed because `<reason>`). Keep the ledger in a
+file tracked in version control beside its plan (for example
+`docs/plans/<task>.ledger.md`) and commit it, so it survives you losing context or
+being re-spawned and travels across machines and sessions; delete it, committing
+the deletion, when the task closes.
 
-- New valid findings: have the planner or implementer address them, then spawn
-  another round (fresh reviewers, given the ledger) on the revised artifact.
-- A clean round (all dismissed, or ledger re-raises without new evidence): a
-  candidate for convergence. Require consecutive clean rounds before converging,
-  scaled to stakes (one for a trivial or low-risk artifact, two for a risky one),
-  since fresh reviewers make a single clean round weak evidence. Before a
-  dismissed high-severity finding counts towards a clean round, have a second,
-  independent triager (or a human) confirm the dismissal. On convergence, move on,
-  start implementing after a plan review, or mark the step complete and continue
-  after a work review.
-- Still-contested valid findings after the contested-rounds cap (default three),
-  or any artifact exceeding the total-round cap (default five): escalate to a
-  human with the ledger for a decision, then apply it and resume. A valid finding
-  may instead be resolved by consciously accepting its residual risk and recording
-  that; an accepted risk does not block convergence.
+Track the counts explicitly. Each review-then-triage round, in order:
+
+1. Append a row per finding, and a round-summary line: the round number, the
+   artifact, whether it changed since the previous round, and the outcome (clean,
+   or new valid findings).
+2. If the round had new valid findings, reset the consecutive-clean count to zero;
+   if it was clean, increment it. Before a dismissed high-severity finding counts
+   towards a clean round, have a second, independent triager (or a human) confirm
+   the dismissal.
+3. Decide from the counts: converge when the consecutive-clean count reaches the
+   required number (one for a trivial or low-risk artifact, two for a risky one);
+   escalate to a human with the ledger when valid findings stay contested past the
+   contested-rounds cap (default three) or the total rounds for the artifact exceed
+   the total-round cap (default five); otherwise have the planner or implementer
+   address the new valid findings and spawn another round (fresh reviewers, given
+   the ledger) on the revised artifact.
+
+On convergence, move on: start implementing after a plan review, or mark the step
+complete and continue after a work review. On escalation, apply the human's
+decision and resume. A valid finding may instead be resolved by consciously
+accepting its residual risk and recording that; an accepted risk does not block
+convergence.
 
 Implement step by step: while the plan's Roadmap has a pending step, have the
 implementer make it, review it to convergence, then mark it complete and move to
@@ -57,6 +64,6 @@ re-enter plan review. Human input is authoritative and, when non-trivial, always
 enters through the plan. Default to the durable path when the assessment is
 uncertain.
 
-The ledger is working state, not part of the plan: keep it in the scratch file,
-discard it when the task closes, and do not put individual findings in the plan's
-Open Questions section.
+The ledger is separate from the plan: do not put individual findings in the plan's
+Open Questions section; only durable decisions, the ones that change the plan, fold
+into it.

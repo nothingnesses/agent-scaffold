@@ -11,8 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Hardened the scaffolded workflow guidance (`AGENTS.md` and the role prompts)
   after a design review. The review ledger and orchestrator round state move to a
-  durable scratch file so the workflow survives the orchestrator losing context.
-  Convergence now requires consecutive clean rounds scaled to the stakes, guarded
+  file committed beside its plan, so the workflow survives the orchestrator losing
+  context and resumes across machines and sessions; the orchestrator follows an
+  explicit per-round procedure to append the ledger and increment or reset the
+  clean-round count. Convergence now requires consecutive clean rounds scaled to
+  the stakes, guarded
   by a contested-rounds cap (default three) and a total-round cap (default five)
   that both escalate. A dismissed high-severity finding is re-checked by a second
   independent triager. The acceptance review gains a triager, matching the other

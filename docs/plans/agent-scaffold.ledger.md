@@ -955,6 +955,33 @@ report-only / gate / configurable), recommendation (d)+(b). The FORMAT half is
 `deliberation-mode`'s job. Human chose to proceed with `deliberation-mode` now; `Q-21`
 stays open in the queue for the human's decision.
 
+`deliberation-mode` implemented (commit 39ab3a3; before 07da2d8): the cross-cutting
+human-input contract stated once in `pack/AGENTS.md` + Socratic entry mode; strengthened
+escalation (AGENTS.md + orchestrator.md); orchestrator gate-relay duty (deferred
+gate-prompt-clarity S1); "impasse" restored in Getting started; contract references from
+planner + both gates. Classified RISKY / high-blast-radius (the core cross-cutting
+contract, widely depended on) -> TWO clean rounds required.
+
+`deliberation-mode` round 1: two thorough independent reviewers (opus completeness, sonnet
+duplication; `deliberation-mode-reviewer-opus.md`, `-sonnet.md`). Opus: all six
+deliverables verified, 2 low (R1 wrap, R2 wording). Sonnet: 2 medium + 3 low. SEPARATE
+triager (`deliberation-mode-triage.md`), 5 groups all VALID: G1 (S1, medium) the gates +
+planner kept the full inline four-element format AND added the pointer, a
+reference-plus-restatement hybrid the contract's own sentence forbids -> TRIM to pure
+pointers (not soften); G2 (S2, low, down from medium) the contract's covered-points
+sentence listed "a question the human asks directly" unqualified, so a factual question
+would be forced through the decision format -> add a factual-vs-decision carve-out; G3
+(S3) the Getting-started human-facing summary is NOT a defect (audience-appropriate, not a
+second authoritative source) -> no change; G4 (R1+S5, low) wrap regression on two edited
+paragraphs -> reflow; G5 (R2+S4, low) "the project's" vs "the plan's" numbered Project
+Principles -> standardise on "the plan's" (that is where the numbered list lives). No
+high/critical -> no backstop. Round 1 outcome: NEW VALID. Fixes applied: trimmed
+open-questions-gate.md, planner.md, clarifying-questions.md to pure pointers; added the
+carve-out; reflowed the two paragraphs; "project's" -> "plan's". Regenerated; re-reviewed
+in round 2. (Stray finding, out of scope: pack/AGENTS.md line ~269, a 126-col wrap from
+the earlier agent-isolation edit, not in this diff; to be fixed as a separate tree-hygiene
+commit.)
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

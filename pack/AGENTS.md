@@ -11,12 +11,12 @@ independent sub-agents, the orchestrator runs each role as a separate, isolated
 agent: it spawns a fresh agent, hands it that role's prompt from
 `.agents/prompts/`, and gives it only the context it needs, not another role's
 reasoning or opinions. Where sub-agents are unavailable, one agent plays the
-roles in sequence but still writes down each role's output, so the separation
-holds on paper. Match the ceremony to the stakes: collapse roles for a trivial
-change, keep them distinct for anything non-trivial or risky. The triager is the
-one exception to collapsing: it is always a separate agent, never merged into the
-producer or the orchestrator, even for a trivial or low-risk review round (see the
-Triager role below).
+other roles in sequence but still writes down each role's output, so the
+separation holds on paper. Match the ceremony to the stakes: collapse roles for a
+trivial change, keep them distinct for anything non-trivial or risky. The triager
+is the one exception to collapsing: it is never merged into the producer or the
+orchestrator, even for a trivial or low-risk review round (see the Triager role
+below for the full rule).
 
 Roles and their prompts (in `.agents/prompts/`):
 
@@ -31,10 +31,10 @@ Roles and their prompts (in `.agents/prompts/`):
   evidence. Prefer several reviewers with different lenses, and different models
   where available, since same-model reviewers share blind spots.
 - Triager (`triager.md`). Judges the reviewers' findings on their evidence and
-  severity and returns a verdict for each. The triager is always a separate agent,
-  independent of both the agent that produced the artifact under review and the
-  orchestrator, for every review round including trivial ones; it is never
-  collapsed into another role. The orchestrator drives the loop and owns
+  severity and returns a verdict for each. The triager is always a separate agent
+  (or a human), independent of both the agent that produced the artifact under
+  review and the orchestrator, for every review round including trivial ones; it is
+  never collapsed into another role. The orchestrator drives the loop and owns
   convergence and cost, so it is biased toward dismissing findings to converge, and
   letting it triage would let that bias decide which findings count.
 - Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the

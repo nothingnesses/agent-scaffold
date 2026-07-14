@@ -556,3 +556,9 @@ discipline/isolation cluster at the next planner touch.
 `pack-rebuild-tracking` review: one reviewer (correctness/robustness of build.rs),
 findings to a file per Q-14; separate triager to follow (always-separate rule). The
 review file will be committed before cleanup, per the commit-before-delete rule.
+
+Robustness-to-mishaps DECIDED by the human: adopt the layered robustness, baseline
+now (clean-tree-before-writer invariant, orchestrator recovery protocol on any
+kill/interrupt, validation-in-scratch) and isolation as the structural fix (already
+decided; this mishap is added evidence to prioritise it). Fold into the
+discipline/isolation cluster at the next planner touch.

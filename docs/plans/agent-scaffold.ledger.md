@@ -594,3 +594,11 @@ additions, already documented) with brief rationale comments, since pack/ is
 maintainer-controlled, all-ASCII, symlink-free. Verdicts in
 `docs/plans/agent-scaffold.reviews/pack-rebuild-tracking-triage.md`. Resuming the
 implementer for the Finding-4 fix + rationale comments.
+
+`pack-rebuild-tracking` converged: Finding 4 fixed (build.rs derives the pack root
+from `CARGO_MANIFEST_DIR`), Findings 1/2/3 accepted with rationale comments; re-
+validated (re-embed works on a plain build, 46 tests, clippy clean); src/ fmt
+incidental changes reverted by hand (no git checkout). Roadmap: pack-rebuild-tracking
+complete, triager-independence next. Committing the step AND the Q-14 review files
+(so the review record is in git history), then a follow-up commit deletes the
+review files (committed deletion, per commit-before-delete).

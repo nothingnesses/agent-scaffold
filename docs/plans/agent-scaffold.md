@@ -110,8 +110,8 @@ Steps in implementation order, with status. The Roadmap is the single source of 
 | `init-vcs`               | complete    |
 | `convergence-accounting` | complete    |
 | `workflow-doc-fixes`     | complete    |
-| `pack-rebuild-tracking`  | next        |
-| `triager-independence`   | not started |
+| `pack-rebuild-tracking`  | complete    |
+| `triager-independence`   | next        |
 | `human-onboarding`       | not started |
 | `deliberation-mode`      | not started |
 | `human-review-queue`     | not started |

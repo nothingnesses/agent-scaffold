@@ -697,6 +697,32 @@ folded into the step-completion commit. Roadmap: `triager-independence` COMPLETE
 follow-up commit deletes all five triager-independence review files (committed
 deletion, per commit-before-delete).
 
+`file-safety-rules` implemented (commit d86ec0f; before 742bcae): added an always-on
+file-safety/durability section to `pack/AGENTS.md` (git as the recovery substrate:
+clean-tree-before-writer, commit-before-delete, format-only-your-own-files,
+validate-in-scratch, orchestrator recovery-on-interrupt) and folded the role rules
+into `implementer.md` (format-only, validate-in-scratch) and `orchestrator.md`
+(clean-tree, commit-before-delete, recovery). Classified LOW-risk (doc-only,
+reversible) -> one clean round.
+
+`file-safety-rules` round 1: two independent reviewers (opus completeness, sonnet
+coherence/duplication; findings to Q-14 files `file-safety-rules-reviewer-opus.md`,
+`-sonnet.md`). R1 (opus, low), S1/S2/S3 (sonnet, 2M/1L). SEPARATE triager
+(`file-safety-rules-triage.md`) deduped to 3 groups, all VALID LOW (S1+S2 downgraded
+med->low): Group A = "writer agent" is a loose category (never tied to roles) and the
+"The rules:" lead-in admits a writer-vs-owner ambiguity; Group B = the implementer
+defers "incidental reformatting to the orchestrator" but the orchestrator "does not
+implement", so the duty had no permitted owner; Group C = commit-before-delete for the
+ledger stated twice (pre-existing ledger paragraph + new rule) in both AGENTS.md and
+orchestrator.md, a drift surface. No high/critical, so no backstop re-check. Round 1
+outcome: NEW VALID FINDINGS. Fixes: (A) added a Roles-section sentence classifying
+writers (planner, implementer) vs read-only (reviewers, triager) and defining "writer
+agent", and reworded the lead-in to "each carried out by the role it names"; (B) added
+a clause to `orchestrator.md` granting the orchestrator tree-hygiene reformatting
+(distinct from implementing a step); (C) dropped the now-subsumed "committing the
+deletion" clause from the ledger paragraph in both files, letting the canonical rule
+own it. Regenerated; re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

@@ -649,3 +649,46 @@ plan with the Q-14 review files (`consolidate-A.md`, `consolidate-triage.md`), t
 a follow-up commit deletes them (committed deletion). The plan is now authoritative
 and compaction-safe: every decided rule is a Roadmap step. Next: implement
 `triager-independence`.
+
+## RESUME STATE (compaction checkpoint, read this first)
+
+We are DOGFOODING the role-separated workflow on this repo itself (it is
+self-scaffolded: root `AGENTS.md`, `.agents/`, plan under `docs/plans/`). To resume
+after a compaction: read `AGENTS.md` (the workflow), `docs/plans/agent-scaffold.md`
+(the plan: Roadmap + Open Questions queue + Step Details; its Status line is the
+resume anchor), and this ledger. Operate as the ORCHESTRATOR.
+
+Current state: `convergence-accounting`, `workflow-doc-fixes`, and
+`pack-rebuild-tracking` are complete and committed. The NEXT step is
+`triager-independence`. The remaining not-started steps (see the Roadmap) implement,
+into the pack, the workflow rules we have already ADOPTED and been operating by this
+session. The full whole-codebase review is a LATER job, after these steps land, not
+the current job.
+
+IMPORTANT, apply these adopted rules when running the workflow even though the pack
+`AGENTS.md`/prompts do not yet contain them (implementing them is the remaining
+work):
+- Always spawn a SEPARATE triager, never collapsed, independent of both the producer
+  and the orchestrator (`triager-independence`, `Q-13`).
+- At every human-input point (escalation, intake, open questions), give options,
+  trade-offs, a recommendation, and reasoning judged against the plan's numbered
+  Project Principles (human-input contract, `Q-12` / `deliberation-mode`).
+- Reviewers and triagers WRITE findings to per-agent files under
+  `docs/plans/agent-scaffold.reviews/`; reference them by path, do not transcribe;
+  COMMIT the review files before deleting them at round close (`Q-14`
+  findings-files; commit-before-delete).
+- Keep this ledger current and COMMITTED; commit it (and any pending work) before
+  spawning a writer agent; commit any managed file before deleting it
+  (`file-safety-rules`, `Q-17`).
+- Implementers must not run repo-wide `just fmt`/`nix fmt` or `git checkout` on files
+  they do not own (two incidents clobbered the ledger this way; both recorded above).
+  On an agent kill/interrupt, run the recovery protocol: inspect `git status`/`diff`,
+  revert stray artifacts, confirm a known-good tree before continuing.
+- After editing `pack/`, regenerate with `just scaffold-self` (build.rs now tracks
+  pack rebuilds, so no `cargo clean` is needed); verify `just test` and `just clippy`;
+  keep everything ASCII-clean; commit per step; do not push unless asked.
+- Isolation (writer agents) is decided as capability-tiered (container > worktree >
+  the file-safety discipline) but not built; `agent-isolation` is the step.
+
+The workflow-hardening review task (this ledger's task) is still OPEN; do not delete
+this ledger until the task closes.

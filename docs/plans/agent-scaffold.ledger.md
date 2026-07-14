@@ -456,3 +456,61 @@ reviewers (A correctness/completeness, opus; B consistency/principles, sonnet),
 DOGFOODING Q-14: each reviewer WRITES its findings to a file under
 `docs/plans/agent-scaffold.reviews/`, and the separate triager reads those files
 directly (no orchestrator transcription). Files cleaned up at round close.
+
+New human request (interrupt): queue the `optional-modules` agent-isolation work
+(agent-images / agent-box) to prevent the cross-agent file-conflict class (the
+git-checkout ledger clobber). Intake (per the human-input contract). Recommendation:
+DECOUPLE the incident from the isolation feature. (1) Now, fix the incident cheaply
+with discipline (implementers format only their own files, never `git checkout`
+files they do not own; the orchestrator commits the ledger before spawning writers)
+as a small workflow-rule plan item, sibling to `pack-rebuild-tracking`. (2) Pursue
+isolation deliberately for its real value (parallel implementation, sandboxing),
+NOT as the incident fix; when taken up, do WORKTREE isolation first (native to the
+harness, proportionate to the file-conflict class) and the heavier `agent-box` /
+`agent-images` CONTAINER isolation as a later follow-on (adds sandboxing/environment
+isolation, a separate motivation). Reasoning: Principle 2 (minimal; do not
+over-build the core for one incident), Principle 6 (evidence before heavy
+investment), Principle 1 (isolation is the cleaner structural answer, so pursue it,
+but deliberately and worktree-first). Awaiting the human's decision on queuing and
+priority.
+
+`workflow-doc-fixes` review (Q-14 findings files, no orchestrator transcription):
+- Reviewer A (correctness): 0/0/0/3L -> `docs/plans/agent-scaffold.reviews/workflow-doc-fixes-A.md`.
+- Reviewer B (consistency): 0/1H/2M/3L -> `.../workflow-doc-fixes-B.md`. The high:
+  `orchestrator.md` omits "acceptance does not require clean rounds" (F6 drift vs
+  `AGENTS.md`). Theme: the F6/F15/F5 clauses landed in `AGENTS.md` but were not
+  mirrored into `orchestrator.md` (the operational prompt), plus backstop-guard
+  wording drifts across AGENTS.md/orchestrator.md/triager.md.
+Separate triager (opus, independent of the orchestrator and the implementer)
+dispatched to adjudicate; it reads BOTH findings files directly (Q-14).
+
+Agent-isolation decision (human, refining the earlier intake): adopt a
+CAPABILITY-TIERED, harness-agnostic rule. Run each WRITER agent in the strongest
+isolation the harness supports, preference order: (1) container isolation
+(agent-box / agent-images) if available, PREFERRED (isolates filesystem +
+environment + security sandbox); (2) worktree isolation if that is what is
+available (e.g. claude-code native); (3) discipline-only fallback (scoped fmt, no
+cross-owner git checkout, commit the ledger before writers) when the harness has no
+isolation. Read-only agents (reviewers reading, triager) need no isolation
+(Principle 2). The discipline fix is the always-on BASELINE, not replaced; isolation
+is the structural upgrade layered on when available. "Container-preferred" is the
+runtime selection rule (in the workflow docs); our own build/adoption order stays
+worktree-first (native to claude-code, cheap now), agent-box container integration
+later; the rule resolves to worktree for us today anyway. Fold into `optional-modules`
+(isolation) plus a small discipline workflow-rule item at the next planner touch.
+
+`workflow-doc-fixes` triage (separate triager, read both findings files per Q-14):
+7 unique valid issues, 0 critical/high, 1 medium, 6 low. Medium = the F15 risk
+definition + classify-once/record rule is in `AGENTS.md` but missing from
+`orchestrator.md`, so the operational checklist re-opens the subjective per-round
+1-or-2 classification. Low = the acceptance "no clean rounds" clause, the overturn
+step-2 self-containedness (amend the summary line + spawn another round), the
+high-or-above guard wording differing across AGENTS.md/orchestrator.md/triager.md,
+the escalation reset naming "both counts", and two README diagram simplifications
+(trivial-fold edge label-vs-target; acceptance-shortfall edge routes only to plan).
+Theme: clauses landed in `AGENTS.md` but were not fully mirrored into
+`orchestrator.md`; the nine findings themselves are correctly in place. Round
+outcome: new valid findings (not clean). Fix = mirror the clauses into
+`orchestrator.md` + the two README nits. Committing the ledger (protect it), then
+resuming the implementer WITH the discipline rule (no repo-wide fmt, no git
+checkout). Review files kept until the step converges, then cleaned up (Q-14).

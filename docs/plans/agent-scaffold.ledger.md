@@ -1023,6 +1023,20 @@ not mention the compaction lifecycle (discoverability gap). Recorded `Q-23` (ope
 a thin onboarding pointer; fold into `human-review-queue`. Recommitted the checkpoint with
 this open item.
 
+`human-review-queue` implemented (commit `fbd3ffa`; before `3599756`): folded the
+push-at-checkpoint human-decision queue (`Q-10`), the report-and-continue
+step-boundary cadence configurable at kickoff (`Q-21`), the Getting-started
+push-model re-strengthen (`Q-9` follow-up), and the compaction-prep/resume
+onboarding pointer (`Q-23`) into `pack/AGENTS.md`, `pack/prompts/orchestrator.md`,
+`pack/plan-template.md`, and `pack/user-prompts/kickoff.md`; regenerated the
+self-scaffold; 46 tests/clippy clean, ASCII-clean; new prose left unwrapped per the
+no-wrap convention. Classified LOW-risk (doc-only workflow guidance, easily
+reversible, not security/data/money-sensitive) -> one clean round required. Round 1:
+two independent reviewers dispatched (opus correctness/completeness, sonnet
+consistency/principles; different models per the diverse-lens rule), findings to
+Q-14 files (`human-review-queue-reviewer-opus.md`, `-reviewer-sonnet.md`). Separate
+triager to follow on the combined set (always-separate rule).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

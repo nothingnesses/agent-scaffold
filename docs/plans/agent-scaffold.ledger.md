@@ -622,3 +622,12 @@ fixed proactively. Reviewing the plan change: one reviewer (consistency /
 well-formedness, findings to a file per Q-14); a SEPARATE triager adjudicates
 anything found (always-separate rule); review files committed before cleanup
 (commit-before-delete).
+
+Consolidating-plan review (Q-14 file `consolidate-A.md`): 0/0/2M/2L; the recurring
+classes (queue-vs-step, well-formedness, principle numbering, status agreement) all
+PASSED this time. Findings: (med) the Success Criteria contradict each other on
+where the kickoff prompt lives vs the revised `human-onboarding`; (med) the Q-17
+queue item duplicates its step's five-rule content (terse-queue); (low) Q-18
+restates the decided tier order (terse-queue); (low) `findings-files` "share one
+schema" is loosely worded and its cluster membership disagrees with `state-schema`.
+Separate triager dispatched (reads the file per Q-14).

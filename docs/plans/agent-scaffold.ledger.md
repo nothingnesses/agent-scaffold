@@ -532,3 +532,27 @@ committed deletion recoverable from git history. Resolves the Q-14
 committed-vs-transient sub-decision toward COMMITTED (a findings file is committed at
 least once, then removed as a committed deletion). Fold into Q-14's cleanup step,
 the ledger delete-at-close lifecycle, and a general workflow rule. Applies from now.
+
+`pack-rebuild-tracking` implemented (build.rs, std-only, recursive
+`cargo:rerun-if-changed` for pack/). Validated by the orchestrator: 46 tests pass;
+a pack edit re-embeds on a plain `just build` with NO `cargo clean` (marker reached
+the scaffolded output, then reverted; tree clean). The implementer was accidentally
+killed by the human mid-task but had already reverted its temp edit, so recovery was
+just: inspect git status (only `?? build.rs`), re-validate.
+
+Robustness-to-mishaps decision (human asked; per the human-input contract): a killed
+or interrupted agent can leave the tree inconsistent. Adopt LAYERED robustness:
+(baseline, now) a clean-tree-before-writer invariant (commit pending work before
+spawning a writer, so a kill's damage is a visible uncommitted diff); an orchestrator
+RECOVERY PROTOCOL on any kill/interrupt (inspect git status/diff, revert stray temp
+artifacts, discard or complete partial work, confirm a known-good tree before
+continuing); and validation-in-scratch (destructive validations run in a temp dir or
+worktree, not the live tree). (structural, later) ISOLATION (already decided) is the
+real fix, a killed isolated writer cannot touch the main tree; this is the SECOND
+mishap (after the fmt/checkout clobber) that is evidence to prioritise it. Unifying
+theme: git is the workflow's durability/recovery substrate. Fold into the
+discipline/isolation cluster at the next planner touch.
+
+`pack-rebuild-tracking` review: one reviewer (correctness/robustness of build.rs),
+findings to a file per Q-14; separate triager to follow (always-separate rule). The
+review file will be committed before cleanup, per the commit-before-delete rule.

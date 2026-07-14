@@ -57,7 +57,10 @@ agent-scaffold is used at two moments, by two audiences:
 
 - You (the human) run it once to set a project up. Choose which principles apply
   (in the selector, or with `--principles`), review the plan, and write the
-  assets, then commit them to version control.
+  assets, then commit them to version control. To then start a task, see the
+  "Getting started, for the human" section of the scaffolded `AGENTS.md`, which
+  points you at the kickoff prompt to copy and explains your ongoing part in the
+  decisions the workflow brings back to you.
 - Agents then work inside the scaffolded project. They read `AGENTS.md` (the
   canonical, harness-agnostic guidance) and follow the workflow it describes:
   front-load context, draft a plan under `docs/plans/`, review the plan,

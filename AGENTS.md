@@ -13,13 +13,9 @@ workflow takes over. `.agents/user-prompts/` holds the prompts you invoke by han
 `.agents/prompts/` holds the role prompts the orchestrator (the agent that drives
 the workflow) hands to the agents it spawns, which you do not paste yourself.
 
-Your part does not end at kickoff. The workflow brings decisions back to you: when
-the agents reach a question, an impasse, or a trade-off, the orchestrator lays out
-the options, their trade-offs, a recommendation, and its reasoning, and you
-decide. These decisions collect in the plan's "Open Questions" section, the single
-human-decision queue; check that section as the work proceeds, and the orchestrator
-brings its recommendation to you when a decision is needed. Reviewing that section
-is the main standing thing asked of you.
+Your part does not end at kickoff. The workflow brings decisions back to you: when the agents reach a question, an impasse, or a trade-off, the orchestrator lays out the options, their trade-offs, a recommendation, and its reasoning, and you decide. Decisions accumulate in the plan's "Open Questions" section, the single human-decision queue. You do not have to watch it: at each checkpoint the orchestrator raises the open items with you and brings its recommendation, so deciding on what it raises is the main standing thing asked of you.
+
+For long-running work, two prompts in `.agents/user-prompts/` carry state across a context loss. Before the agent's context fills up (a compaction), paste `compaction-prep.md` to flush the plan and ledger to a clean checkpoint; to continue afterwards, paste `resume.md` so the agent rebuilds from that durable state rather than starting over.
 
 ## Workflow
 
@@ -231,6 +227,10 @@ closes. Never put individual findings in the plan's Open
 Questions section; only durable decisions, the ones that change the plan, fold
 into the plan's steps, and a folded decision reopens only by evidence that beats
 its recorded reasoning.
+
+Checkpoints (the human-decision queue and progress). The plan's "Open Questions, Decisions, Issues and Blockers" section is a single living human-decision queue of the decisions the human owns: each item has a stable id, a one-line ask, a status, and a pointer to the step or ledger that carries the detail, and a resolved item is marked resolved rather than deleted so it is not addressed twice (the plan template defines the item format). At every checkpoint the orchestrator updates this queue and pushes its open items to the human, each per the human-input contract, rather than waiting for the human to pull them: a new human would not know to watch it, and a pull-only model is fragile.
+
+A step boundary, one Roadmap step converged and the next not yet started, is a checkpoint: the orchestrator runs the queue push and reports what completed and what is next, then by default continues to the next step without blocking (report-and-continue), so the human keeps visibility and can interrupt at any time. The human may set another cadence at kickoff: gate for a go-ahead at each boundary, or run autonomously through to acceptance. The compaction checkpoint below and an escalation are also checkpoints and take the same queue push.
 
 File safety and durability (git is the recovery substrate). Every writer agent's
 damage must stay a visible, committed-or-recoverable diff, on any harness, whether

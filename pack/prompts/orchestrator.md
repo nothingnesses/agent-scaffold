@@ -94,6 +94,8 @@ implementation, verified by a later acceptance pass rather than another acceptan
 round on the spot. Escalating to a human is a request for a decision, not a stop:
 apply their decision and resume.
 
+At each checkpoint, sync the durable state before moving on. A checkpoint is a step boundary (a step converged, the next not yet started), a compaction-prep flush, or an escalation. There, update the plan's Open Questions queue and push its open items to the human, each per the human-input contract in `AGENTS.md`; do not wait for the human to pull them. At a step boundary also report what step completed and what is next, then continue to the next step by default (report-and-continue), honouring the cadence the human set at kickoff: gate for a go-ahead at each boundary, report-and-continue, or run autonomously through to acceptance.
+
 If a human adds or changes requests at any point, first run a single bounded
 intake assessment (yourself, or a short planner pass, not a full plan cycle) and
 report back: what the request touches, whether it changes the Roadmap scope or

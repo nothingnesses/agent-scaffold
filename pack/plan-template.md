@@ -29,15 +29,11 @@ the Roadmap (an ordered table of step slugs and their status), which is the
 single source of truth for status and order; the Step Details carry each step's
 design and, once done, its outcome, and do not repeat the status label. Steps are
 identified by a stable slug, not a number, so cross-references survive
-reordering. Resolved open questions are folded into the relevant step and removed
-from the Open Questions section rather than left as stale pointers.>
+reordering. Resolved open questions are marked resolved in the Open Questions queue, not deleted, and their decision folded into the relevant step, so a decision is not addressed twice.>
 
 ## Open Questions, Decisions, Issues and Blockers
 
-<Anything undecided or blocking. For each, record the viable approaches, their
-trade-offs, a recommendation, and the reasoning, so a decision is a matter of
-confirming rather than reconstructing. Remove an entry once resolved and fold
-its decision into the relevant step. State "none" when empty.>
+<This is the single living human-decision queue: everything undecided or blocking that the human owns. Each item has a stable id, a one-line ask, a status (`open`, `decided -> folded into <slug>`, or `superseded`), and a pointer to the step or ledger that carries the detail (the approaches, their trade-offs, a recommendation, and the reasoning judged against the numbered Project Principles, so a decision is a matter of confirming rather than reconstructing). A resolved item is marked resolved, not deleted, and its decision is folded into the step it affects, so the same question is not addressed twice. The orchestrator updates this queue at every checkpoint and pushes the open items to you. State "none" when empty.>
 
 ## Roadmap
 

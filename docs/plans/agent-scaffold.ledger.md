@@ -676,7 +676,26 @@ an unsupported config is not a regression) and Group E (S5, the backstop's uncha
 "independent" is now governed by the general rule, redundant not ambiguous). Round 1
 outcome: NEW VALID FINDINGS (not clean); the dismissed-HIGH backstop re-check does
 not gate this round because it is not a clean round. Fixes (Groups A/B/D) applied in
-pack/, regenerated + re-reviewed in round 2.
+pack/ (commit bdebe9d), regenerated + re-reviewed in round 2.
+
+`triager-independence` round 2 (fixes committed bdebe9d): one fresh verification
+reviewer (opus, given the ledger so settled findings are not re-raised) confirmed all
+three Group A/B/D fixes landed and swept the full text: all four statements
+(AGENTS.md opening pointer + Triager bullet, orchestrator.md, triager.md) now agree
+the triager is always a separate agent (or a human), independent of both producer and
+orchestrator, every review round, never collapsed; generated mirrors byte-identical.
+One new LOW cosmetic finding T1 (an orphaned line-wrap from the Group B reflow,
+`triager-independence-round2-reviewer.md`). SEPARATE triager (sonnet, always-separate
+rule) ruled T1 INVALID, precedented by F11/F13/F14 cosmetic soft-wraps
+(`triager-independence-round2-triage.md`). Round 2 outcome: CLEAN (every finding
+dismissed). Convergence: LOW-risk artifact needs one clean round; streak = 1 ->
+CONVERGED. No dismissed-high/critical in round 2, so the backstop re-check does not
+gate; round 1's S2 dismissal was in a new-valid round so it never gated a clean
+round. T1 re-wrapped off-cycle (triager blessed it as optional, no new round) and
+folded into the step-completion commit. Roadmap: `triager-independence` COMPLETE,
+`file-safety-rules` next. Committing the round-2 review files (durable record), then a
+follow-up commit deletes all five triager-independence review files (committed
+deletion, per commit-before-delete).
 
 ## RESUME STATE (compaction checkpoint, read this first)
 
@@ -686,9 +705,9 @@ after a compaction: read `AGENTS.md` (the workflow), `docs/plans/agent-scaffold.
 (the plan: Roadmap + Open Questions queue + Step Details; its Status line is the
 resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
-Current state: `convergence-accounting`, `workflow-doc-fixes`, and
-`pack-rebuild-tracking` are complete and committed. The NEXT step is
-`triager-independence`. The remaining not-started steps (see the Roadmap) implement,
+Current state: `convergence-accounting`, `workflow-doc-fixes`,
+`pack-rebuild-tracking`, and `triager-independence` are complete and committed. The
+NEXT step is `file-safety-rules`. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.
@@ -697,7 +716,8 @@ IMPORTANT, apply these adopted rules when running the workflow even though the p
 `AGENTS.md`/prompts do not yet contain them (implementing them is the remaining
 work):
 - Always spawn a SEPARATE triager, never collapsed, independent of both the producer
-  and the orchestrator (`triager-independence`, `Q-13`).
+  and the orchestrator (`triager-independence`, `Q-13`; now landed in the pack
+  `AGENTS.md`/prompts, so this is no longer a pack-vs-practice gap).
 - At every human-input point (escalation, intake, open questions), give options,
   trade-offs, a recommendation, and reasoning judged against the plan's numbered
   Project Principles (human-input contract, `Q-12` / `deliberation-mode`).

@@ -980,7 +980,19 @@ open-questions-gate.md, planner.md, clarifying-questions.md to pure pointers; ad
 carve-out; reflowed the two paragraphs; "project's" -> "plan's". Regenerated; re-reviewed
 in round 2. (Stray finding, out of scope: pack/AGENTS.md line ~269, a 126-col wrap from
 the earlier agent-isolation edit, not in this diff; to be fixed as a separate tree-hygiene
-commit.)
+commit.) [done in 360f7b9.]
+
+`deliberation-mode` round 2 (fixes 642421a, stray reflow 360f7b9): one fresh reviewer
+verified all five round-1 fixes landed (pure pointers, carve-out, reflow, "the plan's"),
+the contract stated once and referenced everywhere, mirrors in sync. Only new finding: a
+line-wrap regression in clarifying-questions.md from the G1 trim. HUMAN RULING (`Q-22`):
+line-wrapping is NOT a defect, the human prefers no manual hard-wrapping (soft-wrap) and
+agents must not police or reflow it. So that finding is dismissed (not a defect); reverted
+the pointless reflow; recorded the preference in memory (`no-hard-wrap-prose`) and `Q-22`.
+Round 2 outcome: CLEAN (its only finding was a non-defect wrap). Streak = 1 of 2 (risky
+classification). GOING FORWARD: ignore line length in all reviews/triage. Convergence
+decision put to the human: run the second clean round, or accept convergence now (the
+substance was deep-reviewed in round 1 and verified clean in round 2).
 
 ## RESUME STATE (compaction checkpoint, read this first)
 

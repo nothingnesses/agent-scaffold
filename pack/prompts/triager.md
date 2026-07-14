@@ -14,7 +14,9 @@ a four-level scale: `low`, `medium`, `high`, or `critical`, an absolute rating o
 the finding's impact if left unfixed rather than a ranking relative to the other
 findings; confirm or correct the reviewer's rating as part of your verdict. For
 each finding, return a verdict: valid (with the severity and why) or invalid (with
-why). When you dismiss a finding of high or critical severity (high-or-above on the
+why). A finding about line length or prose line-wrapping is never valid: the project
+does not hard-wrap prose and a formatter owns wrapping, so dismiss any such finding.
+When you dismiss a finding of high or critical severity (high-or-above on the
 four-level `low`/`medium`/`high`/`critical` scale), give your full reasoning: such
 a dismissal is independently re-checked by a second triager (or a human) before it
 is treated as settled, so make it auditable.

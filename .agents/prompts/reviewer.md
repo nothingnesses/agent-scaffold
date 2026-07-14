@@ -24,6 +24,8 @@ This is an absolute rating of the finding's impact if left unfixed, not a rankin
 relative to the other findings. If you find nothing of a given severity, say so
 explicitly rather than inventing issues.
 
+Line length and prose line-wrapping are never findings: the project does not hard-wrap prose and a formatter owns wrapping, so do not raise or comment on them.
+
 If you are given a review ledger of already-settled findings, do not re-raise one
 unless you have new evidence that its verdict was wrong; say what the new evidence
 is.

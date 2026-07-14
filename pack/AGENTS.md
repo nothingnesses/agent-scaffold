@@ -294,6 +294,8 @@ from it.
 This names the plan, the ledger, and the plan's Open Questions queue, not any
 specific harness memory feature, so it works on any harness.
 
+Prose formatting. Prose in Markdown and in comments is not hard-wrapped: write natural lines and let the editor or renderer soft-wrap them. Do not insert manual line breaks to hit a column width, and do not reflow existing prose to a width. Line length is never a review finding, so reviewers and triagers do not raise or act on it. Where the project's formatter owns Markdown wrapping (for example prettier), let it own wrapping rather than wrapping by hand.
+
 ## Principles
 
 Follow these principles. They are numbered for reference, not priority.

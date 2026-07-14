@@ -1053,6 +1053,20 @@ outcome: NEW VALID FINDINGS (not clean); consecutive-clean stays 0. Committing t
 triage file, then resuming the implementer for the fixes (discipline rule: no
 repo-wide fmt, no cross-owner git checkout), then round 2.
 
+`human-review-queue` round 2 (fixes committed `4823785`): one fresh verification
+reviewer (opus, given the ledger so settled findings are not re-raised,
+`human-review-queue-round2-reviewer.md`) confirmed all five round-1 fixes landed and
+the AGENTS.md/template split is now clean (format lives once in the template, AGENTS.md
+defers to it and carries only the push behaviour, the template points back to AGENTS.md
+for the push rule; no dangling reference, nothing left undefined by the S1 trim), and
+found zero new findings. Round 2 outcome: CLEAN (no triager needed, nothing to
+adjudicate). Convergence: LOW-risk artifact needs one clean round; new-valid (r1),
+clean (r2) -> streak = 1 -> CONVERGED. No dismissed high/critical, so no backstop
+re-check. Roadmap: `human-review-queue` COMPLETE, `no-wrap-convention` next. Committing
+the round-2 review file (durable record) with the step completion, then a follow-up
+commit deletes all five human-review-queue review files (committed deletion, per
+commit-before-delete).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -1064,27 +1078,22 @@ resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 Current state: complete and committed so far are `convergence-accounting`,
 `workflow-doc-fixes`, `pack-rebuild-tracking`, `triager-independence`,
 `file-safety-rules`, `agent-isolation` (the isolation RULE; mechanism deferred),
-`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`, and
-`deliberation-mode` (the cross-cutting human-input contract). The NEXT step is
-`human-review-queue`, then `no-wrap-convention`, `findings-files`, and
+`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`,
+`deliberation-mode` (the cross-cutting human-input contract), and `human-review-queue`
+(the push-at-checkpoint living queue + report-and-continue cadence + `Q-23` onboarding
+pointer). The NEXT step is `no-wrap-convention`, then `findings-files` and
 `ledger-template`; `state-schema` is deferred; the earlier `optional-modules`,
 `greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`,
-`workflow-calibration`, and `instrument-flag` remain optional/deferred. One open
-question remains for the human: `Q-23` (the human-facing "Getting started" onboarding
-does not mention the compaction-prep / resume prompts, a discoverability gap;
-recommend a thin pointer, fold into `human-review-queue`); `Q-1`..`Q-22` are decided.
-Each remaining step folds an already-decided rule INTO the pack. The full whole-codebase review is a LATER job,
-after the remaining steps land, not the current job.
+`workflow-calibration`, and `instrument-flag` remain optional/deferred. No open
+questions remain for the human: `Q-1`..`Q-23` are all decided. Each remaining step
+folds an already-decided rule INTO the pack. The full whole-codebase review is a LATER
+job, after the remaining steps land, not the current job.
 
 IMPORTANT, apply these ADOPTED rules when running the workflow even though the pack
 does not yet contain them (implementing them is the remaining work):
 - Reviewers and triagers WRITE findings to per-agent files under
   `docs/plans/agent-scaffold.reviews/`; reference them by path, do not transcribe;
   COMMIT the review files before deleting them at round close (`Q-14` findings-files).
-- At every checkpoint PUSH the open Open-Questions items to the human; at a step
-  boundary REPORT what completed and what is next, then continue (report-and-continue
-  is the default cadence; the human may gate or go autonomous at kickoff) (`Q-10`
-  human-review-queue + `Q-21`).
 - Prose is NOT hard-wrapped and line length is NEVER a review finding; do not reflow
   or police it (`Q-22` no-wrap-convention; user preference in memory
   `no-hard-wrap-prose`).
@@ -1092,8 +1101,11 @@ does not yet contain them (implementing them is the remaining work):
 These ADOPTED rules are ALREADY in the pack, keep following them: always a SEPARATE
 triager independent of the producer AND the orchestrator (`triager-independence`); the
 human-input contract, present options/trade-offs/recommendation/Principle-judged
-reasoning at every human-input point and the human decides (`deliberation-mode`); the
-file-safety discipline, clean-tree-before-writer, commit-before-delete,
+reasoning at every human-input point and the human decides (`deliberation-mode`); at
+every checkpoint PUSH the open Open-Questions items to the human and, at a step
+boundary, REPORT what completed and what is next then continue (report-and-continue
+default; the human may gate or go autonomous at kickoff) (`human-review-queue` +
+`Q-21`); the file-safety discipline, clean-tree-before-writer, commit-before-delete,
 format-only-your-own-files (implementers do not run repo-wide `just fmt`/`nix fmt` or
 `git checkout` on files they do not own), validate-in-scratch, and orchestrator
 recovery-on-interrupt (`file-safety-rules`); capability-tiered writer isolation

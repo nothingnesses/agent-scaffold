@@ -89,7 +89,7 @@ flowchart TB
     ptriage --> pdec{"Plan review converged?"}
     pdec -->|new valid findings| previse["Planner revises"]
     previse --> preview
-    pdec -->|contested or round cap hit| pesc[["Escalate to a human"]]
+    pdec -->|total-round cap reached| pesc[["Escalate to a human"]]
     pesc -->|decision applied, resume| preview
     pdec -->|converged| steps{"Pending steps<br/>in the roadmap?"}
     steps -->|yes| impl["Implement the next step<br/>(implementer)"]
@@ -98,7 +98,7 @@ flowchart TB
     wtriage --> wdec{"Work review converged?"}
     wdec -->|new valid findings| wfix["Implementer fixes"]
     wfix --> wreview
-    wdec -->|contested or round cap hit| wesc[["Escalate to a human"]]
+    wdec -->|total-round cap reached| wesc[["Escalate to a human"]]
     wesc -->|decision applied, resume| wreview
     wdec -->|converged| mark["Mark the step complete"]
     mark --> steps

@@ -91,33 +91,33 @@ Live queue:
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                    | Status   |
-| ----------------------- | -------- |
-| `core-assets`           | complete |
-| `file-dropper`          | complete |
-| `idempotency-safety`    | complete |
-| `selection-ui`          | complete |
-| `mode-enum`             | complete |
-| `tag-selection`         | complete |
-| `available-filter`      | complete |
-| `include-all-visible`   | skipped  |
-| `pack-manifest`         | complete |
-| `external-packs`        | complete |
-| `pack-owned-principles` | complete |
-| `init-vcs`              | complete |
-| `convergence-accounting`| next     |
-| `workflow-doc-fixes`    | not started |
-| `human-onboarding`      | not started |
-| `deliberation-mode`     | not started |
-| `human-review-queue`    | not started |
-| `ledger-template`       | not started |
-| `optional-modules`      | optional |
-| `greenfield-flake`      | optional |
-| `later-enhancements`    | optional |
-| `git-url-fetch`         | deferred |
-| `tui-authoring`         | optional |
-| `workflow-calibration`  | deferred |
-| `instrument-flag`       | optional |
+| Step                     | Status      |
+| ------------------------ | ----------- |
+| `core-assets`            | complete    |
+| `file-dropper`           | complete    |
+| `idempotency-safety`     | complete    |
+| `selection-ui`           | complete    |
+| `mode-enum`              | complete    |
+| `tag-selection`          | complete    |
+| `available-filter`       | complete    |
+| `include-all-visible`    | skipped     |
+| `pack-manifest`          | complete    |
+| `external-packs`         | complete    |
+| `pack-owned-principles`  | complete    |
+| `init-vcs`               | complete    |
+| `convergence-accounting` | complete    |
+| `workflow-doc-fixes`     | next        |
+| `human-onboarding`       | not started |
+| `deliberation-mode`      | not started |
+| `human-review-queue`     | not started |
+| `ledger-template`        | not started |
+| `optional-modules`       | optional    |
+| `greenfield-flake`       | optional    |
+| `later-enhancements`     | optional    |
+| `git-url-fetch`          | deferred    |
+| `tui-authoring`          | optional    |
+| `workflow-calibration`   | deferred    |
+| `instrument-flag`        | optional    |
 
 ## Step Details
 

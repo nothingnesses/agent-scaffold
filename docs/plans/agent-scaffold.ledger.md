@@ -9,6 +9,7 @@ and consistency with the project's principles, then address valid findings.
 
 Interrupt requests (received during this task, to fold into the plan via the
 planner, not done ad hoc):
+
 - `human-onboarding`: add a "Getting started, for the human" section to the
   canonical `AGENTS.md` with one inline editable kickoff prompt, plus a brief
   README mirror pointing to it (approach B + thin C). Decided by the human.
@@ -67,10 +68,10 @@ dispatched on the updated plan, told Q-1 = (b). Triager to follow.
 
 ## Round summaries
 
-| Round | Artifact           | Changed since prev | Outcome           | Valid findings | Consecutive clean |
-| ----- | ------------------ | ------------------ | ----------------- | -------------- | ----------------- |
-| 1     | hardening changes  | n/a (first)        | new valid findings | 14 (1H/8M/5L)  | 0                 |
-| 2     | updated plan       | folded + 4 features | new valid findings | 12 (1H/5M/6L)  | 0                 |
+| Round | Artifact          | Changed since prev  | Outcome            | Valid findings | Consecutive clean |
+| ----- | ----------------- | ------------------- | ------------------ | -------------- | ----------------- |
+| 1     | hardening changes | n/a (first)         | new valid findings | 14 (1H/8M/5L)  | 0                 |
+| 2     | updated plan      | folded + 4 features | new valid findings | 12 (1H/5M/6L)  | 0                 |
 
 ## Round 2 (plan review) reviewer findings, pre-triage
 
@@ -127,6 +128,7 @@ converges).
 Reviewer B (consistency/principles, sonnet) returned. Corroborates A's Q-1=(b)
 propagation theme and adds several planner artifacts. Merged unique round-2
 findings G1-G13 handed to the triager:
+
 - G1 (A-H1,B-H1,B-L1,B-L3): convergence-accounting step body still pending/gated,
   hedges under (a), dead finding-id parenthetical, repeats `next` status label.
 - G2 (A-M1,A-M2,B-H2,B-M1): core-assets narrative keeps the two-cap/"three
@@ -174,12 +176,82 @@ recommendation leans to (a)" (a pre-existing style nit, unrelated to Q-1; noted 
 a later style sweep, not fixed). Round 3 convergence decision pending: a formal
 one-reviewer verification round versus accept-as-converged (the round-2 independent
 review plus triage already did the judgment; round 3 only verifies mechanical
-fixes, which the grep largely confirms). Awaiting the human's ceremony choice.
+fixes, which the grep largely confirms). Human decisions: D1 = (a) accept the plan as converged (no round-3 reviewer; match
+ceremony to stakes). Q-7 = a four-level severity RATING (low/medium/high/critical);
+the dismissed-finding guard triggers on high-or-above (validated against CVSS
+practice: an absolute rating, not a relative ranking; prioritisation like EPSS/KEV
+is a separate overlay). Q-2/Q-3 = the ledger template is a `.agents/` reference
+asset, the per-task copy is a working file. Q-4/Q-5/Q-6 (instrument-flag) and Q-11
+(structured state) remain open but non-blocking (deferred). Plan CONVERGED and
+accepted.
+
+Implementation begins (workflow phase 4). Step 1, `convergence-accounting`
+(Q-1 = (b), single total-round cap; addresses F1/F2/F7/F10): implementer dispatched
+to edit the pack sources and regenerate the self-scaffolded copies, then reviewers
+
+- triager on the change.
+
+Step 1 `convergence-accounting` implemented (implementer). Edited pack/AGENTS.md
+(convergence bullets now name the single total-round cap; "Two backstops" collapsed
+to the dismissed-high-severity guard; ledger paragraph -> single cap),
+pack/prompts/orchestrator.md (step 3 escalation -> total-round cap only), README
+diagram (both edges -> "round cap reached"), CHANGELOG Unreleased (single cap).
+Regenerated the self-scaffold. Verified: no residual contested cap/state (only the
+legitimate triager-debate "contested finding"); boundary wording identical across
+the three docs ("reach the total-round cap (default five)"); 46 tests pass, clippy
+clean, fmt clean, ASCII-clean. Not committed.
+
+NEW FINDING (found during implementation; needs a plan item): `include_dir!` in
+src/manifest.rs embeds pack/ but does NOT register those files as cargo rebuild
+dependencies, so `just scaffold-self` can regenerate the root AGENTS.md and
+`.agents/` from a STALE embedded pack. The bootstrap commit's committed `.agents/`
+copies were in fact stale (missing the hardening content); a forced
+`cargo clean -p agent-scaffold` + rebuild caught them up in this working tree.
+Impact: scaffold-self is unreliable without a forced rebuild, and the planned
+golden test would be fooled by the same staleness. Fix candidate: a build.rs
+emitting `cargo:rerun-if-changed=pack`. Route to the planner as a new step (e.g.
+`pack-rebuild-tracking`), prioritised before the golden test and before relying on
+scaffold-self. Surfaced to the human.
+
+New human request (interrupt): make the workflow ALWAYS present, at every point
+that needs human input (escalation, intake, open questions, clarifying questions),
+the viable options/approaches, the trade-offs of each, a recommendation, and the
+reasoning, with the reasoning judged against the current numbered Project
+Principles of the project the workflow is used on. Intake: non-trivial (changes the
+workflow's human-input contract); routes to the planner. Recommendation: Approach A
+(one cross-cutting "human-decision contract" rule in `AGENTS.md`, referenced from
+each point, not duplicated) plus a light standard decision-block format, scaled to
+stakes; fold into `deliberation-mode` (generalise it from Socratic questions to all
+human-input points) and strengthen the escalation step, which currently lacks
+structured options. Judge recommendations against the plan's own Principles by
+number. Awaiting the human's approach lock.
+
+Human adopted all recommendations: (1) `convergence-accounting` work review = one
+focused reviewer; (2) queue the `include_dir` finding as `pack-rebuild-tracking`
+(prioritised); (3) structured human-input contract = Approach A + light C,
+stakes-scaled, folded into `deliberation-mode`, strengthening escalation; (4)
+Q-4/Q-5/Q-6 confirmed at the recommended defaults; (5) Q-11 held (deferred); (6)
+`greenfield-flake` nit deferred to a later style sweep. Next: one reviewer on the
+convergence-accounting change, then converge/commit/mark it done; then a batched
+planner pass to fold `pack-rebuild-tracking` and the human-input contract into the
+plan and mark the queue decisions. One reviewer (opus) dispatched on the
+convergence-accounting change.
+
+Convergence-accounting work review returned: no critical/high/medium; F1/F2/F7/F10
+resolved, no residual contested cap/state, guards and rules preserved. 4 low
+wording-consistency nits: (1) "of five" vs "(default five)" in the AGENTS.md ledger
+paragraph; (2) README label "round cap reached" vs prose "total-round cap"; (3) the
+cap bullet sits under "decides from the triager's verdicts" though it is
+round-count-driven; (4) AGENTS.md leaves the converge-before-escalate precedence
+implicit (orchestrator.md states it). All clear, undisputed consistency nits;
+accepted as valid without formal triage (match ceremony to stakes). Implementer
+resumed to apply the four fixes, regenerate (with the cargo-clean rebuild for the
+include_dir staleness), and re-verify. Then converge, commit, mark the step done.
 
 ## Findings
 
-| ID | Round | Severity | Triager verdict | Reasoning | Action |
-| -- | ----- | -------- | --------------- | --------- | ------ |
+| ID  | Round | Severity | Triager verdict | Reasoning | Action |
+| --- | ----- | -------- | --------------- | --------- | ------ |
 
 Round 1: two independent reviewers dispatched (R1 correctness/termination lens,
 opus; R2 cross-document-consistency/principles lens, sonnet). R1 returned (11
@@ -267,6 +339,7 @@ second-triager guard did not trigger. Round 1 outcome: NEW VALID FINDINGS (not a
 clean round); consecutive-clean stays 0.
 
 Themes of the valid findings:
+
 - Convergence accounting (F1 high, F2, F7, F10): the "contested" round state the
   contested-rounds cap depends on is never defined or recorded, the round taxonomy
   is not a partition, cap-boundary wording is inconsistent, and the bullets omit

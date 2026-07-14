@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context and resumes across machines and sessions; the orchestrator follows an
   explicit per-round procedure to append the ledger and increment or reset the
   clean-round count. Convergence now requires consecutive clean rounds scaled to
-  the stakes, guarded
-  by a contested-rounds cap (default three) and a total-round cap (default five)
-  that both escalate. A dismissed high-severity finding is re-checked by a second
+  the stakes, and a review loop escalates to a human when the total rounds on an
+  artifact reach the total-round cap (default five). A dismissed high-severity
+  finding is re-checked by a second
   independent triager. The acceptance review gains a triager, matching the other
   review phases. A human interrupt now goes through a bounded intake assessment
   that advises on impact and gives feedback on the request, routing trivial

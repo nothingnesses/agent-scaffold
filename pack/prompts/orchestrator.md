@@ -30,8 +30,7 @@ Track the counts explicitly. Each review-then-triage round, in order:
    the dismissal.
 3. Decide from the counts: converge when the consecutive-clean count reaches the
    required number (one for a trivial or low-risk artifact, two for a risky one);
-   escalate to a human with the ledger when valid findings stay contested past the
-   contested-rounds cap (default three) or the total rounds for the artifact exceed
+   escalate to a human with the ledger when the total rounds on an artifact reach
    the total-round cap (default five); otherwise have the planner or implementer
    address the new valid findings and spawn another round (fresh reviewers, given
    the ledger) on the revised artifact.

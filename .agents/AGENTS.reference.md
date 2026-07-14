@@ -52,9 +52,10 @@ Phases (the orchestrator drives these, spawning the role shown):
    valid verdicts. Repeat the review per the convergence rule, then mark the step
    complete in the Roadmap and move to the next step.
 5. Accept. When no pending steps remain, the orchestrator spawns reviewers for an
-   acceptance review against the plan's Success Criteria. If the changes meet
-   every criterion, the work is done. If not, each shortfall is a finding that
-   goes back to planning (add or revise steps) or implementation.
+   acceptance review against the plan's Success Criteria, then a triager on their
+   findings, as in the other review phases. If the triager confirms every
+   criterion is met, the work is done. If not, each valid shortfall is a finding
+   that goes back to planning (add or revise steps) or implementation.
 
 Stop condition. The workflow is done when every step in the plan's Roadmap is
 complete and an acceptance review confirms the changes meet the plan's Success
@@ -62,50 +63,91 @@ Criteria. Escalating to a human is not a stop: it is a request for a decision on
 an impasse, after which the orchestrator applies the decision and resumes the
 workflow where it paused.
 
-Human requests (interrupts). A human may add or change requests at any point. The
-orchestrator routes the request to the planner to fold into the plan, revising
-the Roadmap steps and the Success Criteria and resolving any new open questions,
-then re-enters the plan review and continues. Human input is authoritative and
-always enters through the plan, so it is captured durably in the Roadmap and
-Success Criteria rather than done ad hoc. This is the push counterpart to
-escalation, where the orchestrator pulls a human decision on an impasse.
+Human requests (interrupts). A human may add or change requests at any point.
+Before acting on one, the orchestrator runs a single bounded intake assessment
+(itself, or a short planner pass, not a full plan cycle) and reports back: what
+the request touches, whether it changes the Roadmap scope or Success Criteria, its
+risk and reversibility, any ambiguity or contradiction with a decision already
+folded into the plan, and a recommended routing. The human decides; the
+orchestrator only advises, and defaults to the durable path when the assessment is
+uncertain. This intake is also where the agent gives feedback on the request
+itself, so the human can correct or refine it before any work starts.
+
+A request is trivial only if it is local, reversible, changes neither the Success
+Criteria nor the Roadmap scope, and raises no new open question; such a request
+may be folded in directly. Anything that touches the plan's scope or criteria, or
+carries real risk, is non-trivial and routes to the planner to fold into the plan
+(revising the Roadmap steps and Success Criteria and resolving any new open
+questions), then re-enters plan review. Human input is authoritative and, when
+non-trivial, always enters through the plan, so it is captured durably in the
+Roadmap and Success Criteria rather than done ad hoc. This is the push counterpart
+to escalation, where the orchestrator pulls a human decision on an impasse. Match
+the intake's ceremony to the stakes: it exists to save the full plan cycle for
+genuinely small requests, so keep it lighter than what it replaces.
 
 Convergence (when the orchestrator ends one review loop and moves on; distinct
 from the Stop condition above, which ends the whole workflow). After each
-review-then-triage round, the orchestrator decides from the triager's verdicts:
+review-then-triage round, the orchestrator decides from the triager's verdicts
+and the round count:
 
 - New valid findings this round: have the planner or implementer address them,
   then spawn another round (fresh reviewers, given the ledger) on the revised
   artifact.
-- No new valid findings this round (every finding was dismissed, or was a ledger
-  re-raise without new evidence): the review has converged. Move on, start
-  implementing after a plan review, or mark the step complete and continue after
-  a work review.
-- Still-contested valid findings after a bounded number of rounds (default
-  three): escalate to a human with the ledger for a decision, then apply it and
-  resume. A valid finding may instead be resolved by consciously accepting its
-  residual risk and recording that; an accepted risk does not block convergence.
+- A clean round (every finding dismissed, or a ledger re-raise without new
+  evidence): a candidate for convergence. Because fresh reviewers are sampled each
+  round, one clean round is weak evidence on its own, so require consecutive clean
+  rounds before converging (a round with new valid findings resets the streak),
+  scaled to the stakes: one for a trivial or low-risk artifact, two for a risky or
+  high-blast-radius one. On reaching that, the review
+  has converged: move on, start implementing after a plan review, or mark the step
+  complete and continue after a work review.
+- The total rounds on an artifact reach the total-round cap (default five):
+  escalate to a human with the ledger for a decision, then apply it and resume.
+  This fires whatever the clean-versus-new-valid mix, so a loop that keeps finding
+  new genuine issues and one relitigating a single finding escalate on the same
+  schedule; the cap bounds both, including the case where each round keeps
+  producing new valid findings so the loop makes progress yet never reaches a clean
+  round. If a round both reaches the cap and is the converging clean round, the
+  convergence check applies first, so the loop converges rather than escalating. A
+  valid finding may instead be resolved by consciously accepting its residual risk
+  and recording that; an accepted risk does not block convergence.
+
+A backstop guards the loop against a stochastic reviewer or triager: before a
+dismissed high-severity finding counts towards a clean round, have a second,
+independent triager (or a human) confirm the dismissal. This guards the dangerous
+tail, a real critical finding waved away, without doubling the cost of ordinary
+triage.
 
 Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
 (which implementation steps are done, in progress, or pending) lives durably in
 the plan's Roadmap, the status table described in the plan's Documentation
 Protocol; the implementer keeps it current. Round-level state (the review loop)
-lives in the orchestrator's review ledger, which is transient.
+lives in the orchestrator's review ledger, a versioned file kept beside the plan
+(separate from it) and deleted when the task closes.
 
 Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
 the task, one row per finding: the round it was raised in, the triager's verdict,
 the reasoning, and the action taken (fixed in `<commit>`, or dismissed because
-`<reason>`). The orchestrator counts rounds from the ledger and applies the
-convergence rule (a clean round ends the loop; the default of three contested
-rounds triggers escalation). It hands the ledger to each new round under the
+`<reason>`); it also records each round's outcome (new valid findings, or clean),
+so the consecutive clean rounds and the round total are countable from the ledger.
+Recording that outcome also yields data, over real use, on how often clean rounds
+are noisy, which is what should inform the required-clean-rounds default. The
+orchestrator counts rounds from the ledger and applies the convergence rule (the
+required consecutive clean rounds end the loop; the total rounds on an artifact
+reaching the total-round cap (default five) trigger escalation). It hands the
+ledger to
+each new round under the
 rule: do not re-raise a settled finding without new evidence that its verdict was
 wrong. For a genuinely contested finding, the triager may hold a short debate, the
 producer arguing it is invalid and a reviewer arguing it is valid, before ruling.
-The ledger is transient working state, keep it as scratch notes (not in the
-plan), discard it when the task closes, and never put individual findings in the
-plan's Open Questions section; only durable decisions, the ones that change the
-plan, fold into the plan's steps, and a folded decision reopens only by evidence
-that beats its recorded reasoning.
+The ledger is separate from the plan, but versioned like it: keep it in a file
+tracked in version control beside its plan (for example
+`docs/plans/<task>.ledger.md`) and commit it, so it survives the orchestrator
+losing context and travels across machines and sessions; delete it, committing the
+deletion, when the task closes. Never put individual findings in the plan's Open
+Questions section; only durable decisions, the ones that change the plan, fold
+into the plan's steps, and a folded decision reopens only by evidence that beats
+its recorded reasoning.
 
 ## Principles
 

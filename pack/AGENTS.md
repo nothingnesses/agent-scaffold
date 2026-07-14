@@ -87,7 +87,8 @@ genuinely small requests, so keep it lighter than what it replaces.
 
 Convergence (when the orchestrator ends one review loop and moves on; distinct
 from the Stop condition above, which ends the whole workflow). After each
-review-then-triage round, the orchestrator decides from the triager's verdicts:
+review-then-triage round, the orchestrator decides from the triager's verdicts
+and the round count:
 
 - New valid findings this round: have the planner or implementer address them,
   then spawn another round (fresh reviewers, given the ledger) on the revised
@@ -100,23 +101,22 @@ review-then-triage round, the orchestrator decides from the triager's verdicts:
   high-blast-radius one. On reaching that, the review
   has converged: move on, start implementing after a plan review, or mark the step
   complete and continue after a work review.
-- Still-contested valid findings after a bounded number of rounds (default three):
-  escalate to a human with the ledger for a decision, then apply it and resume. A
+- The total rounds on an artifact reach the total-round cap (default five):
+  escalate to a human with the ledger for a decision, then apply it and resume.
+  This fires whatever the clean-versus-new-valid mix, so a loop that keeps finding
+  new genuine issues and one relitigating a single finding escalate on the same
+  schedule; the cap bounds both, including the case where each round keeps
+  producing new valid findings so the loop makes progress yet never reaches a clean
+  round. If a round both reaches the cap and is the converging clean round, the
+  convergence check applies first, so the loop converges rather than escalating. A
   valid finding may instead be resolved by consciously accepting its residual risk
   and recording that; an accepted risk does not block convergence.
 
-Two backstops guard the loop against a stochastic reviewer or triager:
-
-- Total-round cap. Independently of contestation, if a single artifact's review
-  exceeds a hard cap on total rounds (default five), escalate to a human with the
-  ledger. This bounds the case the contested-rounds cap above does not cover: each
-  round keeps producing new valid findings, or a fix regresses and the next
-  round's fresh reviewers legitimately catch it, so the loop makes progress yet
-  never reaches a clean round.
-- Dismissed high-severity findings. Before a dismissed high-severity finding
-  counts towards a clean round, have a second, independent triager (or a human)
-  confirm the dismissal. This guards the dangerous tail, a real critical finding
-  waved away, without doubling the cost of ordinary triage.
+A backstop guards the loop against a stochastic reviewer or triager: before a
+dismissed high-severity finding counts towards a clean round, have a second,
+independent triager (or a human) confirm the dismissal. This guards the dangerous
+tail, a real critical finding waved away, without doubling the cost of ordinary
+triage.
 
 Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
 (which implementation steps are done, in progress, or pending) lives durably in
@@ -133,8 +133,10 @@ so the consecutive clean rounds and the round total are countable from the ledge
 Recording that outcome also yields data, over real use, on how often clean rounds
 are noisy, which is what should inform the required-clean-rounds default. The
 orchestrator counts rounds from the ledger and applies the convergence rule (the
-required consecutive clean rounds end the loop; three contested rounds, or five
-rounds total, trigger escalation). It hands the ledger to each new round under the
+required consecutive clean rounds end the loop; the total rounds on an artifact
+reaching the total-round cap (default five) trigger escalation). It hands the
+ledger to
+each new round under the
 rule: do not re-raise a settled finding without new evidence that its verdict was
 wrong. For a genuinely contested finding, the triager may hold a short debate, the
 producer arguing it is invalid and a reviewer arguing it is valid, before ruling.

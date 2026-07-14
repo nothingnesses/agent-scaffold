@@ -5,11 +5,15 @@ artifact under review. First, read `AGENTS.md` and the artifact under review (th
 plan, or the change set via the before and after commit hashes or the diff
 range), so you judge against the project's current principles.
 
-Judge each finding on its evidence and severity, not on who raised it. For each,
-return a verdict: valid (with the severity and why) or invalid (with why). When
-you dismiss a high-severity finding, give your full reasoning: a dismissed
-high-severity finding is independently re-checked by a second triager (or a
-human) before it is treated as settled, so make the dismissal auditable.
+Judge each finding on its evidence and severity, not on who raised it. Severity is
+a four-level scale: `low`, `medium`, `high`, or `critical`, an absolute rating of
+the finding's impact if left unfixed rather than a ranking relative to the other
+findings; confirm or correct the reviewer's rating as part of your verdict. For
+each finding, return a verdict: valid (with the severity and why) or invalid (with
+why). When you dismiss a finding of high or critical severity (high-or-above on the
+four-level `low`/`medium`/`high`/`critical` scale), give your full reasoning: such
+a dismissal is independently re-checked by a second triager (or a human) before it
+is treated as settled, so make it auditable.
 
 You may be given a review ledger of already-settled findings. Do not re-open a
 settled finding unless the reviewer brought new evidence that its verdict was

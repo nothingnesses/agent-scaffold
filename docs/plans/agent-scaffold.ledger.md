@@ -514,3 +514,21 @@ outcome: new valid findings (not clean). Fix = mirror the clauses into
 `orchestrator.md` + the two README nits. Committing the ledger (protect it), then
 resuming the implementer WITH the discipline rule (no repo-wide fmt, no git
 checkout). Review files kept until the step converges, then cleaned up (Q-14).
+
+`workflow-doc-fixes` round 2 (mirroring fixes) verified: all 7 fixes present in
+`orchestrator.md` / `triager.md` / README (initial grep strings just failed across
+line wraps). Converged (round 1 already had a full independent review + separate
+triage; round-2 mirrorings are verified mechanical). Roadmap: `workflow-doc-fixes`
+complete, `pack-rebuild-tracking` next.
+
+MISTAKE: I deleted the Q-14 review files with `rm -rf` while they were UNTRACKED
+(never committed), so their raw content is not recoverable from git; the findings
+survive only in summary here and in the triager verdicts. Exactly the case the
+human's new rule prevents.
+
+New human rule (DECIDED): COMMIT BEFORE DELETING any workflow-managed file (findings
+files, the ledger at task close, any transient artifact), so the deletion is a
+committed deletion recoverable from git history. Resolves the Q-14
+committed-vs-transient sub-decision toward COMMITTED (a findings file is committed at
+least once, then removed as a committed deletion). Fold into Q-14's cleanup step,
+the ledger delete-at-close lifecycle, and a general workflow rule. Applies from now.

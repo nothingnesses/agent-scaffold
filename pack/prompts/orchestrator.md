@@ -25,15 +25,32 @@ Track the counts explicitly. Each review-then-triage round, in order:
    artifact, whether it changed since the previous round, and the outcome (clean,
    or new valid findings).
 2. If the round had new valid findings, reset the consecutive-clean count to zero;
-   if it was clean, increment it. Before a dismissed high-severity finding counts
+   if it was clean, increment it. A round where the reviewers report zero findings
+   counts as clean. Before a dismissed finding of high or critical severity
+   (high-or-above on the four-level `low`/`medium`/`high`/`critical` scale) counts
    towards a clean round, have a second, independent triager (or a human) confirm
-   the dismissal.
-3. Decide from the counts: converge when the consecutive-clean count reaches the
-   required number (one for a trivial or low-risk artifact, two for a risky one);
-   escalate to a human with the ledger when the total rounds on an artifact reach
-   the total-round cap (default five); otherwise have the planner or implementer
-   address the new valid findings and spawn another round (fresh reviewers, given
-   the ledger) on the revised artifact.
+   the dismissal; convergence blocks until this re-check returns. If the re-check
+   overturns the dismissal, amend the already-written round-summary outcome from
+   clean to new-valid, reset the consecutive-clean count to zero, and send the
+   finding back to the planner or implementer to fix, then spawn another round on
+   the revised artifact.
+3. Decide from the counts, which are per-artifact: converge when the
+   consecutive-clean count reaches the required number, and escalate to a human with
+   the ledger when the total rounds on an artifact reach the total-round cap
+   (default five); otherwise have the planner or implementer address the new valid
+   findings and spawn another round (fresh reviewers, given the ledger) on the
+   revised artifact. The required number is one for a trivial or low-risk artifact
+   and two for a risky or high-blast-radius one; an artifact is risky or
+   high-blast-radius when a defect in it would be costly or hard to reverse: it is
+   security-, safety-, data-, or money-sensitive, is widely depended on, or changes
+   something hard to roll back. Classify the artifact once, when its review loop
+   opens, and record that classification (and so the required clean-round count) in
+   the ledger, so it is a recorded property of the artifact rather than a fresh
+   subjective judgement each round. Both counts reset to zero when the loop moves to
+   a new artifact or step. On escalation, when the human's decision is applied and
+   the loop resumes, reset the artifact's round counters (both the consecutive-clean
+   count and the total-round count) so the cap does not immediately re-fire, unless
+   the decision itself ends the loop.
 
 On convergence, move on: start implementing after a plan review, or mark the step
 complete and continue after a work review. On escalation, apply the human's
@@ -45,10 +62,14 @@ Implement step by step: while the plan's Roadmap has a pending step, have the
 implementer make it, review it to convergence, then mark it complete and move to
 the next. When no pending steps remain, run an acceptance review against the
 plan's Success Criteria (reviewers, then a triager, as in the other review
-phases). The workflow is done when every step is complete and the triager confirms
-the Success Criteria are met; a valid shortfall is a finding that goes back to
-planning or implementation. Escalating to a human is a request for a decision, not
-a stop: apply their decision and resume.
+phases). Acceptance is a single reviewers-then-triager pass, not the
+consecutive-clean convergence loop: it does not require clean rounds and does not
+run its own round loop or cap. The
+workflow is done when every step is complete and the triager confirms the Success
+Criteria are met; a valid shortfall is a finding that goes back to planning or
+implementation, verified by a later acceptance pass rather than another acceptance
+round on the spot. Escalating to a human is a request for a decision, not a stop:
+apply their decision and resume.
 
 If a human adds or changes requests at any point, first run a single bounded
 intake assessment (yourself, or a short planner pass, not a full plan cycle) and

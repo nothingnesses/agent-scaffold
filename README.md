@@ -105,11 +105,12 @@ flowchart TB
     steps -->|no| accept["Acceptance review<br/>(reviewers)"]
     accept --> atriage["Triage the findings<br/>(triager)"]
     atriage --> adec{"Success Criteria met?"}
-    adec -->|no| plan
+    adec -->|"no: shortfall to planning or implementation"| plan
     adec -->|yes| done(["Done: accept the work"])
     interrupt["Human adds or changes<br/>requests (at any time)"] -.-> intake["Intake: assess and advise<br/>(human decides routing)"]
     intake -.->|non-trivial| plan
-    intake -.->|trivial| impl
+    intake -.->|trivial| fold["Orchestrator folds<br/>it in directly"]
+    fold -.->|"resume at the roadmap-steps gate"| steps
 ```
 
 ## Installation

@@ -53,9 +53,13 @@ Phases (the orchestrator drives these, spawning the role shown):
    complete in the Roadmap and move to the next step.
 5. Accept. When no pending steps remain, the orchestrator spawns reviewers for an
    acceptance review against the plan's Success Criteria, then a triager on their
-   findings, as in the other review phases. If the triager confirms every
-   criterion is met, the work is done. If not, each valid shortfall is a finding
-   that goes back to planning (add or revise steps) or implementation.
+   findings, using the same reviewer and triager roles as the other review phases.
+   Acceptance is a single reviewers-then-triager pass, not the consecutive-clean
+   convergence loop: it does not require clean rounds and does not run its own
+   round loop or cap. If the triager confirms every criterion is met, the work is
+   done. If not, each valid shortfall is a finding that goes back to planning (add
+   or revise steps) or implementation; the fix is then verified by a later
+   acceptance pass, not by another acceptance round on the spot.
 
 Stop condition. The workflow is done when every step in the plan's Roadmap is
 complete and an acceptance review confirms the changes meet the plan's Success
@@ -93,13 +97,20 @@ and the round count:
 - New valid findings this round: have the planner or implementer address them,
   then spawn another round (fresh reviewers, given the ledger) on the revised
   artifact.
-- A clean round (every finding dismissed, or a ledger re-raise without new
-  evidence): a candidate for convergence. Because fresh reviewers are sampled each
-  round, one clean round is weak evidence on its own, so require consecutive clean
-  rounds before converging (a round with new valid findings resets the streak),
-  scaled to the stakes: one for a trivial or low-risk artifact, two for a risky or
-  high-blast-radius one. On reaching that, the review
-  has converged: move on, start implementing after a plan review, or mark the step
+- A clean round (reviewers found nothing this round, every finding dismissed, or a
+  ledger re-raise without new evidence): a candidate for convergence. A round where
+  the reviewers report zero findings counts as clean. Because fresh reviewers are
+  sampled each round, one clean round is weak evidence on its own, so require
+  consecutive clean rounds before converging (a round with new valid findings resets
+  the streak), scaled to the stakes: one for a trivial or low-risk artifact, two for
+  a risky or high-blast-radius one. An artifact is risky or high-blast-radius when a
+  defect in it would be costly or hard to reverse: it is security-, safety-, data-,
+  or money-sensitive, is widely depended on, or changes something hard to roll back.
+  Classify the artifact once, when its review loop opens, and record that
+  classification (and so the required clean-round count) in the ledger, so the count
+  is a recorded property of the artifact rather than a fresh subjective judgement
+  each round. On reaching the required consecutive clean rounds, the review has
+  converged: move on, start implementing after a plan review, or mark the step
   complete and continue after a work review.
 - The total rounds on an artifact reach the total-round cap (default five):
   escalate to a human with the ledger for a decision, then apply it and resume.
@@ -110,20 +121,34 @@ and the round count:
   round. If a round both reaches the cap and is the converging clean round, the
   convergence check applies first, so the loop converges rather than escalating. A
   valid finding may instead be resolved by consciously accepting its residual risk
-  and recording that; an accepted risk does not block convergence.
+  and recording that; an accepted risk does not block convergence. When the human's
+  decision is applied and the loop resumes, reset the artifact's round counters
+  (both the consecutive-clean count and the total-round count) so the cap does not
+  immediately re-fire on the next round; if the decision instead ends the loop
+  (accept the artifact, or send it back for a specific fix that closes this loop),
+  the counters retire with it.
 
 A backstop guards the loop against a stochastic reviewer or triager: before a
-dismissed high-severity finding counts towards a clean round, have a second,
-independent triager (or a human) confirm the dismissal. This guards the dangerous
-tail, a real critical finding waved away, without doubling the cost of ordinary
-triage.
+dismissed finding of high or critical severity (high-or-above on the four-level
+`low`/`medium`/`high`/`critical` scale) counts towards a clean round, have a
+second, independent triager (or a human) confirm the dismissal. This guards the
+dangerous tail, a real critical finding waved away, without doubling the cost of
+ordinary triage. The re-check is a step in the loop, not an aside: convergence
+blocks until it returns. If it upholds the dismissal, the finding stays dismissed
+and the round may count as clean. If it overturns the dismissal (the finding was
+valid after all), flip that round's outcome from clean to new-valid, reset the
+consecutive-clean count to zero, and send the finding back to the planner or
+implementer to fix, then spawn another round on the revised artifact.
 
 Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
 (which implementation steps are done, in progress, or pending) lives durably in
 the plan's Roadmap, the status table described in the plan's Documentation
 Protocol; the implementer keeps it current. Round-level state (the review loop)
 lives in the orchestrator's review ledger, a versioned file kept beside the plan
-(separate from it) and deleted when the task closes.
+(separate from it) and deleted when the task closes. The two review counts (the
+consecutive-clean count and the total-round count) are per-artifact, not per-task:
+when the review loop moves to a new artifact or step, both counts reset to zero,
+even though the ledger that records them spans the whole task.
 
 Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
 the task, one row per finding: the round it was raised in, the triager's verdict,

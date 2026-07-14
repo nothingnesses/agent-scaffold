@@ -109,8 +109,8 @@ Steps in implementation order, with status. The Roadmap is the single source of 
 | `pack-owned-principles`  | complete    |
 | `init-vcs`               | complete    |
 | `convergence-accounting` | complete    |
-| `workflow-doc-fixes`     | next        |
-| `pack-rebuild-tracking`  | not started |
+| `workflow-doc-fixes`     | complete    |
+| `pack-rebuild-tracking`  | next        |
 | `triager-independence`   | not started |
 | `human-onboarding`       | not started |
 | `deliberation-mode`      | not started |

@@ -701,4 +701,4 @@ the ledger's RESUME STATE and CONTINUE the in-progress task, do not start fresh"
 defines the resume PROCEDURE in `AGENTS.md`; this adds the human-facing trigger PROMPT
 in `.agents/user-prompts/` (Q-16), paired with the kickoff and compaction-prep
 prompts. Record as `Q-19`, fold into `compaction-prep` + `user-prompts-dir` at the
-next planner touch. Awaiting the human's confirmation.
+next planner touch. LOCKED by the human.

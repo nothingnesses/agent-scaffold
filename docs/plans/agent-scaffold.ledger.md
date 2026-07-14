@@ -849,6 +849,17 @@ recorded (not human decisions): re-strengthen the onboarding push language when
 `human-review-queue` lands, and restore "an impasse" when `deliberation-mode` lands
 (added to those steps' details). Regenerated; re-reviewed in round 2.
 
+`human-onboarding` round 2 (fixes committed e722a14): one fresh reviewer (opus, given
+the settled findings) verified all three fixes landed (gloss present; pull-model text
+with no push/checkpoint promise or contradiction; "impasse" removed), mirrors in sync,
+the softened text accurate to what the pack enforces today, no new forward-reference,
+still usable (`human-onboarding-round2-reviewer.md`). Round 2 outcome: CLEAN (zero
+findings; no triager needed). Convergence: LOW-risk artifact needs one clean round;
+new-valid (r1), clean (r2) -> streak = 1 -> CONVERGED. Roadmap: `human-onboarding`
+COMPLETE, `compaction-prep` next (the last human-interface-cluster step). Committing the
+round-2 review file (durable), then a follow-up commit deletes all four human-onboarding
+review files (committed deletion).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -859,9 +870,9 @@ resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
 Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
-`agent-isolation`, and `user-prompts-dir` are complete and committed. The
-human-interface cluster is being implemented in the order `user-prompts-dir` (done) ->
-`human-onboarding` (NEXT) -> `compaction-prep`. The remaining not-started steps (see the Roadmap) implement,
+`agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
+committed. The human-interface cluster is being implemented in the order
+`user-prompts-dir` (done) -> `human-onboarding` (done) -> `compaction-prep` (NEXT). The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

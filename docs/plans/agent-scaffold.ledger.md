@@ -723,6 +723,27 @@ a clause to `orchestrator.md` granting the orchestrator tree-hygiene reformattin
 deletion" clause from the ledger paragraph in both files, letting the canonical rule
 own it. Regenerated; re-reviewed in round 2.
 
+`file-safety-rules` round 2 (fixes committed a3adc50): one fresh verification reviewer
+(opus, given the ledger) confirmed all three Group A/B/C fixes landed and mirrors in
+sync; one new LOW finding T1 (`file-safety-rules-round2-reviewer.md`): the Group A
+classification called reviewers/triager "read-only" though they write findings files.
+SEPARATE triager (sonnet, `file-safety-rules-round2-triage.md`) ruled T1 VALID low,
+fix now (agent-isolation reuses this carve-out). Round 2 outcome: NEW VALID. Fix
+(commit aeea55b): qualified to "read-only with respect to the plan and code (they
+write only their own findings files)".
+
+`file-safety-rules` round 3 (fix committed aeea55b): one fresh reviewer (opus, given
+the settled findings) verified the T1 fix landed with the exact wording, coherent with
+commit-before-delete and the "writer agent" definition, all mirrors in sync, and the
+final coherence pass found all five rules owned by the correct role with no unowned
+duty / undefined term / contradiction (`file-safety-rules-round3-reviewer.md`). Round 3
+outcome: CLEAN (zero findings; no triager needed, nothing to adjudicate). Convergence:
+LOW-risk artifact needs one clean round; new-valid (r1), new-valid (r2), clean (r3) ->
+streak = 1 -> CONVERGED. No dismissed high/critical, so no backstop re-check. Roadmap:
+`file-safety-rules` COMPLETE, `agent-isolation` next. Committing the round-3 review file
+(durable record), then a follow-up commit deletes all six file-safety-rules review
+files (committed deletion, per commit-before-delete).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -732,8 +753,8 @@ after a compaction: read `AGENTS.md` (the workflow), `docs/plans/agent-scaffold.
 resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
 Current state: `convergence-accounting`, `workflow-doc-fixes`,
-`pack-rebuild-tracking`, and `triager-independence` are complete and committed. The
-NEXT step is `file-safety-rules`. The remaining not-started steps (see the Roadmap) implement,
+`pack-rebuild-tracking`, `triager-independence`, and `file-safety-rules` are complete
+and committed. The NEXT step is `agent-isolation`. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.
@@ -753,7 +774,9 @@ work):
   findings-files; commit-before-delete).
 - Keep this ledger current and COMMITTED; commit it (and any pending work) before
   spawning a writer agent; commit any managed file before deleting it
-  (`file-safety-rules`, `Q-17`).
+  (`file-safety-rules`, `Q-17`; now landed in the pack `AGENTS.md`/prompts, along
+  with the implementer fmt/checkout rule below and the orchestrator recovery
+  protocol, so these are no longer pack-vs-practice gaps).
 - Implementers must not run repo-wide `just fmt`/`nix fmt` or `git checkout` on files
   they do not own (two incidents clobbered the ledger this way; both recorded above).
   On an agent kill/interrupt, run the recovery protocol: inspect `git status`/`diff`,

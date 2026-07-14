@@ -248,6 +248,73 @@ accepted as valid without formal triage (match ceremony to stakes). Implementer
 resumed to apply the four fixes, regenerate (with the cargo-clean rebuild for the
 include_dir staleness), and re-verify. Then converge, commit, mark the step done.
 
+Convergence-accounting committed (19d69e5); the four nits landed and re-verified
+(46 tests, clippy/fmt clean, ASCII-clean); step marked complete, `workflow-doc-fixes`
+now next. The commit also lands the corrected `.agents/` copies (stale-bootstrap
+drift fixed in git).
+
+Human decision (triager structure): ALWAYS a separate triager, NEVER collapsed
+(Option 3). The triager must be independent of BOTH the producer AND the
+orchestrator (the orchestrator drives the loop and owns convergence/cost, so it is
+biased toward dismissing findings to converge), for every review round including
+trivial ones. This narrows the workflow's "collapse roles for a trivial change"
+rule to except the triager. From now on: a separate triager for every review round.
+
+Batched planner pass dispatched to fold into the plan: `pack-rebuild-tracking` (the
+include_dir fix, prioritised); the human-input contract (into `deliberation-mode`);
+the `triager-independence` / no-collapse rule; the queue decisions (Q-2/Q-3/Q-7
+decided, Q-4/Q-5/Q-6 confirmed, Q-11 added as held). Then implement
+`workflow-doc-fixes`.
+
+Planner pass returned. Added `pack-rebuild-tracking` (build.rs), `triager-independence`,
+`state-schema` (Q-11, deferred); extended `deliberation-mode` (human-input contract)
+and `workflow-doc-fixes` (Q-7 four-level rating). Marked Q-2/Q-3/Q-4/Q-5/Q-6/Q-7
+decided; added Q-11/Q-12/Q-13. Reviewing the plan change: one reviewer (consistency
+lens); a SEPARATE triager adjudicates anything it finds, per the always-separate
+rule.
+
+Plan-maintenance reviewer returned: 0 critical, 2 high, 3 medium, 3 low.
+- H1: `state-schema` cites "Principle 5, one source of truth", but the plan's P5 is
+  make-illegal-states; one-source-of-truth is P1 here (AGENTS.md-numbering leak).
+- H2: Q-2/Q-3/Q-4/Q-5/Q-6 marked "decided -> folded into <step>" in the queue, but
+  the target steps still read as open recommendations / design sub-questions
+  (`instrument-flag` still lists the three as open; `ledger-template` still frames
+  Q-2/Q-3 as recommendations). Queue and step contradict; decision detail sits in
+  the queue, not the step. (Q-7 folded correctly.)
+- M1: Q-11/12/13 and the rewritten Q-2..Q-7 embed full decision detail in the queue
+  (against the Documentation Protocol; should be brief ask + pointer; inconsistent
+  with the terse Q-1/8/9/10).
+- M2: the umbrella says "eight steps" but `state-schema` is a ninth block placed
+  inside the run, excluded from the count/enumeration.
+- M3: `workflow-doc-fixes` states the Q-7 decision twice (a "recommendation ...
+  Q-7" bullet and a "decided" paragraph).
+- L1/L2/L3: state-schema repeats its status label; Q-11's status parenthetical
+  exceeds the status vocabulary; "prioritised" competes with the Roadmap `next`.
+Recurring theme: the queue-vs-step consistency error (same class as round 2 G8/G9),
+evidence that the hand-maintained living queue is error-prone and supports the
+`state-schema` / validate-command. Separate triager (opus) dispatched to adjudicate,
+per the always-separate rule.
+
+Triager verdicts: all 8 valid; re-severitised to 1 high (H2) + 7 low (H1, M1, M2,
+M3, L1, L2, L3). H2 (high): the queue asserts Q-2..Q-6 decided while
+`ledger-template` / `instrument-flag` still read as open recommendations, with the
+decision detail misplaced in the queue. Judgment calls: M1 -> hold to the terse
+ask + status + pointer queue form, the decision lives in the step (the "Decided:"
+gloss is what let the drift in); L1 -> the leading status-word is a plan-wide
+convention, do not single out `state-schema` (leave it). Planner revision
+dispatched to fix H2 + H1/M1/M2/M3/L2/L3 (L1 left per the triager). Then
+orchestrator grep-verification of the specific fixes; converge if clean (the
+independent review + separate triage already did the judgment; a re-review would
+only re-verify mechanical fixes).
+
+Planner revision returned and grep-verified clean: no "Decided:" gloss in the
+queue; `ledger-template` no longer frames Q-2/Q-3 as recommendations;
+`instrument-flag` now states "Decided design (Q-4/Q-5/Q-6)"; the two remaining
+"Open sub-questions" belong to `optional-modules` / `tui-authoring` (genuinely
+undecided); Principle citations use the plan's 1-7; the umbrella count and the
+F4/Q-7 double-statement reconciled. Plan-maintenance review CONVERGED (H2 + lows
+fixed). Committing the plan revision, then implementing `workflow-doc-fixes`.
+
 ## Findings
 
 | ID  | Round | Severity | Triager verdict | Reasoning | Action |

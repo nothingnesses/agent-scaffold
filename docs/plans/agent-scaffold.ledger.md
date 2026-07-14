@@ -744,6 +744,30 @@ streak = 1 -> CONVERGED. No dismissed high/critical, so no backstop re-check. Ro
 (durable record), then a follow-up commit deletes all six file-safety-rules review
 files (committed deletion, per commit-before-delete).
 
+`agent-isolation` implemented (commit 032964a; before 57739c3): added the isolation
+RULE only (mechanism stays deferred to `optional-modules`). New "Writer isolation
+(capability-tiered)" section in `pack/AGENTS.md` (container via agent-box/agent-images
+> worktree > file-safety fallback; read-only agents need none; mechanism framed as an
+optional module) plus a tier-selection clause in `orchestrator.md`. LOW-risk (doc-only)
+-> one clean round.
+
+`agent-isolation` round 1: two independent reviewers (opus correctness, sonnet
+coherence; `agent-isolation-reviewer-opus.md`, `-sonnet.md`). Opus: 0/0/0/3L; sonnet:
+0/0/1M/1L. SEPARATE triager (`agent-isolation-triage.md`) deduped to 4 groups: 2 VALID
+low, 2 INVALID. VALID: R2+S1 (structural-upgrade framing stated in both the file-safety
+and isolation sections, a drift surface; sonnet's medium corrected to low) and S2 (the
+isolation section re-enumerated role membership instead of reusing the Roles-section
+"writer agent"/read-only definition). INVALID: R1 (tier list restated in orchestrator.md
+is the established prompt style, AGENTS.md stays the source with a see-AGENTS.md pointer)
+and R3 (plan status still `next` in the pre-convergence diff is expected; the orchestrator
+flips status at convergence, not in the implementation commit). No high/critical -> no
+backstop re-check. Round 1 outcome: NEW VALID. Fixes: (R2+S1) the file-safety sentence
+now reads "running writers under isolation builds on it rather than replacing it (see
+Writer isolation below)", and the isolation section owns "structural upgrade over the
+file-safety baseline"; (S2) dropped the "(the planner and the implementer)" and "(the
+reviewers and the triager)" parentheticals, using the defined terms. Regenerated;
+re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

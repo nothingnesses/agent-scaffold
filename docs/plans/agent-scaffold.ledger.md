@@ -1005,6 +1005,15 @@ RISKY artifact needs two consecutive clean rounds; new-valid (r1), clean (r2), c
 next. Committing the round-3 review file (durable), then a follow-up commit deletes all five
 deliberation-mode review files (committed deletion).
 
+`Q-21` and `Q-22` DECIDED by the human (adopted the orchestrator's recommendations).
+`Q-21` (between-step checkpoint cadence): configurable at kickoff, default
+report-and-continue (orchestrator reports what completed + what is next, then continues;
+human can opt into gating or full autonomy, and can interrupt via intake); folded into
+`human-review-queue`. `Q-22` (line-wrapping): no manual hard-wrapping, line length is never
+a review finding, plus investigate a markdown formatter so tooling owns wrapping; folded
+into the NEW step `no-wrap-convention` (Roadmap, after human-review-queue). Both marked
+decided in the queue; no open questions remain. Pre-compaction checkpoint run next.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -1013,60 +1022,54 @@ after a compaction: read `AGENTS.md` (the workflow), `docs/plans/agent-scaffold.
 (the plan: Roadmap + Open Questions queue + Step Details; its Status line is the
 resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
-Current state: `convergence-accounting`, `workflow-doc-fixes`,
-`pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
-`agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
-committed. The human-interface cluster is being implemented in the order
-the human-interface cluster
-(`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`) is done,
-and `deliberation-mode` (the cross-cutting human-input contract) is complete;
-`human-review-queue` is NEXT. Two OPEN human decisions await in the queue: `Q-21`
-(between-step checkpoint cadence) and `Q-22` (line-wrapping / formatter; the human prefers
-no manual hard-wrapping, agents must not police line length). The remaining not-started steps (see the Roadmap) implement,
-into the pack, the workflow rules we have already ADOPTED and been operating by this
-session. The full whole-codebase review is a LATER job, after these steps land, not
-the current job.
+Current state: complete and committed so far are `convergence-accounting`,
+`workflow-doc-fixes`, `pack-rebuild-tracking`, `triager-independence`,
+`file-safety-rules`, `agent-isolation` (the isolation RULE; mechanism deferred),
+`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`, and
+`deliberation-mode` (the cross-cutting human-input contract). The NEXT step is
+`human-review-queue`, then `no-wrap-convention`, `findings-files`, and
+`ledger-template`; `state-schema` is deferred; the earlier `optional-modules`,
+`greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`,
+`workflow-calibration`, and `instrument-flag` remain optional/deferred. No open
+questions remain (all `Q-1`..`Q-22` decided). Each remaining step folds an
+already-decided rule INTO the pack. The full whole-codebase review is a LATER job,
+after the remaining steps land, not the current job.
 
-IMPORTANT, apply these adopted rules when running the workflow even though the pack
-`AGENTS.md`/prompts do not yet contain them (implementing them is the remaining
-work):
-- Always spawn a SEPARATE triager, never collapsed, independent of both the producer
-  and the orchestrator (`triager-independence`, `Q-13`; now landed in the pack
-  `AGENTS.md`/prompts, so this is no longer a pack-vs-practice gap).
-- At every human-input point (escalation, intake, open questions), give options,
-  trade-offs, a recommendation, and reasoning judged against the plan's numbered
-  Project Principles (human-input contract, `Q-12` / `deliberation-mode`).
+IMPORTANT, apply these ADOPTED rules when running the workflow even though the pack
+does not yet contain them (implementing them is the remaining work):
 - Reviewers and triagers WRITE findings to per-agent files under
   `docs/plans/agent-scaffold.reviews/`; reference them by path, do not transcribe;
-  COMMIT the review files before deleting them at round close (`Q-14`
-  findings-files; commit-before-delete).
-- Keep this ledger current and COMMITTED; commit it (and any pending work) before
-  spawning a writer agent; commit any managed file before deleting it
-  (`file-safety-rules`, `Q-17`; now landed in the pack `AGENTS.md`/prompts, along
-  with the implementer fmt/checkout rule below and the orchestrator recovery
-  protocol, so these are no longer pack-vs-practice gaps).
-- Implementers must not run repo-wide `just fmt`/`nix fmt` or `git checkout` on files
-  they do not own (two incidents clobbered the ledger this way; both recorded above).
-  On an agent kill/interrupt, run the recovery protocol: inspect `git status`/`diff`,
-  revert stray artifacts, confirm a known-good tree before continuing.
-- After editing `pack/`, regenerate with `just scaffold-self` (build.rs now tracks
-  pack rebuilds, so no `cargo clean` is needed); verify `just test` and `just clippy`;
-  keep everything ASCII-clean; commit per step; do not push unless asked.
-- Isolation (writer agents) is capability-tiered (container > worktree > the
-  file-safety discipline); the RULE is now landed in the pack `AGENTS.md`/orchestrator
-  prompt (`agent-isolation` complete). The MECHANISM (container/worktree integration)
-  is still not built; it is deferred to `optional-modules`. Until then the rule
-  resolves to the file-safety fallback in practice.
+  COMMIT the review files before deleting them at round close (`Q-14` findings-files).
+- At every checkpoint PUSH the open Open-Questions items to the human; at a step
+  boundary REPORT what completed and what is next, then continue (report-and-continue
+  is the default cadence; the human may gate or go autonomous at kickoff) (`Q-10`
+  human-review-queue + `Q-21`).
+- Prose is NOT hard-wrapped and line length is NEVER a review finding; do not reflow
+  or police it (`Q-22` no-wrap-convention; user preference in memory
+  `no-hard-wrap-prose`).
+
+These ADOPTED rules are ALREADY in the pack, keep following them: always a SEPARATE
+triager independent of the producer AND the orchestrator (`triager-independence`); the
+human-input contract, present options/trade-offs/recommendation/Principle-judged
+reasoning at every human-input point and the human decides (`deliberation-mode`); the
+file-safety discipline, clean-tree-before-writer, commit-before-delete,
+format-only-your-own-files (implementers do not run repo-wide `just fmt`/`nix fmt` or
+`git checkout` on files they do not own), validate-in-scratch, and orchestrator
+recovery-on-interrupt (`file-safety-rules`); capability-tiered writer isolation
+(container > worktree > file-safety fallback), the RULE only, mechanism deferred to
+`optional-modules` (`agent-isolation`).
+
+Operating notes: keep this ledger current and COMMITTED; commit pending work before
+spawning a writer. After editing `pack/`, regenerate with `just scaffold-self`
+(build.rs tracks pack rebuilds, no `cargo clean` needed); verify `just test` and
+`just clippy`; keep ASCII clean; commit per step; do not push unless asked. Bash cwd
+resets, so prefix commands with `cd /home/jessea/Documents/projects/agent-scaffold &&`.
+Per-step loop: implement the decided change in `pack/` (see the step's detail),
+regenerate + verify, commit; review with two independent reviewers (different models,
+findings to files) plus a SEPARATE triager; apply valid verdicts; converge (one clean
+round for low-risk, two for risky); mark the step COMPLETE in the Roadmap, add its
+Outcome to the step detail, record the rounds here, commit the completion, then
+commit-delete the review files; report the completion and continue.
 
 The workflow-hardening review task (this ledger's task) is still OPEN; do not delete
 this ledger until the task closes.
-
-New human request (intake): a reusable RESUME user prompt, the pickup counterpart to
-`compaction-prep`'s flush. Recommend adopt. Rationale: harness-agnostic (cannot
-assume a memory/auto-summary carries the resume), and it encodes "read the plan +
-the ledger's RESUME STATE and CONTINUE the in-progress task, do not start fresh"
-(the generic kickoff prompt frames a NEW task). Small: `compaction-prep` already
-defines the resume PROCEDURE in `AGENTS.md`; this adds the human-facing trigger PROMPT
-in `.agents/user-prompts/` (Q-16), paired with the kickoff and compaction-prep
-prompts. Record as `Q-19`, fold into `compaction-prep` + `user-prompts-dir` at the
-next planner touch. LOCKED by the human.

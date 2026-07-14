@@ -12,5 +12,5 @@ rather than reconstruct your thinking. If nothing is unclear, say so and state t
 assumptions you are proceeding on.
 
 The human is the decider here. If you are a sub-agent without a direct channel to
-the human, return your questions to the orchestrator, which surfaces them and
-relays the human's answers.
+the human, return your questions to the orchestrator, which relays them to the
+human and returns the answers.

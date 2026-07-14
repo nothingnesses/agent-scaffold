@@ -929,6 +929,20 @@ over-claim to "the same commit-before-risk durability discipline as before a wri
 applied to a distinct trigger"; aligned the closing note to "the plan, the ledger, and
 the plan's Open Questions queue". Regenerated; re-reviewed in round 2.
 
+`compaction-prep` round 2 (fixes committed 16b1260): one fresh reviewer (opus, given the
+settled findings) verified all three fixes (prompts now thin triggers naming the AGENTS.md
+section, "does not restate" claims true; over-claim reworded; "durable notes" aligned to
+the Open Questions queue), mirrors in sync, 46 tests pass, no new defect
+(`compaction-prep-round2-reviewer.md`). Round 2 outcome: CLEAN (zero findings; no triager
+needed). Convergence: LOW-risk, one clean round; new-valid (r1), clean (r2) -> streak = 1
+-> CONVERGED. Roadmap: `compaction-prep` COMPLETE. The human-interface cluster
+(`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`) is
+DONE; `deliberation-mode` is next (it carries two recorded follow-ups: restore the
+"impasse" trigger in `human-onboarding`'s Getting-started section, and make the
+orchestrator's gate-relay duty explicit in `orchestrator.md`). Committing the round-2
+review file (durable), then a follow-up commit deletes all four compaction-prep review
+files (committed deletion).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -941,8 +955,9 @@ Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
 `agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
 committed. The human-interface cluster is being implemented in the order
-`user-prompts-dir` (done) -> `human-onboarding` (done); `gate-prompt-clarity`
-(`Q-20`) is done; `compaction-prep` is NEXT. The remaining not-started steps (see the Roadmap) implement,
+`user-prompts-dir` (done) -> `human-onboarding` (done); the human-interface cluster
+(`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`) is
+done; `deliberation-mode` is NEXT. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

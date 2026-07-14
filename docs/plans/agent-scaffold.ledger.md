@@ -1037,6 +1037,22 @@ consistency/principles; different models per the diverse-lens rule), findings to
 Q-14 files (`human-review-queue-reviewer-opus.md`, `-reviewer-sonnet.md`). Separate
 triager to follow on the combined set (always-separate rule).
 
+`human-review-queue` round 1 findings: opus R1/R2 (2 low), sonnet S1 (med)/S2/S3 (2
+low). Separate triager (opus, read both files per Q-14,
+`human-review-queue-triage.md`): all 5 VALID, none dismissed (S1 medium, S2/R2/R1/S3
+low); principle citations normalised to the plan's Principle 1. Theme: the
+AGENTS.md/template split for the queue was not cleanly realised. Fixes: S1 = trim the
+queue field list from `pack/AGENTS.md` (template owns the format); S2 = replace the
+behavioural push instruction in the template's Open-Questions placeholder with a
+pointer to the AGENTS.md rule (the two are the complementary halves of one split
+cleanup); R2 = add the queue push to the compaction section's before-context-loss
+bullet; R1 = gloss "checkpoint" at its first (human-facing) use in Getting started;
+S3 = align "run autonomously through to acceptance" across kickoff.md/AGENTS.md/
+orchestrator.md. No high/critical dismissed, so no backstop re-check. Round 1
+outcome: NEW VALID FINDINGS (not clean); consecutive-clean stays 0. Committing the
+triage file, then resuming the implementer for the fixes (discipline rule: no
+repo-wide fmt, no cross-owner git checkout), then round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

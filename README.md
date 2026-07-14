@@ -34,11 +34,11 @@ docs/plans/TEMPLATE.md             planning-document template (working file)
 .agents/
   AGENTS.reference.md              pristine copy of the guidance, to merge from
   principles.toml                  the principle data the guidance renders
-  prompts/                         one prompt per workflow role
+  prompts/                         role prompts and the planner's decision gates
     orchestrator.md                drive the workflow and the review loop
     planner.md                     draft the plan
-    clarifying-questions.md        ask clarifying questions before starting
-    open-questions-gate.md         resolve open questions before implementing
+    clarifying-questions.md        gate: agent asks, the human answers, before starting
+    open-questions-gate.md         gate: agent presents options, the human chooses
     reviewer.md                    adversarially review the plan or the work
     triager.md                     adjudicate the review findings
     implementer.md                 implement the plan

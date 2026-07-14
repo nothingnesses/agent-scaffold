@@ -424,3 +424,35 @@ Themes of the valid findings:
 
 Next: single planner pass folding the 14 valid findings plus the three queued
 feature requests into the plan; then plan review, implement, round 2 review.
+
+---
+
+## Post-189b7bd notes (re-added; an implementer's fmt + git checkout clobbered these)
+
+INCIDENT / lesson: the `workflow-doc-fixes` implementer ran repo-wide `just fmt`
+(which reformats this ledger and the plan as a side effect), then reverted the
+ledger with `git checkout docs/plans/agent-scaffold.ledger.md` to honour "do not
+touch the ledger". That reverted the ledger to HEAD (189b7bd), discarding the
+uncommitted Q-14 notes. Mitigations going forward: (a) commit the ledger before
+spawning an implementer, so its uncommitted state is not at risk; (b) implementers
+must NOT run repo-wide `just fmt` or `git checkout` on files they do not own (fmt
+only their files; leave incidental reformatting for the orchestrator). A real
+workflow finding (candidate plan item); reinforces committing the ledger
+frequently and the structured-record / findings-files work.
+
+Q-14 (findings-to-files) DECIDED by the human: adopt. Reviewers and triagers write
+their findings to per-agent files that other agents read directly (parallel-safe);
+the ledger references them by path and keeps the decision trail; an
+orchestrator-owned cleanup step deletes them once the round is fully resolved or at
+task close. Compose with `ledger-template` (schema) and `state-schema`, one schema
+and validator. Reasoning: Principle 5 (removes the lossy transcription hop that
+dropped A-M5) and Principle 1 (findings file = single source, referenced not
+copied). Fold into the structured-record cluster at the next planner touch;
+non-blocking.
+
+`workflow-doc-fixes` implemented (F4/F5/F6/F8/F9/F12/F15/F16/F17); regenerated,
+46 tests/clippy/fmt clean, ASCII-clean; not committed. Reviewing it with TWO
+reviewers (A correctness/completeness, opus; B consistency/principles, sonnet),
+DOGFOODING Q-14: each reviewer WRITES its findings to a file under
+`docs/plans/agent-scaffold.reviews/`, and the separate triager reads those files
+directly (no orchestrator transcription). Files cleaned up at round close.

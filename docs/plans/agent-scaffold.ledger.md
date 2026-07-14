@@ -792,6 +792,37 @@ resume prompts). These three are the first steps to touch real code (the manifes
 `src/` asset-list test), not just docs. Awaiting the human's go-ahead / ordering
 confirmation before starting the cluster.
 
+Human confirmed the cluster ordering by asking the orchestrator for its recommendation;
+orchestrator recommended and adopted `user-prompts-dir` -> `human-onboarding` ->
+`compaction-prep` (build the directory the other two point into first; no forward
+reference to a nonexistent path, Principle 1).
+
+`user-prompts-dir` implemented (commit 9c1a88d; before 9f52ef0): created
+`.agents/user-prompts/` with a thin kickoff prompt (`pack/user-prompts/kickoff.md`,
+ownership reference), added the `pack/pack.toml` `[[asset]]` entry, extended the
+`src/manifest.rs` built-in asset-list test (46 pass), and named the directory in the
+README layout. First cluster step to touch real code (manifest + test + a shipped
+asset). LOW-risk (reversible, test-guarded) -> one clean round.
+
+`user-prompts-dir` round 1: two independent reviewers (opus mechanics, sonnet
+content/scope; `user-prompts-dir-reviewer-opus.md`, `-sonnet.md`). Opus: 0 defects
+(R1 informational, ownership="reference" justified). Sonnet: S1 medium, S2 low.
+SEPARATE triager (`user-prompts-dir-triage.md`): R1 INVALID (not a defect); S1(a) status
+still not `complete` INVALID/expected (convergence convention, agent-isolation R3
+precedent); S1(b) the cluster reorder not reflected in the Roadmap table VALID low
+(unlike R3, the implemented step was not the one marked `next`); S2 the "Getting
+started" validation criterion is `human-onboarding`'s, untickable here, VALID low. No
+high/critical -> no backstop. Round 1 outcome: NEW VALID (two low plan-bookkeeping
+fixes; the implementation artifact itself had zero defects). Both fixes folded into the
+completion update per the triager: reordered the Roadmap rows to `user-prompts-dir`
+(complete) -> `human-onboarding` (next) -> `compaction-prep`, and moved the "Getting
+started" criterion to `human-onboarding`'s ownership in the validate block. Verified
+mechanically (the artifact was already found clean by both reviewers; the fixes are the
+exact edits the triager prescribed, matching the `workflow-doc-fixes` round-2
+verified-mechanical precedent). CONVERGED. Roadmap: `user-prompts-dir` COMPLETE,
+`human-onboarding` next. Committing the round-1 review files (durable) with the
+completion, then a follow-up commit deletes them (committed deletion).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -802,9 +833,9 @@ resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
 Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
-`agent-isolation` are complete and committed. The NEXT work is the human-interface
-cluster (`human-onboarding`, `user-prompts-dir`, `compaction-prep`); see the sequencing
-note just above (recommend `user-prompts-dir` first). The remaining not-started steps (see the Roadmap) implement,
+`agent-isolation`, and `user-prompts-dir` are complete and committed. The
+human-interface cluster is being implemented in the order `user-prompts-dir` (done) ->
+`human-onboarding` (NEXT) -> `compaction-prep`. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

@@ -1064,8 +1064,9 @@ adjudicate). Convergence: LOW-risk artifact needs one clean round; new-valid (r1
 clean (r2) -> streak = 1 -> CONVERGED. No dismissed high/critical, so no backstop
 re-check. Roadmap: `human-review-queue` COMPLETE, `no-wrap-convention` next. Committing
 the round-2 review file (durable record) with the step completion, then a follow-up
-commit deletes all five human-review-queue review files (committed deletion, per
-commit-before-delete).
+commit deletes all four human-review-queue review files (committed deletion, per
+commit-before-delete): the two round-1 reviewer files, the round-1 triage file, and
+the round-2 verification file.
 
 ## RESUME STATE (compaction checkpoint, read this first)
 
@@ -1081,8 +1082,16 @@ Current state: complete and committed so far are `convergence-accounting`,
 `user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`,
 `deliberation-mode` (the cross-cutting human-input contract), and `human-review-queue`
 (the push-at-checkpoint living queue + report-and-continue cadence + `Q-23` onboarding
-pointer). The NEXT step is `no-wrap-convention`, then `findings-files` and
-`ledger-template`; `state-schema` is deferred; the earlier `optional-modules`,
+pointer). IN PROGRESS now: `no-wrap-convention` (`Q-22`) - add the no-hard-wrap
+convention to `pack/AGENTS.md` and "line length is never a finding" to
+`pack/prompts/reviewer.md`/`triager.md`, AND adopt `prettier` `proseWrap: never` via a
+repo-root `.prettierrc.json` (decided by the human) so `nix fmt` actively unwraps prose
+and owns wrapping; the implementer adds the doc convention + `.prettierrc.json`, then
+the ORCHESTRATOR runs the one-time repo-wide `nix fmt` reflow (touches the plan and
+ledger too; incidental reformatting is the orchestrator's) as a separate mechanical
+commit, and verifies `nix fmt` is idempotent + tables/code blocks intact. After it,
+`findings-files` and `ledger-template`; `state-schema` is deferred; the earlier
+`optional-modules`,
 `greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`,
 `workflow-calibration`, and `instrument-flag` remain optional/deferred. No open
 questions remain for the human: `Q-1`..`Q-23` are all decided. Each remaining step

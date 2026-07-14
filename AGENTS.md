@@ -190,8 +190,8 @@ its recorded reasoning.
 File safety and durability (git is the recovery substrate). Every writer agent's
 damage must stay a visible, committed-or-recoverable diff, on any harness, whether
 or not it offers isolation. This is the always-on baseline; running writers under
-isolation is a structural upgrade layered on top of these rules, not a replacement
-for them. The rules, each carried out by the role it names:
+isolation builds on it rather than replacing it (see Writer isolation below). The
+rules, each carried out by the role it names:
 
 - Clean tree before a writer. Commit pending work, especially the plan and the
   ledger, before spawning a writer agent, so the writer's kill or misstep leaves
@@ -209,8 +209,8 @@ for them. The rules, each carried out by the role it names:
   `git status` and the diff, reverts stray temporary artifacts, discards or
   completes partial work, and confirms a known-good tree before continuing.
 
-Writer isolation (capability-tiered). Run each writer agent (the planner and the
-implementer) in the strongest isolation the harness supports, in preference order:
+Writer isolation (capability-tiered). Run each writer agent in the strongest
+isolation the harness supports, in preference order:
 
 1. Container isolation, if available (for example via the agent-box or
    agent-images projects), preferred because it isolates the filesystem, the
@@ -220,9 +220,8 @@ implementer) in the strongest isolation the harness supports, in preference orde
 3. The file-safety discipline above, as the fallback when the harness offers no
    isolation.
 
-Read-only agents (the reviewers and the triager) need no isolation: they do not
-change the plan or the code, so there is no blast radius to contain (minimal by
-default). Isolation is the structural upgrade over the file-safety baseline: a
+Read-only agents need no isolation: they do not change the plan or the code, so
+there is no blast radius to contain (minimal by default). Isolation is the structural upgrade over the file-safety baseline: a
 killed or misbehaving isolated writer cannot touch the main tree, so its damage is
 contained rather than only recoverable after the fact. The isolation mechanism
 (the container and worktree integration itself) is an optional module; this rule

@@ -943,6 +943,18 @@ orchestrator's gate-relay duty explicit in `orchestrator.md`). Committing the ro
 review file (durable), then a follow-up commit deletes all four compaction-prep review
 files (committed deletion).
 
+Between-step checkpoint finding (`Q-21`, OPEN, from a human question). At a step
+boundary the orchestrator paused with an ad-hoc "carry on or pause?" that was neither a
+defined human-input point nor in the human-input-contract format. Two causes: (1) an
+operator miss, the human-input contract (`Q-12`, still not in the pack until
+`deliberation-mode` lands) was not self-applied, so the decision was a thin binary
+instead of options/trade-offs/recommendation/reasoning; (2) a real design gap, the
+workflow has the orchestrator drive step-to-step autonomously and defines no between-step
+checkpoint. Recorded `Q-21` (open) for the human to decide the cadence (autonomous /
+report-only / gate / configurable), recommendation (d)+(b). The FORMAT half is
+`deliberation-mode`'s job. Human chose to proceed with `deliberation-mode` now; `Q-21`
+stays open in the queue for the human's decision.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

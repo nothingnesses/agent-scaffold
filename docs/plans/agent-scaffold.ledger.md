@@ -994,6 +994,17 @@ classification). GOING FORWARD: ignore line length in all reviews/triage. Conver
 decision put to the human: run the second clean round, or accept convergence now (the
 substance was deep-reviewed in round 1 and verified clean in round 2).
 
+`deliberation-mode` round 3 (the human chose to run the second clean round, honouring the
+classify-once discipline): one fresh reviewer, instructed to ignore line length entirely
+per `Q-22`, did a substantive verification and found NO defects
+(`deliberation-mode-round3-reviewer.md`): contract stated once and referenced everywhere,
+Socratic carve-out present, escalation strengthened both places, gate-relay coherent,
+"impasse" and "the plan's" consistent, mirrors in sync. Round 3 outcome: CLEAN. Convergence:
+RISKY artifact needs two consecutive clean rounds; new-valid (r1), clean (r2), clean (r3)
+-> streak = 2 -> CONVERGED. Roadmap: `deliberation-mode` COMPLETE, `human-review-queue`
+next. Committing the round-3 review file (durable), then a follow-up commit deletes all five
+deliberation-mode review files (committed deletion).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -1006,9 +1017,12 @@ Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
 `agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
 committed. The human-interface cluster is being implemented in the order
-`user-prompts-dir` (done) -> `human-onboarding` (done); the human-interface cluster
-(`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`) is
-done; `deliberation-mode` is NEXT. The remaining not-started steps (see the Roadmap) implement,
+the human-interface cluster
+(`user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`) is done,
+and `deliberation-mode` (the cross-cutting human-input contract) is complete;
+`human-review-queue` is NEXT. Two OPEN human decisions await in the queue: `Q-21`
+(between-step checkpoint cadence) and `Q-22` (line-wrapping / formatter; the human prefers
+no manual hard-wrapping, agents must not police line length). The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

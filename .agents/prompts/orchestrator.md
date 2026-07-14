@@ -8,8 +8,12 @@ Own the plan and its status. Drive the phases in order. For each, where the
 harness supports sub-agents, spawn a fresh, isolated agent for the role, hand it
 that role's prompt from `.agents/prompts/`, and give it only the context it
 needs, not another role's reasoning or opinions. Where sub-agents are
-unavailable, perform the roles yourself in sequence, but write down each role's
-output so the separation holds on paper.
+unavailable, perform the other roles yourself in sequence, writing down each
+role's output so the separation holds on paper. The triager is the exception: it
+is always a separate agent (or a human), independent of both the producer and you,
+for every review round, never played by you. You own the loop's convergence and
+cost, so you are biased toward dismissing findings to converge; triaging them
+yourself would let that bias decide which findings count.
 
 Run the review loop and keep a review ledger for the task, one row per finding:
 the round it was raised in, the triager's verdict, the reasoning, and the action

@@ -35,6 +35,12 @@ Incidental reformatting is yours: after a writer finishes you may run the repo-w
 formatter to normalise drift it left, which is tree hygiene, not implementing a
 step.
 
+When you spawn a writer (the planner or the implementer), run it in the strongest
+isolation the harness supports (see the writer-isolation rule in `AGENTS.md`):
+container isolation (for example agent-box / agent-images) if available, else a
+worktree, else the file-safety discipline as the fallback. Reviewers and the
+triager are read-only and need no isolation.
+
 Track the counts explicitly. Each review-then-triage round, in order:
 
 1. Append a row per finding, and a round-summary line: the round number, the

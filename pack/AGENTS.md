@@ -209,6 +209,26 @@ for them. The rules, each carried out by the role it names:
   `git status` and the diff, reverts stray temporary artifacts, discards or
   completes partial work, and confirms a known-good tree before continuing.
 
+Writer isolation (capability-tiered). Run each writer agent (the planner and the
+implementer) in the strongest isolation the harness supports, in preference order:
+
+1. Container isolation, if available (for example via the agent-box or
+   agent-images projects), preferred because it isolates the filesystem, the
+   environment, and a security sandbox.
+2. Worktree isolation, if that is what the harness offers (for example a git
+   worktree), which isolates the filesystem.
+3. The file-safety discipline above, as the fallback when the harness offers no
+   isolation.
+
+Read-only agents (the reviewers and the triager) need no isolation: they do not
+change the plan or the code, so there is no blast radius to contain (minimal by
+default). Isolation is the structural upgrade over the file-safety baseline: a
+killed or misbehaving isolated writer cannot touch the main tree, so its damage is
+contained rather than only recoverable after the fact. The isolation mechanism
+(the container and worktree integration itself) is an optional module; this rule
+is the always-applicable selection policy and holds whether or not that module is
+built, resolving to the file-safety fallback until it is.
+
 ## Principles
 
 Follow these principles. They are numbered for reference, not priority.

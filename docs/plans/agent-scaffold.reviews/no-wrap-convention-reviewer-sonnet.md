@@ -1,8 +1,6 @@
 # Review: no-wrap-convention (Q-22)
 
-Reviewer: convention-and-tooling lens (Sonnet)
-Commit range: `30dc348..b4d8b24`
-Artifact risk: low (convention doc + config change, fully reversible)
+Reviewer: convention-and-tooling lens (Sonnet) Commit range: `30dc348..b4d8b24` Artifact risk: low (convention doc + config change, fully reversible)
 
 ## Conventions assessed
 

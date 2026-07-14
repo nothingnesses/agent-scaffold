@@ -35,8 +35,11 @@ fmt:
 
 # Regenerate the project's own scaffolded assets from the pack, so the committed
 # `AGENTS.md`, `.agents/`, and plan template stay in sync with the pack (dogfooding).
-# The raw render is not guaranteed formatter-clean (prettier owns Markdown wrapping,
-# proseWrap=never), so format the output afterwards to reach a stable committed state.
+# The raw render is not formatter-clean (prettier owns Markdown wrapping via
+# proseWrap=never), so run the repo-wide formatter afterwards to normalise the
+# generated files. `nix fmt` formats the whole tree, not just the generated files;
+# that is intentional and harmless because treefmt is idempotent (a no-op on files
+# already clean), and it leaves the repo at a stable committed fixed point.
 scaffold-self:
 	{{ direnv_prefix }} cargo run -- --output-dir . --write --force --principles default
 	{{ direnv_prefix }} nix fmt

@@ -26,8 +26,7 @@ No issues found at any severity.
 1. Pack sources, word-level diff `30dc348..dc5f69b` over all 12 pack markdown files. Only three token additions appear, all intentional convention text:
    - `pack/AGENTS.md`: the new "Prose formatting." paragraph (line 84).
    - `pack/prompts/reviewer.md`: the "Line length and prose line-wrapping are never findings..." sentence.
-   - `pack/prompts/triager.md`: the "A finding about line length or prose line-wrapping is never valid..." sentence.
-   Every other pack file (`plan-template.md`, `orchestrator.md`, `planner.md`, `implementer.md`, `clarifying-questions.md`, `open-questions-gate.md`, `kickoff.md`, `resume.md`, `compaction-prep.md`) shows zero word-level changes. So no shipped prose was reworded, repunctuated, or dropped by the reflow.
+   - `pack/prompts/triager.md`: the "A finding about line length or prose line-wrapping is never valid..." sentence. Every other pack file (`plan-template.md`, `orchestrator.md`, `planner.md`, `implementer.md`, `clarifying-questions.md`, `open-questions-gate.md`, `kickoff.md`, `resume.md`, `compaction-prep.md`) shows zero word-level changes. So no shipped prose was reworded, repunctuated, or dropped by the reflow.
 
 2. Other markdown (`README.md`, `CHANGELOG.md`, `docs/plans/TEMPLATE.md`): zero word-level changes.
 
@@ -45,8 +44,7 @@ No issues found at any severity.
    - All seven `.agents/prompts/*.md` match their `pack/prompts/*.md` sources byte-for-byte.
    - All three `.agents/user-prompts/*.md` match their `pack/user-prompts/*.md` sources.
    - `docs/plans/TEMPLATE.md` matches `pack/plan-template.md`.
-   - `.agents/AGENTS.reference.md` differs from `pack/AGENTS.md` only by the `{{principles}}` placeholder being expanded to the 22 numbered principles, exactly as expected. Root `AGENTS.md` is identical to `.agents/AGENTS.reference.md`.
-   So the intentional convention additions (the "Prose formatting" paragraph and the two line-length sentences) propagated correctly into every generated copy, and no copy drifted from its source.
+   - `.agents/AGENTS.reference.md` differs from `pack/AGENTS.md` only by the `{{principles}}` placeholder being expanded to the 22 numbered principles, exactly as expected. Root `AGENTS.md` is identical to `.agents/AGENTS.reference.md`. So the intentional convention additions (the "Prose formatting" paragraph and the two line-length sentences) propagated correctly into every generated copy, and no copy drifted from its source.
 
 ## Scope note
 

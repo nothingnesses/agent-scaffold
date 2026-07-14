@@ -10,16 +10,16 @@ New to this workflow? To start a task, copy the kickoff prompt in
 `.agents/user-prompts/kickoff.md`, fill in the bracketed parts (your task and any
 context), and paste it to the agent; it points the agent at this file and the
 workflow takes over. `.agents/user-prompts/` holds the prompts you invoke by hand;
-`.agents/prompts/` holds the role prompts the orchestrator hands to the agents it
-spawns, which you do not paste yourself.
+`.agents/prompts/` holds the role prompts the orchestrator (the agent that drives
+the workflow) hands to the agents it spawns, which you do not paste yourself.
 
 Your part does not end at kickoff. The workflow brings decisions back to you: when
-the agents reach a question, an impasse, or a trade-off, the orchestrator lays out
-the options, their trade-offs, a recommendation, and its reasoning, and you decide.
-These decisions collect in the plan's "Open Questions" section, the single
-human-decision queue, which the orchestrator raises with you at each checkpoint so
-you resolve the open items there rather than having to hunt for them. Keeping an eye
-on that section as the work proceeds is the main standing thing asked of you.
+the agents reach a question or a trade-off, the orchestrator lays out the options,
+their trade-offs, a recommendation, and its reasoning, and you decide. These
+decisions collect in the plan's "Open Questions" section, the single human-decision
+queue; check that section as the work proceeds, and the orchestrator brings its
+recommendation to you when a decision is needed. Reviewing that section is the main
+standing thing asked of you.
 
 ## Workflow
 

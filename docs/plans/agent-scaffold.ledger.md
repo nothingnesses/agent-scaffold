@@ -877,6 +877,26 @@ the "ask me" routing (sub-agent -> orchestrator -> human), and correct the READM
 "one prompt per role" mislabel. New step `gate-prompt-clarity` inserted before
 `compaction-prep`. Recording the plan + this finding, then implementing + reviewing.
 
+`gate-prompt-clarity` implemented (commit 41cf5ca; before fc30bb3): reworded both gate
+prompts to name the human as decider + state sub-agent -> orchestrator -> human routing;
+fixed the README `prompts/` "one prompt per workflow role" mislabel. LOW-risk -> one
+clean round.
+
+`gate-prompt-clarity` round 1: two independent reviewers (opus correctness, sonnet
+consistency; `gate-prompt-clarity-reviewer-opus.md`, `-sonnet.md`). Opus: R1/R2 low.
+Sonnet: S1 medium. SEPARATE triager (`gate-prompt-clarity-triage.md`): all VALID; R1
+low (the reflow glued the "Otherwise" else-branch onto the "if so" paragraph), R2 low
+("surfaces" as a verb against the maintainer's style preference; house-style claim weak
+-> fix), S1 downgraded medium->low and SPLIT OUT (the gate prompts now assert an
+orchestrator relay duty that `orchestrator.md` does not name; it is grounded in
+`AGENTS.md` which the orchestrator reads, and `deliberation-mode` is already locked to
+add the cross-cutting human-input contract touching `orchestrator.md` + the gate prompts,
+so defer there rather than duplicate). No high/critical -> no backstop. Round 1 outcome:
+NEW VALID. Fixes: R1 restored the blank line before "Otherwise"; R2 replaced "surfaces
+them and relays the human's..." with "relays them to the human and returns the
+answers/decisions" in both prompts; S1 recorded as a `deliberation-mode` scope note (no
+`orchestrator.md` edit here). Regenerated; re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

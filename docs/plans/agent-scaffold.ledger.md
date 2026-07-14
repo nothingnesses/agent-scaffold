@@ -768,6 +768,30 @@ file-safety baseline"; (S2) dropped the "(the planner and the implementer)" and 
 reviewers and the triager)" parentheticals, using the defined terms. Regenerated;
 re-reviewed in round 2.
 
+`agent-isolation` round 2 (fixes committed ef875bd): one fresh reviewer (opus, given
+the settled findings) verified both round-1 fixes landed (no structural-upgrade
+duplication remains; the isolation section uses the bare defined terms), mirrors in
+sync, tier order and read-only carve-out intact, mechanism still deferred to
+optional-modules, no new contradiction (`agent-isolation-round2-reviewer.md`). Round 2
+outcome: CLEAN (zero findings; no triager needed). Convergence: LOW-risk artifact needs
+one clean round; new-valid (r1), clean (r2) -> streak = 1 -> CONVERGED. No dismissed
+high/critical -> no backstop re-check. Roadmap: `agent-isolation` COMPLETE (the
+isolation RULE; the MECHANISM stays deferred to `optional-modules`); the human-interface
+cluster (`human-onboarding`, `user-prompts-dir`, `compaction-prep`) is next. Committing
+the round-2 review file (durable), then a follow-up commit deletes all four
+agent-isolation review files (committed deletion).
+
+Sequencing note for the human-interface cluster (raised to the human at this checkpoint,
+per the human-input contract): the Roadmap lists `human-onboarding` first, but its
+"Getting started" section points to `.agents/user-prompts/`, which `user-prompts-dir`
+creates (directory + kickoff/compaction/resume prompts + `pack/pack.toml` entries +
+asset-list test). Recommend implementing `user-prompts-dir` FIRST (establish the
+directory and moved prompts), then `human-onboarding` (the AGENTS.md pointer + README
+mirror), then `compaction-prep` (checkpoint/resume section + the compaction and Q-19
+resume prompts). These three are the first steps to touch real code (the manifest and the
+`src/` asset-list test), not just docs. Awaiting the human's go-ahead / ordering
+confirmation before starting the cluster.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -777,8 +801,10 @@ after a compaction: read `AGENTS.md` (the workflow), `docs/plans/agent-scaffold.
 resume anchor), and this ledger. Operate as the ORCHESTRATOR.
 
 Current state: `convergence-accounting`, `workflow-doc-fixes`,
-`pack-rebuild-tracking`, `triager-independence`, and `file-safety-rules` are complete
-and committed. The NEXT step is `agent-isolation`. The remaining not-started steps (see the Roadmap) implement,
+`pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
+`agent-isolation` are complete and committed. The NEXT work is the human-interface
+cluster (`human-onboarding`, `user-prompts-dir`, `compaction-prep`); see the sequencing
+note just above (recommend `user-prompts-dir` first). The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.
@@ -808,8 +834,11 @@ work):
 - After editing `pack/`, regenerate with `just scaffold-self` (build.rs now tracks
   pack rebuilds, so no `cargo clean` is needed); verify `just test` and `just clippy`;
   keep everything ASCII-clean; commit per step; do not push unless asked.
-- Isolation (writer agents) is decided as capability-tiered (container > worktree >
-  the file-safety discipline) but not built; `agent-isolation` is the step.
+- Isolation (writer agents) is capability-tiered (container > worktree > the
+  file-safety discipline); the RULE is now landed in the pack `AGENTS.md`/orchestrator
+  prompt (`agent-isolation` complete). The MECHANISM (container/worktree integration)
+  is still not built; it is deferred to `optional-modules`. Until then the rule
+  resolves to the file-safety fallback in practice.
 
 The workflow-hardening review task (this ledger's task) is still OPEN; do not delete
 this ledger until the task closes.

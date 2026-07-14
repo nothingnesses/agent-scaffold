@@ -746,9 +746,9 @@ files (committed deletion, per commit-before-delete).
 
 `agent-isolation` implemented (commit 032964a; before 57739c3): added the isolation
 RULE only (mechanism stays deferred to `optional-modules`). New "Writer isolation
-(capability-tiered)" section in `pack/AGENTS.md` (container via agent-box/agent-images
-> worktree > file-safety fallback; read-only agents need none; mechanism framed as an
-optional module) plus a tier-selection clause in `orchestrator.md`. LOW-risk (doc-only)
+(capability-tiered)" section in `pack/AGENTS.md` (container via agent-box/agent-images,
+then worktree, then file-safety fallback; read-only agents need none; mechanism framed
+as an optional module) plus a tier-selection clause in `orchestrator.md`. LOW-risk (doc-only)
 -> one clean round.
 
 `agent-isolation` round 1: two independent reviewers (opus correctness, sonnet

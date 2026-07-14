@@ -907,6 +907,28 @@ clean round; new-valid (r1), clean (r2) -> streak = 1 -> CONVERGED. Roadmap:
 (durable), then a follow-up commit deletes all four gate-prompt-clarity review files
 (committed deletion).
 
+`compaction-prep` implemented (commit 226ca33; before 082280e): added the "Checkpoint
+and resuming after context loss" section to `pack/AGENTS.md` and two human-invoked
+prompts under `.agents/user-prompts/` (`compaction-prep.md` flush, `resume.md` pickup =
+Q-19), with `pack/pack.toml` entries, asset-list test (46 pass), and README layout.
+LOW-risk (reversible, test-guarded) -> one clean round.
+
+`compaction-prep` round 1: two independent reviewers (opus mechanics, sonnet content;
+`compaction-prep-reviewer-opus.md`, `-sonnet.md`). Opus: R1 low, R2 medium. Sonnet: S1
+medium, S2 low, S3 low. SEPARATE triager (`compaction-prep-triage.md`) deduped to 3
+groups, all VALID: Group 1 (R2+S1+S2, medium/low) = both prompts claimed "does not
+restate" but their bodies enumerated the AGENTS.md procedure (coherence + a real drift
+path: `findings-files` would add a durable artifact and silently stale
+compaction-prep.md's list); R1 low = "the clean-tree-before-writer discipline covers
+this" over-claims (shared mechanic, not shared trigger); S3 low = the closing note said
+"durable notes" but the body's third item is the Open Questions queue. No high/critical
+-> no backstop. Round 1 outcome: NEW VALID. Fixes: trimmed both prompt bodies to thin
+triggers that name the target AGENTS.md section without enumerating its steps (kept the
+"does not restate" claims, now honoured, and the prompt-specific framing); reworded the
+over-claim to "the same commit-before-risk durability discipline as before a writer,
+applied to a distinct trigger"; aligned the closing note to "the plan, the ledger, and
+the plan's Open Questions queue". Regenerated; re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

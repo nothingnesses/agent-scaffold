@@ -253,15 +253,16 @@ from it.
 - Before a context loss (for example a compaction): the orchestrator flushes the
   plan, the ledger, and the plan's Open Questions queue to current, verifies the
   plan's Status line (the resume anchor) reflects where the work actually is, and
-  commits everything (the clean-tree-before-writer discipline covers this). A human
-  can trigger this with the compaction-prep prompt in `.agents/user-prompts/`.
+  commits everything (the same commit-before-risk durability discipline as before a
+  writer, applied to a distinct trigger). A human can trigger this with the
+  compaction-prep prompt in `.agents/user-prompts/`.
 - On resume: reconstruct state from `AGENTS.md`, the plan (its Status line first),
   and the ledger, then continue from where they say the work left off rather than
   starting over. A human can trigger this with the resume prompt in
   `.agents/user-prompts/`.
 
-This names the plan, the ledger, and the durable notes, not any specific harness
-memory feature, so it works on any harness.
+This names the plan, the ledger, and the plan's Open Questions queue, not any
+specific harness memory feature, so it works on any harness.
 
 ## Principles
 

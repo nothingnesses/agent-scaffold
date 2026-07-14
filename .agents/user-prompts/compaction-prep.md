@@ -7,7 +7,6 @@ procedure defined in `AGENTS.md`; it does not restate that procedure.
 ---
 
 I am about to compact the context. Before I do, run the pre-compaction checkpoint
-from `AGENTS.md`: flush the plan, the ledger, and the plan's Open Questions queue
-to current, verify the plan's Status line (the resume anchor) is accurate, and
-commit everything, so the task can resume after the context is lost. Tell me when
-the tree is clean and it is safe to compact.
+from the "Checkpoint and resuming after context loss" section of `AGENTS.md`, so
+the task can resume after the context is lost. Tell me when the tree is clean and
+it is safe to compact.

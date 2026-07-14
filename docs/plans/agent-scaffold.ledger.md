@@ -602,3 +602,14 @@ incidental changes reverted by hand (no git checkout). Roadmap: pack-rebuild-tra
 complete, triager-independence next. Committing the step AND the Q-14 review files
 (so the review record is in git history), then a follow-up commit deletes the
 review files (committed deletion, per commit-before-delete).
+
+Q-15 and Q-16 CONFIRMED by the human at the recommendations. Consolidating planner
+pass dispatched to fold the whole backlog of decided workflow rules into the plan
+(Roadmap steps + Open-Questions queue, decision detail in the steps, terse pointers
+in the queue): file-safety/durability discipline (commit-before-writers,
+commit-before-delete, clean-tree-before-writer, no-repo-wide-fmt / no-cross-owner
+git-checkout, orchestrator recovery protocol, validation-in-scratch); the
+capability-tiered isolation rule (+ optional-modules integration); Q-14
+findings-files; Q-15 compaction-prep prompt + checkpoint/resume section; Q-16
+user-prompts directory (revising human-onboarding). Then resume implementing from
+the updated plan (triager-independence onward).

@@ -650,6 +650,34 @@ a follow-up commit deletes them (committed deletion). The plan is now authoritat
 and compaction-safe: every decided rule is a Roadmap step. Next: implement
 `triager-independence`.
 
+`triager-independence` implemented (commit bd483e1; before 0c95ab9): narrowed the
+collapse-for-trivial rule so the triager is never collapsed, added
+orchestrator-independence (not just producer-independence) to the Triager role
+description, the orchestrator prompt's no-sub-agents fallback, and the triager
+prompt. Classified LOW-risk (doc-only, easily reversible, not
+security/data/money/widely-depended-on) -> one clean round required.
+
+`triager-independence` round 1: two independent reviewers (opus consistency/
+correctness, sonnet gaps/edge-cases; different models per the diverse-lens rule),
+findings to Q-14 files (`triager-independence-reviewer-opus.md`,
+`-reviewer-sonnet.md`; the opus reviewer ran read-only so the orchestrator
+transcribed its report verbatim into the file). Reviewers: R1/R2 (opus, 1M/1L);
+S1-S5 (sonnet, 2H/1M/2L). SEPARATE triager (always-separate rule) deduped 7 findings
+into 5 groups: verdicts in `triager-independence-triage.md`. 3 VALID (Group A low =
+AGENTS.md fallback still says "one agent plays THE roles" while orchestrator.md was
+tightened to "the OTHER roles" same commit; Group B medium = the "(or a human)"
+allowance present in orchestrator.md + both backstops is missing from the primary
+triager rule in AGENTS.md's Triager bullet and triager.md; Group D low = the rule is
+stated twice in AGENTS.md with slightly different wording). 2 INVALID: Group C (S2,
+dismissed HIGH with full auditable reasoning: the single-agent no-human deadlock is
+not introduced by this change; that config already cannot run the workflow, which
+needs a human for escalation/cap/acceptance; closing an already-illegitimate path in
+an unsupported config is not a regression) and Group E (S5, the backstop's unchanged
+"independent" is now governed by the general rule, redundant not ambiguous). Round 1
+outcome: NEW VALID FINDINGS (not clean); the dismissed-HIGH backstop re-check does
+not gate this round because it is not a clean round. Fixes (Groups A/B/D) applied in
+pack/, regenerated + re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

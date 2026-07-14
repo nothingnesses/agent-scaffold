@@ -67,3 +67,13 @@ ownership = "reference"
 source = "user-prompts/kickoff.md"
 dest = ".agents/user-prompts/kickoff.md"
 ownership = "reference"
+
+[[asset]]
+source = "user-prompts/compaction-prep.md"
+dest = ".agents/user-prompts/compaction-prep.md"
+ownership = "reference"
+
+[[asset]]
+source = "user-prompts/resume.md"
+dest = ".agents/user-prompts/resume.md"
+ownership = "reference"

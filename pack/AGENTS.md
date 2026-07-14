@@ -245,6 +245,24 @@ contained rather than only recoverable after the fact. The isolation mechanism
 is the always-applicable selection policy and holds whether or not that module is
 built, resolving to the file-safety fallback until it is.
 
+Checkpoint and resuming after context loss. The plan and the ledger are the durable
+state; an agent's working context is not, so the workflow survives a compaction or a
+lost session by keeping that durable state current and committed, then rebuilding
+from it.
+
+- Before a context loss (for example a compaction): the orchestrator flushes the
+  plan, the ledger, and the plan's Open Questions queue to current, verifies the
+  plan's Status line (the resume anchor) reflects where the work actually is, and
+  commits everything (the clean-tree-before-writer discipline covers this). A human
+  can trigger this with the compaction-prep prompt in `.agents/user-prompts/`.
+- On resume: reconstruct state from `AGENTS.md`, the plan (its Status line first),
+  and the ledger, then continue from where they say the work left off rather than
+  starting over. A human can trigger this with the resume prompt in
+  `.agents/user-prompts/`.
+
+This names the plan, the ledger, and the durable notes, not any specific harness
+memory feature, so it works on any harness.
+
 ## Principles
 
 Follow these principles. They are numbered for reference, not priority.

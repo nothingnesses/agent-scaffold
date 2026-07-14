@@ -823,6 +823,32 @@ verified-mechanical precedent). CONVERGED. Roadmap: `user-prompts-dir` COMPLETE,
 `human-onboarding` next. Committing the round-1 review files (durable) with the
 completion, then a follow-up commit deletes them (committed deletion).
 
+`human-onboarding` implemented (commit 27e6171; before cdcd6c8): added a "Getting
+started, for the human" section to `pack/AGENTS.md` (points to the kickoff prompt in
+`.agents/user-prompts/`, distinguishes user-prompts from role prompts, states the
+ongoing decision duty + Open Questions queue) and a brief README mirror that points to
+it. LOW-risk (doc-only) -> one clean round.
+
+`human-onboarding` round 1: two independent reviewers (opus correctness, sonnet
+forward-references; `human-onboarding-reviewer-opus.md`, `-sonnet.md`). Opus: R1 low.
+Sonnet: S1 medium, S2 low. SEPARATE triager (`human-onboarding-triage.md`): all three
+VALID, no human sequencing decision required (softening makes the step self-consistent
+at its own commit). R1 = "orchestrator"/"checkpoint" jargon used before definition. S1
+= the section promised push-at-checkpoint ("raises with you at each checkpoint ... rather
+than having to hunt") that the pack does not yet enforce (that machinery is
+`human-review-queue`, Q-10, not started, sequenced later), plus an internal pull-vs-push
+contradiction; a per-commit Principle 1 break since the pack ships to users who scaffold
+mid-task. S2 = the structured-options-at-"impasse" case is ungrounded (current escalation
+is only "escalate with the ledger"; the full contract is `deliberation-mode`, Q-12, not
+started). Round 1 outcome: NEW VALID. Fixes: glossed "orchestrator" at first use;
+replaced the push clause with the pull model the pack enforces today ("check that section
+as the work proceeds, and the orchestrator brings its recommendation to you when a
+decision is needed"), removing the false promise, the contradiction, and the undefined
+"checkpoint"; dropped "an impasse" from the enumeration. Two plan-bookkeeping follow-ups
+recorded (not human decisions): re-strengthen the onboarding push language when
+`human-review-queue` lands, and restore "an impasse" when `deliberation-mode` lands
+(added to those steps' details). Regenerated; re-reviewed in round 2.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is

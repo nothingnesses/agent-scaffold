@@ -1,0 +1,286 @@
+# Review ledger: workflow-hardening review
+
+Transient working state for the review loop. Separate from the plan; deleted at
+task close. Committed so it survives context loss and travels across sessions.
+
+Task: independently review the workflow-hardening changes (commits `8ce9454`,
+`1d15f22`, `8f03a9c`; diff range `f2ca59e..8f03a9c`) for correctness, quality,
+and consistency with the project's principles, then address valid findings.
+
+Interrupt requests (received during this task, to fold into the plan via the
+planner, not done ad hoc):
+- `human-onboarding`: add a "Getting started, for the human" section to the
+  canonical `AGENTS.md` with one inline editable kickoff prompt, plus a brief
+  README mirror pointing to it (approach B + thin C). Decided by the human.
+- `ledger-template`: make the review ledger a scaffolded template asset (lean:
+  a reference asset under `.agents/`, copied per task), so the ledger schema is
+  pinned rather than invented ad hoc. Recommended; human leaning yes.
+
+- `deliberation-mode`: acknowledge question-driven (Socratic) human input as a
+  first-class entry mode; generalise the intake / clarifying-questions /
+  Open-Questions machinery so the orchestrator answers a human question with
+  options, trade-offs, a recommendation, and reasoning (human decides); bind each
+  resolved question to a durable Open-Questions decision; define convergence as
+  the human committing a decision to action, guarded by the existing "no re-raise
+  without new evidence" rule. LOCKED by the human: approach B plus the thin C
+  naming slice (not a new phase or role). Pairs with `human-onboarding`.
+- `human-review-queue`: make the plan's "Open Questions, Decisions, Issues and
+  Blockers" section a single living human-decision queue, each item with a stable
+  id, a one-line ask, a status (open / decided -> folded into <step> / superseded)
+  and a context pointer; resolved items marked resolved (not deleted) to prevent
+  double-addressing; the orchestrator updates it at every checkpoint as a required
+  step. Recommended (reuse Open Questions, no second artifact). Human-interface
+  cluster with `deliberation-mode` and `human-onboarding`.
+
+Also to fix in the planner pass: the plan's Open Questions section says "No open
+questions remain", which is stale (the convergence fix, the queued feature
+designs, and the 14 review findings are all open). Rewrite it as the living queue
+above.
+
+All of these are non-trivial (touch the canonical pack assets), so they route to
+the planner in a single pass alongside the triager-valid review findings.
+
+Human decisions (this checkpoint): single planner pass covering everything;
+`human-review-queue` = approach A (reuse the Open Questions section) upgraded with
+B's discipline (stable ids, explicit status, resolved-marked-not-deleted).
+Refinement: a new human would not know to check the queue, and a pull-only model
+is fragile, so the queue must be PUSH + pull: the orchestrator surfaces open items
+at each checkpoint, and `human-onboarding` documents the human's ongoing duty to
+decide on them. Planner (opus) dispatched to fold everything into the plan.
+
+Planner returned. Plan now has six new Roadmap steps (`convergence-accounting`,
+`workflow-doc-fixes`, `human-onboarding`, `deliberation-mode`,
+`human-review-queue`, `ledger-template`), a rewritten living Open-Questions queue
+(Q-1..Q-10 with recommendations), and two added Success Criteria. F3 (the "not
+committed" contradiction) corrected in the plan's resume-anchor narrative
+immediately, rather than waiting for `workflow-doc-fixes`, since it would mislead a
+resuming agent. Next: plan review (independent reviewers on the updated plan), then
+the human resolves the open decisions to converge the plan, then implement. Open
+decisions pushed to the human: Q-1 (convergence-accounting, headline) plus
+Q-2..Q-7 (recommendation-backed); Q-8/Q-9/Q-10 already decided.
+
+Human decided Q-1 = approach (b): drop the contested-rounds cap, keep a single
+total-round cap (default five). Marked decided in the plan queue. Q-2..Q-7 remain
+at their recommended defaults, awaiting confirmation. Round 2 = plan review: two
+independent reviewers (A plan-soundness, opus; B consistency/principles, sonnet)
+dispatched on the updated plan, told Q-1 = (b). Triager to follow.
+
+## Round summaries
+
+| Round | Artifact           | Changed since prev | Outcome           | Valid findings | Consecutive clean |
+| ----- | ------------------ | ------------------ | ----------------- | -------------- | ----------------- |
+| 1     | hardening changes  | n/a (first)        | new valid findings | 14 (1H/8M/5L)  | 0                 |
+| 2     | updated plan       | folded + 4 features | new valid findings | 12 (1H/5M/6L)  | 0                 |
+
+## Round 2 (plan review) reviewer findings, pre-triage
+
+Artifact: the updated plan (docs/plans/agent-scaffold.md), reviewed with Q-1 = (b).
+Reviewer A (soundness, opus) returned. Root theme: Q-1 = (b) was marked decided in
+the queue but not propagated into the step body, the core-assets narrative, the
+Q-1 decision block body, `workflow-calibration`, F17's rationale, and the Success
+Criteria wording, so the plan still carries the two-cap / "contested" scheme in
+about five places; and the out-of-band F3 fix is not reconciled in the
+`workflow-doc-fixes` step list.
+
+- A-H1 (high). `convergence-accounting` step body (lines 251-253) still reads as
+  pending/gated and hedges under approach (a) (incl. the cross-round finding-id
+  option); rewrite to the concrete (b) design: drop the contested cap, one total
+  cap of five, a two-way {clean, new-valid} partition, no contested state, no
+  finding ids.
+- A-M1 (med). No step owns removing the two-cap description from the plan's own
+  core-assets narrative (line 143); the "stay contested after (default three)"
+  clause has no owner.
+- A-M2 (med). F17's fix is scoped pre-(b): under (b) there are TWO constants, not
+  three, and the narrative's contested cap must be removed, which F17 does not do.
+- A-M3 (med). The Q-1 decision block heading says decided but the body still says
+  "the human confirms" and "I lean to (b)" (consequence of the partial marker edit).
+- A-M4 (med). `workflow-calibration` still lists and plans to calibrate the
+  contested-rounds cap (dangling two-cap reference mooted by (b)).
+- A-M5 (med). F3 is already fixed in the narrative but `workflow-doc-fixes` still
+  lists it as pending, a contradiction that would re-fix a resolved item.
+- A-L1 (low). Success Criteria says "escalation caps" (plural); under (b) one cap.
+- A-L2 (low). F4/F5/F16 edit the same convergence/clean-round text that
+  `convergence-accounting` rewrites first; ordering hazard not noted.
+- A-L3 (low). `ledger-template` gating not marked explicitly like
+  `convergence-accounting`'s.
+- A no-findings: F8/F9 are NOT mooted by (b) (both surviving counters remain and
+  are already scoped to them); finding coverage complete and non-overlapping; the
+  three human-interface steps match their decided scope; no critical.
+
+Reviewer B (consistency/principles, sonnet) still running; triager on the combined
+set after B returns.
+
+New human request (interrupt, during round 2): a structured, machine-parseable
+state file for progress/tasks/agents, that the tool can parse and validate (the
+orchestrator runs the tool to check it), enabling future visualisation; minimise
+sources of truth. Intake done. Recommendation: Approach 1 (derived projection),
+prose (Roadmap, decision queue, ledger) stays the single source; the tool gains a
+`validate` / `status --json` subcommand that validates the state docs and emits a
+JSON projection for viz; exclude authoritative live-agent state (harness owns it;
+at most an append-only dispatch/return event log). Build on `ledger-template` +
+the Roadmap; unify one schema with `human-review-queue` and `instrument-flag`.
+Route to the planner as `Q-11` + a candidate step (e.g. `state-schema`/`validate-command`),
+SEQUENCED AFTER the current convergence-accounting and doc-fixes so the in-flight
+plan converges first. Awaiting the human's approach lock (now or after plan review
+converges).
+
+Reviewer B (consistency/principles, sonnet) returned. Corroborates A's Q-1=(b)
+propagation theme and adds several planner artifacts. Merged unique round-2
+findings G1-G13 handed to the triager:
+- G1 (A-H1,B-H1,B-L1,B-L3): convergence-accounting step body still pending/gated,
+  hedges under (a), dead finding-id parenthetical, repeats `next` status label.
+- G2 (A-M1,A-M2,B-H2,B-M1): core-assets narrative keeps the two-cap/"three
+  constants" scheme; no step owns fixing it; F17's description now wrong under (b).
+- G3 (A-M4,B-H3): workflow-calibration still calibrates the dropped contested cap.
+- G4 (A-M3,B-M2): Q-1 decision block heading decided but body in pre-decision voice.
+- G5 (A-L1,B-M5): Success Criteria says "caps" (plural); one cap under (b).
+- G6 (A-L2): F4/F5/F16 edit the same text convergence-accounting rewrites; ordering.
+- G7 (A-L3): ledger-template gating not marked explicitly.
+- G8 (B-M3): decided queue items embed decision summaries instead of a step pointer
+  (contradicts the Documentation Protocol / one source of truth).
+- G9 (B-M4): Q-1 decision block sits under Open Questions, not folded into the step.
+- G10 (B-M6): "Principle 13"/"5" mix the plan's 1-7 numbering with AGENTS.md's.
+- G11 (B-L2): "I lean to" AI phrasing (prohibited by the project style).
+- G12 (B-L4): push rule duplicated (Documentation Protocol + Open Questions header).
+- G13 (B-L5): status line's "next job = codebase review" stale vs Roadmap.
+
+Triager (opus) dispatched on G1-G13 against the current plan.
+
+Round 2 triager verdicts: 12 valid, 1 invalid. Valid: G1 (high); G2, G3, G4, G9,
+G13 (medium); G5, G6, G8, G10, G11, G12 (low). Invalid: G7 (ledger-template deps
+are already documented in its body and the queue; no real asymmetry). No
+high-severity finding dismissed. Judgment calls resolved by the triager: G8 trim
+decided queue items to ask + status + pointer; G9 fold the Q-1 decision block into
+the `convergence-accounting` step (do not park it in Open Questions); G10 use the
+plan's own 1-7 numbering (drop "13"), and sweep lines 80/85 too. Round 2 outcome:
+NEW VALID FINDINGS (not clean); consecutive-clean stays 0.
+
+Orchestrator error caught: A-M5 (the F3 fix is applied but its `workflow-doc-fixes`
+bullet still lists it pending) was dropped during the hand-merge into G1-G13, so it
+was never triaged; it is plainly valid and is folded into the revision. Lesson:
+hand-merging findings can silently drop one (supports Q-11).
+
+Planner revision dispatched to fold Q-1 = (b) through and fix the 12 valid findings
+plus A-M5. Then a focused convergence check (round 3).
+
+Planner revision returned; all 12 valid findings + A-M5 addressed. Orchestrator
+grep verification of the revised plan (objective residual check): no live
+contested-rounds cap remains (the only "contested" mentions are the legitimate
+triager-debate concept and the step text recording the drop); two round constants,
+a single total-round cap; Success Criteria uses one cap; no "Principle 1X"
+numbering leakage; no pre-decision "the human confirms" voice; the F3 bullet is
+marked done. One out-of-scope residual: `greenfield-flake` still says "the
+recommendation leans to (a)" (a pre-existing style nit, unrelated to Q-1; noted for
+a later style sweep, not fixed). Round 3 convergence decision pending: a formal
+one-reviewer verification round versus accept-as-converged (the round-2 independent
+review plus triage already did the judgment; round 3 only verifies mechanical
+fixes, which the grep largely confirms). Awaiting the human's ceremony choice.
+
+## Findings
+
+| ID | Round | Severity | Triager verdict | Reasoning | Action |
+| -- | ----- | -------- | --------------- | --------- | ------ |
+
+Round 1: two independent reviewers dispatched (R1 correctness/termination lens,
+opus; R2 cross-document-consistency/principles lens, sonnet). R1 returned (11
+findings: 0 critical, 2 high, 6 medium, 3 low). R2 still running. Triager to be
+spawned on the combined, deduplicated findings once R2 returns.
+
+### Round 1 reviewer findings, pre-triage (R1: correctness / termination)
+
+- R1-H1 (high). The recorded per-round outcome is binary (clean vs new valid
+  findings), but the contested-rounds cap needs a third "contested" state that is
+  never recorded or defined, and findings have no cross-round identity, so a
+  re-spawned orchestrator cannot compute the contested cap from the ledger.
+  (`orchestrator.md` steps 1-3; `AGENTS.md` convergence bullets and line ~136.)
+- R1-H2 (high). The convergence taxonomy is not a partition: "new valid findings"
+  and "still-contested valid findings" both describe non-clean rounds with no
+  boundary, and the two caps use different numbers (3 vs 5) for identically
+  recorded rounds, making the escalation trigger nondeterministic.
+- R1-M1 (med). The dismissed-high-severity re-check keys on an undefined severity
+  scale; it says "high-severity" but its stated purpose is catching a "critical"
+  finding, which a critical-above-high scale would exclude. Severity levels are
+  never enumerated in `reviewer.md`/`triager.md`.
+- R1-M2 (med). The second-triager re-check is ordered after the round outcome is
+  recorded, and the procedure never says what to do if the re-check overturns the
+  dismissal (flip outcome, reset streak, refix). The blocking relationship is
+  implied, not a step.
+- R1-M3 (med). Acceptance review is described "as in the other review phases"
+  (implying the convergence loop) but the README diagram draws it as a single pass
+  with no loop, cap, or escalation. Prose and diagram disagree.
+- R1-M4 (med). Off-by-one between prose ("exceed" / "past" / "after") and the
+  diagram ("cap hit"); the boundary phrasings resolve to different round numbers.
+- R1-M5 (med). Counts are per-artifact but the ledger is per-task; no rule resets
+  the consecutive-clean count and round total when moving to a new artifact/step,
+  so a re-spawned orchestrator must infer segmentation that is never specified.
+- R1-M6 (med). The escalation-resume path does not reset the round counters, so a
+  total-cap escalation can immediately re-fire on resume; the intended semantics
+  are undefined.
+- R1-L1 (low). "Risky / high-blast-radius" artifact classification is undefined
+  yet selects the required consecutive-clean count (one vs two); subjective and
+  not recorded.
+- R1-L2 (low). The "clean round" definition ("every finding dismissed") does not
+  explicitly cover the common zero-findings case.
+- R1-L3 (low). The README diagram routes a trivial interrupt into the "implement
+  the next step" node, a dead-end when no steps are pending, and mismatches the
+  prose (the orchestrator folds a trivial request in directly).
+
+### Round 1 reviewer findings, pre-triage (R2: consistency / principles, sonnet)
+
+- R2-H1 (high). The plan doc (`docs/plans/agent-scaffold.md`, `core-assets`
+  narrative) says the ledger is "a durable scratch file (not committed)",
+  contradicting `AGENTS.md`, `orchestrator.md`, and `CHANGELOG.md` ("committed
+  beside its plan"). In the resume-anchor doc, so it would mislead a resuming
+  agent into the opposite design.
+- R2-M1 (med). `AGENTS.md` convergence bullets list only the contested-rounds cap;
+  the total-round cap lives in the separate "backstops" section, so an agent
+  scanning the bullets as a checklist gets an incomplete escalation rule.
+- R2-M2 (med). Acceptance "as in the other review phases" is ambiguous about
+  whether the convergence loop applies; the diagram shows a single pass. [= R1-M3]
+- R2-M3 (med). README intake caption "human decides routing" overstates: the prose
+  has the orchestrator fold trivial requests in directly.
+- R2-M4 (med). README `intake -> impl` for trivial interrupts is wrong when the
+  interrupt arrives during plan review (no pending step). [= R1-L3]
+- R2-M5 (med). `AGENTS.md` source line-wrap splits "the review / has converged"
+  (cosmetic; Markdown soft-wrap, to be judged).
+- R2-M6 (med). `CHANGELOG.md` line-wrap leaves "guarded" at a line end (cosmetic).
+- R2-L1 (low). `AGENTS.md` convergence bullet 3 says "a bounded number of rounds"
+  not "contested rounds", ambiguous against the total cap. [related R1-M4]
+- R2-L2 (low). The plan calls them "three round constants" when one (required
+  consecutive clean rounds) has two values.
+
+### Combined unique findings F1-F17 handed to the triager
+
+Merged (deduped): F6 = R1-M3 + R2-M2; F7 = R1-M4 + R2-L1; F12 = R1-L3 + R2-M4.
+F1/F2 (deep convergence-rule defects) kept distinct from F10 (bullet omits total
+cap). Triager (opus) dispatched to adjudicate all 17 against the current sources.
+
+### Round 1 triager verdicts (14 valid, 3 invalid)
+
+Valid, to fix: F1 (high); F2, F3, F4, F5, F6, F7, F9, F12 (medium); F8, F10, F15,
+F16, F17 (low).
+Invalid, dismissed: F11 (the diagram caption faithfully matches the prose); F13,
+F14 (cosmetic Markdown soft-wrap, renders as continuous text).
+
+No high-severity finding was dismissed, so the dismissed-high-severity
+second-triager guard did not trigger. Round 1 outcome: NEW VALID FINDINGS (not a
+clean round); consecutive-clean stays 0.
+
+Themes of the valid findings:
+- Convergence accounting (F1 high, F2, F7, F10): the "contested" round state the
+  contested-rounds cap depends on is never defined or recorded, the round taxonomy
+  is not a partition, cap-boundary wording is inconsistent, and the bullets omit
+  the total cap. Core defect; needs a design decision on the fix.
+- Ledger/plan contradiction (F3): the plan says the ledger is "not committed" vs
+  the prompts/CHANGELOG "committed beside its plan".
+- Under-specified mechanics (F5 re-check overturn handling, F8 counter reset across
+  artifacts, F9 escalation-resume counter reset, F15 risk classification, F16
+  zero-findings clean round).
+- Severity scale undefined (F4): guard triggers on "high" but aims at "critical".
+- Acceptance loop ambiguity (F6): "as in other phases" vs single-pass diagram.
+- Diagram vs prose (F12): trivial-interrupt edge routes to impl, a dead-end
+  pre-implementation.
+- Nit (F17): "three round constants" imprecise (one has two values).
+
+Next: single planner pass folding the 14 valid findings plus the three queued
+feature requests into the plan; then plan review, implement, round 2 review.

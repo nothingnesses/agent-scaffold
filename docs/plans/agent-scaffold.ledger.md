@@ -613,3 +613,12 @@ capability-tiered isolation rule (+ optional-modules integration); Q-14
 findings-files; Q-15 compaction-prep prompt + checkpoint/resume section; Q-16
 user-prompts directory (revising human-onboarding). Then resume implementing from
 the updated plan (triager-independence onward).
+
+Consolidating planner pass returned (plan +74/-4): 5 new steps (`file-safety-rules`,
+`agent-isolation`, `findings-files`, `user-prompts-dir`, `compaction-prep`), revised
+`human-onboarding`, queue Q-14..Q-18 (Q-17 file-safety, Q-18 isolation-tiering), 4
+new Success Criteria, resume-anchor status line updated, 2 principle-numbering leaks
+fixed proactively. Reviewing the plan change: one reviewer (consistency /
+well-formedness, findings to a file per Q-14); a SEPARATE triager adjudicates
+anything found (always-separate rule); review files committed before cleanup
+(commit-before-delete).

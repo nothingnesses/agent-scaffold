@@ -1014,6 +1014,15 @@ a review finding, plus investigate a markdown formatter so tooling owns wrapping
 into the NEW step `no-wrap-convention` (Roadmap, after human-review-queue). Both marked
 decided in the queue; no open questions remain. Pre-compaction checkpoint run next.
 
+`Q-23` (open, from a human question at the compaction checkpoint): the human asked
+whether to use `resume.md` post-compaction and whether there are user-facing
+instructions. Answer: yes, paste `.agents/user-prompts/resume.md` (the scaffolded copy)
+to continue; instructions exist in the two prompts' preambles and the agent-facing
+"Checkpoint and resuming" section, BUT the human-facing "Getting started" section does
+not mention the compaction lifecycle (discoverability gap). Recorded `Q-23` (open) to add
+a thin onboarding pointer; fold into `human-review-queue`. Recommitted the checkpoint with
+this open item.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -1030,9 +1039,11 @@ Current state: complete and committed so far are `convergence-accounting`,
 `human-review-queue`, then `no-wrap-convention`, `findings-files`, and
 `ledger-template`; `state-schema` is deferred; the earlier `optional-modules`,
 `greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`,
-`workflow-calibration`, and `instrument-flag` remain optional/deferred. No open
-questions remain (all `Q-1`..`Q-22` decided). Each remaining step folds an
-already-decided rule INTO the pack. The full whole-codebase review is a LATER job,
+`workflow-calibration`, and `instrument-flag` remain optional/deferred. One open
+question remains for the human: `Q-23` (the human-facing "Getting started" onboarding
+does not mention the compaction-prep / resume prompts, a discoverability gap;
+recommend a thin pointer, fold into `human-review-queue`); `Q-1`..`Q-22` are decided.
+Each remaining step folds an already-decided rule INTO the pack. The full whole-codebase review is a LATER job,
 after the remaining steps land, not the current job.
 
 IMPORTANT, apply these ADOPTED rules when running the workflow even though the pack

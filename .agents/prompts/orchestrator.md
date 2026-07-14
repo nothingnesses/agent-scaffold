@@ -23,6 +23,15 @@ file tracked in version control beside its plan (for example
 being re-spawned and travels across machines and sessions; delete it, committing
 the deletion, when the task closes.
 
+Keep the tree recoverable; git is your durability substrate (see the file-safety
+rules in `AGENTS.md`). Before spawning any writer agent, commit pending work,
+especially the plan and the ledger, so a writer's kill or misstep leaves only a
+visible uncommitted diff and never risks already-decided state. Commit any
+workflow-managed file before deleting it, so the deletion is a committed deletion
+recoverable from history. On any agent kill or interrupt, run the recovery
+protocol: inspect `git status` and the diff, revert stray temporary artifacts,
+discard or complete partial work, and confirm a known-good tree before continuing.
+
 Track the counts explicitly. Each review-then-triage round, in order:
 
 1. Append a row per finding, and a round-summary line: the round number, the

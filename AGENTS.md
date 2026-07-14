@@ -181,6 +181,28 @@ Questions section; only durable decisions, the ones that change the plan, fold
 into the plan's steps, and a folded decision reopens only by evidence that beats
 its recorded reasoning.
 
+File safety and durability (git is the recovery substrate). Every writer agent's
+damage must stay a visible, committed-or-recoverable diff, on any harness, whether
+or not it offers isolation. This is the always-on baseline; running writers under
+isolation is a structural upgrade layered on top of these rules, not a replacement
+for them. The rules:
+
+- Clean tree before a writer. Commit pending work, especially the plan and the
+  ledger, before spawning a writer agent, so the writer's kill or misstep leaves
+  only a visible uncommitted diff and never risks already-decided state.
+- Commit before delete. Commit any workflow-managed file (a findings file, the
+  ledger at task close, any transient artifact) before deleting it, so the deletion
+  is a committed deletion recoverable from git history.
+- Format only your own files. An implementer formats only the files it changed; it
+  must not run repo-wide formatters (for example `just fmt` or `nix fmt`) or
+  `git checkout` / `git restore` on files it does not own, and leaves incidental
+  reformatting to the orchestrator.
+- Validate in scratch. Run destructive validations in a temporary directory or a
+  worktree, not the live tree.
+- Recover on interrupt. On any agent kill or interrupt, the orchestrator inspects
+  `git status` and the diff, reverts stray temporary artifacts, discards or
+  completes partial work, and confirms a known-good tree before continuing.
+
 ## Principles
 
 Follow these principles. They are numbered for reference, not priority.

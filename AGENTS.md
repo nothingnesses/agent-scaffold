@@ -41,9 +41,10 @@ Roles and their prompts (in `.agents/prompts/`):
   plan and the triager's valid verdicts, keeping the plan's status current.
 
 Among the spawned roles, the planner and the implementer are writers (they change
-the plan or the code) and the reviewers and the triager are read-only; the
-orchestrator itself drives the loop and maintains the ledger, spawning the writers
-rather than implementing itself. "Writer agent" below means a spawned writer role.
+the plan or the code) and the reviewers and the triager are read-only with respect
+to the plan and code (they write only their own findings files); the orchestrator
+itself drives the loop and maintains the ledger, spawning the writers rather than
+implementing itself. "Writer agent" below means a spawned writer role.
 
 Phases (the orchestrator drives these, spawning the role shown):
 

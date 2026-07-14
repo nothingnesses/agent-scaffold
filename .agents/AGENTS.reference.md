@@ -15,11 +15,11 @@ the workflow) hands to the agents it spawns, which you do not paste yourself.
 
 Your part does not end at kickoff. The workflow brings decisions back to you: when
 the agents reach a question, an impasse, or a trade-off, the orchestrator lays out
-the options, their trade-offs, a recommendation, and its reasoning, and you decide. These
-decisions collect in the plan's "Open Questions" section, the single human-decision
-queue; check that section as the work proceeds, and the orchestrator brings its
-recommendation to you when a decision is needed. Reviewing that section is the main
-standing thing asked of you.
+the options, their trade-offs, a recommendation, and its reasoning, and you
+decide. These decisions collect in the plan's "Open Questions" section, the single
+human-decision queue; check that section as the work proceeds, and the orchestrator
+brings its recommendation to you when a decision is needed. Reviewing that section
+is the main standing thing asked of you.
 
 ## Workflow
 
@@ -104,8 +104,9 @@ the request touches, whether it changes the Roadmap scope or Success Criteria, i
 risk and reversibility, any ambiguity or contradiction with a decision already
 folded into the plan, and a recommended routing. The human decides, per the
 human-input contract below; the orchestrator only advises, and defaults to the
-durable path when the assessment is uncertain. This intake is also where the agent gives feedback on the request
-itself, so the human can correct or refine it before any work starts.
+durable path when the assessment is uncertain. This intake is also where the agent
+gives feedback on the request itself, so the human can correct or refine it before
+any work starts.
 
 A request is trivial only if it is local, reversible, changes neither the Success
 Criteria nor the Roadmap scope, and raises no new open question; such a request
@@ -122,10 +123,12 @@ genuinely small requests, so keep it lighter than what it replaces.
 Human-input contract (how every decision is put to the human). Wherever the
 workflow needs a human decision, the agent presents it the same way: the viable
 options or approaches, the trade-offs of each, a recommendation, and the reasoning,
-with the reasoning judged against the project's numbered Project Principles. This
-one format covers every human-input point: an escalation on an impasse, the intake
-of a new or changed request, an open question or a clarifying question raised
-before or during the work, and a question the human asks directly. Scale it to the
+with the reasoning judged against the plan's numbered Project Principles. This one
+format covers every human-input point: an escalation on an impasse, the intake of a
+new or changed request, an open question or a clarifying question raised before or
+during the work, and a decision-seeking question the human asks directly. A purely
+factual question is answered directly, not put through the contract; the contract
+applies where the human is asking which way to go, not for a fact. Scale it to the
 stakes: the full structure for a real decision, a one-line recommendation and
 reason for a trivial confirmation. The human decides; the agent advises and never
 decides for them. A resolved decision is recorded in the plan's Open Questions

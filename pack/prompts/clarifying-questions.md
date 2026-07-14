@@ -6,10 +6,9 @@ principles rather than assumed ones.
 
 Then, before you start, raise any clarifying questions you have about this task for
 the human to answer, so the task is confirmed before any code is written. Where you
-would otherwise make an assumption, raise it instead. For each, give your
-recommendation and the reasoning behind it (the human-input contract in `AGENTS.md`,
-scaled to a question), so the human can confirm or override rather than reconstruct
-your thinking. If nothing is unclear, say so and state the
+would otherwise make an assumption, raise it instead. For each, present it per the
+human-input contract in `AGENTS.md`, scaled to a question, so the human can confirm
+or override rather than reconstruct your thinking. If nothing is unclear, say so and state the
 assumptions you are proceeding on.
 
 The human is the decider here. If you are a sub-agent without a direct channel to

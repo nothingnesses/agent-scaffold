@@ -860,6 +860,23 @@ COMPLETE, `compaction-prep` next (the last human-interface-cluster step). Commit
 round-2 review file (durable), then a follow-up commit deletes all four human-onboarding
 review files (committed deletion).
 
+Gate-prompt finding (`Q-20`, from a human question, transcript-recovered). The human
+asked whether `pack/prompts/clarifying-questions.md` and `open-questions-gate.md` are
+for humans. A compaction had flattened their real nature (agent-RUN, human-ANSWERED
+decision GATES: the "me" in them is the human) into "agent-facing role prompts", so the
+orchestrator first answered wrongly ("not for humans"). Combed the transcript
+(jq/ripgrep over the 48MB session file): design intent is at [07-11T10:17] ("answer at
+the gates: clarifying questions before work starts ... you're the decider there") and
+the same discussion is where the kickoff prompt was born; git shows the files came from
+`a135ff9`, and `704bbae` made open-questions-gate principle-agnostic after an earlier
+human worry. Relationship: `kickoff.md` (human-invoked) is the ENTRANCE (human ->
+workflow); the gates are where the running workflow comes BACK to the human (workflow ->
+human); `human-onboarding`'s "Getting started" section documents both ends. DECIDED
+(human): keep the gates as the planner's prompts (do not fold into `planner.md`), fix
+the "ask me" routing (sub-agent -> orchestrator -> human), and correct the README's
+"one prompt per role" mislabel. New step `gate-prompt-clarity` inserted before
+`compaction-prep`. Recording the plan + this finding, then implementing + reviewing.
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -872,7 +889,8 @@ Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
 `agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
 committed. The human-interface cluster is being implemented in the order
-`user-prompts-dir` (done) -> `human-onboarding` (done) -> `compaction-prep` (NEXT). The remaining not-started steps (see the Roadmap) implement,
+`user-prompts-dir` (done) -> `human-onboarding` (done); a small `gate-prompt-clarity`
+step (`Q-20`) is NEXT, then `compaction-prep`. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

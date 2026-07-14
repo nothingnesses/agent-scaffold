@@ -14,8 +14,8 @@ workflow takes over. `.agents/user-prompts/` holds the prompts you invoke by han
 the workflow) hands to the agents it spawns, which you do not paste yourself.
 
 Your part does not end at kickoff. The workflow brings decisions back to you: when
-the agents reach a question or a trade-off, the orchestrator lays out the options,
-their trade-offs, a recommendation, and its reasoning, and you decide. These
+the agents reach a question, an impasse, or a trade-off, the orchestrator lays out
+the options, their trade-offs, a recommendation, and its reasoning, and you decide. These
 decisions collect in the plan's "Open Questions" section, the single human-decision
 queue; check that section as the work proceeds, and the orchestrator brings its
 recommendation to you when a decision is needed. Reviewing that section is the main
@@ -102,9 +102,9 @@ Before acting on one, the orchestrator runs a single bounded intake assessment
 (itself, or a short planner pass, not a full plan cycle) and reports back: what
 the request touches, whether it changes the Roadmap scope or Success Criteria, its
 risk and reversibility, any ambiguity or contradiction with a decision already
-folded into the plan, and a recommended routing. The human decides; the
-orchestrator only advises, and defaults to the durable path when the assessment is
-uncertain. This intake is also where the agent gives feedback on the request
+folded into the plan, and a recommended routing. The human decides, per the
+human-input contract below; the orchestrator only advises, and defaults to the
+durable path when the assessment is uncertain. This intake is also where the agent gives feedback on the request
 itself, so the human can correct or refine it before any work starts.
 
 A request is trivial only if it is local, reversible, changes neither the Success
@@ -118,6 +118,29 @@ Roadmap and Success Criteria rather than done ad hoc. This is the push counterpa
 to escalation, where the orchestrator pulls a human decision on an impasse. Match
 the intake's ceremony to the stakes: it exists to save the full plan cycle for
 genuinely small requests, so keep it lighter than what it replaces.
+
+Human-input contract (how every decision is put to the human). Wherever the
+workflow needs a human decision, the agent presents it the same way: the viable
+options or approaches, the trade-offs of each, a recommendation, and the reasoning,
+with the reasoning judged against the project's numbered Project Principles. This
+one format covers every human-input point: an escalation on an impasse, the intake
+of a new or changed request, an open question or a clarifying question raised
+before or during the work, and a question the human asks directly. Scale it to the
+stakes: the full structure for a real decision, a one-line recommendation and
+reason for a trivial confirmation. The human decides; the agent advises and never
+decides for them. A resolved decision is recorded in the plan's Open Questions
+section and folded into the step it affects, and it reopens only on evidence that
+beats its recorded reasoning. Each human-input point refers to this contract rather
+than restating it.
+
+Question-driven (Socratic) input is a first-class entry mode, alongside the
+request-driven interrupt above: a human may drive the work by asking a question
+rather than giving a task. When they do, the orchestrator answers with the same
+contract (the options, their trade-offs, a recommendation, and Principle-judged
+reasoning), the human decides, and the resolved answer becomes a durable
+Open-Questions decision like any other. This mode converges when the human commits a
+decision to action, under the same "no re-raise without new evidence" rule; it adds
+no new phase or role, reusing the intake and Open-Questions machinery.
 
 Convergence (when the orchestrator ends one review loop and moves on; distinct
 from the Stop condition above, which ends the whole workflow). After each
@@ -143,7 +166,9 @@ and the round count:
   converged: move on, start implementing after a plan review, or mark the step
   complete and continue after a work review.
 - The total rounds on an artifact reach the total-round cap (default five):
-  escalate to a human with the ledger for a decision, then apply it and resume.
+  escalate to a human, presenting the decision per the human-input contract (the
+  options, their trade-offs, a recommendation, and Principle-judged reasoning, with
+  the ledger as the evidence), then apply the decision and resume.
   This fires whatever the clean-versus-new-valid mix, so a loop that keeps finding
   new genuine issues and one relitigating a single finding escalate on the same
   schedule; the cap bounds both, including the case where each round keeps

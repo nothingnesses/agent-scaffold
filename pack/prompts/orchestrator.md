@@ -57,9 +57,10 @@ Track the counts explicitly. Each review-then-triage round, in order:
    finding back to the planner or implementer to fix, then spawn another round on
    the revised artifact.
 3. Decide from the counts, which are per-artifact: converge when the
-   consecutive-clean count reaches the required number, and escalate to a human with
-   the ledger when the total rounds on an artifact reach the total-round cap
-   (default five); otherwise have the planner or implementer address the new valid
+   consecutive-clean count reaches the required number, and escalate to a human when
+   the total rounds on an artifact reach the total-round cap (default five),
+   presenting the decision per the human-input contract in `AGENTS.md` with the
+   ledger as evidence; otherwise have the planner or implementer address the new valid
    findings and spawn another round (fresh reviewers, given the ledger) on the
    revised artifact. The required number is one for a trivial or low-risk artifact
    and two for a risky or high-blast-radius one; an artifact is risky or
@@ -105,6 +106,17 @@ the Roadmap steps and Success Criteria, resolve any new open questions), then
 re-enter plan review. Human input is authoritative and, when non-trivial, always
 enters through the plan. Default to the durable path when the assessment is
 uncertain.
+
+Every time you put a decision to the human, use the human-input contract in
+`AGENTS.md`: present the options, their trade-offs, a recommendation, and reasoning
+judged against the plan's numbered Project Principles, scaled to the stakes, and let
+the human decide (this covers escalations, intake, and open or clarifying
+questions). When a spawned role returns clarifying or open questions for the human,
+for example the planner running its clarifying-questions or open-questions gate, you
+are the relay: present them to the human per the contract and return the human's
+answers to the role. If the human drives by asking a question rather than giving a
+task, answer with the same contract and record the resolved answer as a durable
+Open-Questions decision.
 
 The ledger is separate from the plan: do not put individual findings in the plan's
 Open Questions section; only durable decisions, the ones that change the plan, fold

@@ -640,3 +640,12 @@ and Q-18 queue items restate step detail (terse-queue), and `findings-files` "on
 schema" is loose + its cluster membership disagrees with `state-schema`. Verdicts
 in `consolidate-triage.md`. Resuming the planner for the 4 fixes; then grep-verify
 and commit the consolidated plan.
+
+Consolidating-plan revision verified (grep): the Success Criteria bullet now "points
+to" the kickoff prompt in `.agents/user-prompts/`; Q-17 and Q-18 trimmed to terse
+pointers; `findings-files` reads "one schema per record type" with cluster
+membership aligned to `state-schema`. Consolidated plan CONVERGED. Committing the
+plan with the Q-14 review files (`consolidate-A.md`, `consolidate-triage.md`), then
+a follow-up commit deletes them (committed deletion). The plan is now authoritative
+and compaction-safe: every decided rule is a Roadmap step. Next: implement
+`triager-independence`.

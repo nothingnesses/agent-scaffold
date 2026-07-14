@@ -40,6 +40,11 @@ Roles and their prompts (in `.agents/prompts/`):
 - Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the
   plan and the triager's valid verdicts, keeping the plan's status current.
 
+Among the spawned roles, the planner and the implementer are writers (they change
+the plan or the code) and the reviewers and the triager are read-only; the
+orchestrator itself drives the loop and maintains the ledger, spawning the writers
+rather than implementing itself. "Writer agent" below means a spawned writer role.
+
 Phases (the orchestrator drives these, spawning the role shown):
 
 1. Front-load context. The relevant role reads the code and docs it needs before
@@ -175,8 +180,8 @@ producer arguing it is invalid and a reviewer arguing it is valid, before ruling
 The ledger is separate from the plan, but versioned like it: keep it in a file
 tracked in version control beside its plan (for example
 `docs/plans/<task>.ledger.md`) and commit it, so it survives the orchestrator
-losing context and travels across machines and sessions; delete it, committing the
-deletion, when the task closes. Never put individual findings in the plan's Open
+losing context and travels across machines and sessions; delete it when the task
+closes. Never put individual findings in the plan's Open
 Questions section; only durable decisions, the ones that change the plan, fold
 into the plan's steps, and a folded decision reopens only by evidence that beats
 its recorded reasoning.
@@ -185,7 +190,7 @@ File safety and durability (git is the recovery substrate). Every writer agent's
 damage must stay a visible, committed-or-recoverable diff, on any harness, whether
 or not it offers isolation. This is the always-on baseline; running writers under
 isolation is a structural upgrade layered on top of these rules, not a replacement
-for them. The rules:
+for them. The rules, each carried out by the role it names:
 
 - Clean tree before a writer. Commit pending work, especially the plan and the
   ledger, before spawning a writer agent, so the writer's kill or misstep leaves

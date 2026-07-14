@@ -20,8 +20,8 @@ the round it was raised in, the triager's verdict, the reasoning, and the action
 taken (fixed in `<commit>`, or dismissed because `<reason>`). Keep the ledger in a
 file tracked in version control beside its plan (for example
 `docs/plans/<task>.ledger.md`) and commit it, so it survives you losing context or
-being re-spawned and travels across machines and sessions; delete it, committing
-the deletion, when the task closes.
+being re-spawned and travels across machines and sessions; delete it when the task
+closes.
 
 Keep the tree recoverable; git is your durability substrate (see the file-safety
 rules in `AGENTS.md`). Before spawning any writer agent, commit pending work,
@@ -31,6 +31,9 @@ workflow-managed file before deleting it, so the deletion is a committed deletio
 recoverable from history. On any agent kill or interrupt, run the recovery
 protocol: inspect `git status` and the diff, revert stray temporary artifacts,
 discard or complete partial work, and confirm a known-good tree before continuing.
+Incidental reformatting is yours: after a writer finishes you may run the repo-wide
+formatter to normalise drift it left, which is tree hygiene, not implementing a
+step.
 
 Track the counts explicitly. Each review-then-triage round, in order:
 

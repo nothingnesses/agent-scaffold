@@ -2,51 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Changed
 
-- Hardened the scaffolded workflow guidance (`AGENTS.md` and the role prompts)
-  after a design review. The review ledger and orchestrator round state move to a
-  file committed beside its plan, so the workflow survives the orchestrator losing
-  context and resumes across machines and sessions; the orchestrator follows an
-  explicit per-round procedure to append the ledger and increment or reset the
-  clean-round count. Convergence now requires consecutive clean rounds scaled to
-  the stakes, and a review loop escalates to a human when the total rounds on an
-  artifact reach the total-round cap (default five). A dismissed high-severity
-  finding is re-checked by a second
-  independent triager. The acceptance review gains a triager, matching the other
-  review phases. A human interrupt now goes through a bounded intake assessment
-  that advises on impact and gives feedback on the request, routing trivial
-  requests directly and non-trivial ones through the plan.
-- Split the review and triage steps into separate nodes in the README workflow
-  diagram, so the triager owns the convergence decision.
+- Hardened the scaffolded workflow guidance (`AGENTS.md` and the role prompts) after a design review. The review ledger and orchestrator round state move to a file committed beside its plan, so the workflow survives the orchestrator losing context and resumes across machines and sessions; the orchestrator follows an explicit per-round procedure to append the ledger and increment or reset the clean-round count. Convergence now requires consecutive clean rounds scaled to the stakes, and a review loop escalates to a human when the total rounds on an artifact reach the total-round cap (default five). A dismissed high-severity finding is re-checked by a second independent triager. The acceptance review gains a triager, matching the other review phases. A human interrupt now goes through a bounded intake assessment that advises on impact and gives feedback on the request, routing trivial requests directly and non-trivial ones through the plan.
+- Split the review and triage steps into separate nodes in the README workflow diagram, so the triager owns the convergence decision.
 
 ## [0.0.1] - 2026-07-10
 
 ### Added
 
-- Initial release. Scaffolds a repeatable agent workflow into a project: a
-  canonical, harness-agnostic `AGENTS.md`, a planning-document template under
-  `docs/plans/`, reusable per-role prompts, and a selectable set of engineering
-  principles.
-- Principle selection. `--principles` accepts `default`, `all`, `none`, a
-  comma-separated list of ids, and `tag:<t>` tokens; `--principle-detail`
-  (`name`, `summary`, or `full`) sets the rendered detail, and
-  `--list-principles` prints the selection.
-- Interactive two-pane selector (ratatui), the default on a terminal: toggle
-  inclusion, reorder, filter by name/id/tag, undo and redo, and a
-  save-confirmation modal.
-- Write safety. A run previews a plan and writes only with `--write` or the
-  selector's Save confirmation; `--dry-run` previews explicitly. Two-tier
-  ownership refreshes tool-owned reference assets under `.agents/` and creates
-  user working files only if absent, unless `--force`.
-- Bring-your-own packs. `--template <dir>` scaffolds from a user-supplied pack
-  via a `pack.toml` manifest (`[[asset]]` and `[[var]]` entries), with
-  `--var key=value` substitution and pack-owned principles.
-- Version control. Initialises a git repository by default (`--vcs git|none`),
-  skipped when the target is already inside a repository.
+- Initial release. Scaffolds a repeatable agent workflow into a project: a canonical, harness-agnostic `AGENTS.md`, a planning-document template under `docs/plans/`, reusable per-role prompts, and a selectable set of engineering principles.
+- Principle selection. `--principles` accepts `default`, `all`, `none`, a comma-separated list of ids, and `tag:<t>` tokens; `--principle-detail` (`name`, `summary`, or `full`) sets the rendered detail, and `--list-principles` prints the selection.
+- Interactive two-pane selector (ratatui), the default on a terminal: toggle inclusion, reorder, filter by name/id/tag, undo and redo, and a save-confirmation modal.
+- Write safety. A run previews a plan and writes only with `--write` or the selector's Save confirmation; `--dry-run` previews explicitly. Two-tier ownership refreshes tool-owned reference assets under `.agents/` and creates user working files only if absent, unless `--force`.
+- Bring-your-own packs. `--template <dir>` scaffolds from a user-supplied pack via a `pack.toml` manifest (`[[asset]]` and `[[var]]` entries), with `--var key=value` substitution and pack-owned principles.
+- Version control. Initialises a git repository by default (`--vcs git|none`), skipped when the target is already inside a repository.
 - Runs without Nix as a standalone binary (Rust 1.88 or newer).

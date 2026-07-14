@@ -35,5 +35,8 @@ fmt:
 
 # Regenerate the project's own scaffolded assets from the pack, so the committed
 # `AGENTS.md`, `.agents/`, and plan template stay in sync with the pack (dogfooding).
+# The raw render is not guaranteed formatter-clean (prettier owns Markdown wrapping,
+# proseWrap=never), so format the output afterwards to reach a stable committed state.
 scaffold-self:
 	{{ direnv_prefix }} cargo run -- --output-dir . --write --force --principles default
+	{{ direnv_prefix }} nix fmt

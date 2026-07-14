@@ -1,17 +1,10 @@
 # Agent guidance
 
-This is the canonical guidance for agents working in this repository. It is
-harness-agnostic: any harness-specific file (for example `CLAUDE.md`) should
-point here rather than duplicate it.
+This is the canonical guidance for agents working in this repository. It is harness-agnostic: any harness-specific file (for example `CLAUDE.md`) should point here rather than duplicate it.
 
 ## Getting started, for the human
 
-New to this workflow? To start a task, copy the kickoff prompt in
-`.agents/user-prompts/kickoff.md`, fill in the bracketed parts (your task and any
-context), and paste it to the agent; it points the agent at this file and the
-workflow takes over. `.agents/user-prompts/` holds the prompts you invoke by hand;
-`.agents/prompts/` holds the role prompts the orchestrator (the agent that drives
-the workflow) hands to the agents it spawns, which you do not paste yourself.
+New to this workflow? To start a task, copy the kickoff prompt in `.agents/user-prompts/kickoff.md`, fill in the bracketed parts (your task and any context), and paste it to the agent; it points the agent at this file and the workflow takes over. `.agents/user-prompts/` holds the prompts you invoke by hand; `.agents/prompts/` holds the role prompts the orchestrator (the agent that drives the workflow) hands to the agents it spawns, which you do not paste yourself.
 
 Your part does not end at kickoff. The workflow brings decisions back to you: when the agents reach a question, an impasse, or a trade-off, the orchestrator lays out the options, their trade-offs, a recommendation, and its reasoning, and you decide. Decisions accumulate in the plan's "Open Questions" section, the single human-decision queue. You do not have to watch it: at each checkpoint (each time the workflow pauses to sync progress with you, for example when a step finishes) the orchestrator raises the open items with you and brings its recommendation, so deciding on what it raises is the main standing thing asked of you.
 
@@ -19,280 +12,74 @@ For long-running work, two prompts in `.agents/user-prompts/` carry state across
 
 ## Workflow
 
-Roles are separated so no agent grades its own work. Where the harness supports
-independent sub-agents, the orchestrator runs each role as a separate, isolated
-agent: it spawns a fresh agent, hands it that role's prompt from
-`.agents/prompts/`, and gives it only the context it needs, not another role's
-reasoning or opinions. Where sub-agents are unavailable, one agent plays the
-other roles in sequence but still writes down each role's output, so the
-separation holds on paper. Match the ceremony to the stakes: collapse roles for a
-trivial change, keep them distinct for anything non-trivial or risky. The triager
-is the one exception to collapsing: it is never merged into the producer or the
-orchestrator, even for a trivial or low-risk review round (see the Triager role
-below for the full rule).
+Roles are separated so no agent grades its own work. Where the harness supports independent sub-agents, the orchestrator runs each role as a separate, isolated agent: it spawns a fresh agent, hands it that role's prompt from `.agents/prompts/`, and gives it only the context it needs, not another role's reasoning or opinions. Where sub-agents are unavailable, one agent plays the other roles in sequence but still writes down each role's output, so the separation holds on paper. Match the ceremony to the stakes: collapse roles for a trivial change, keep them distinct for anything non-trivial or risky. The triager is the one exception to collapsing: it is never merged into the producer or the orchestrator, even for a trivial or low-risk review round (see the Triager role below for the full rule).
 
 Roles and their prompts (in `.agents/prompts/`):
 
-- Orchestrator (`orchestrator.md`). Owns the plan and its status, drives the
-  phases, spawns the other roles and routes context to them, runs the review
-  loop, and escalates to a human on impasse. It does not plan, implement, review,
-  or triage itself.
-- Planner (`planner.md`, with `clarifying-questions.md` and
-  `open-questions-gate.md`). Drafts the plan.
-- Reviewers (`reviewer.md`). Independently and adversarially review an artifact,
-  assuming there are issues, and report each finding with a severity and concrete
-  evidence. Prefer several reviewers with different lenses, and different models
-  where available, since same-model reviewers share blind spots.
-- Triager (`triager.md`). Judges the reviewers' findings on their evidence and
-  severity and returns a verdict for each. The triager is always a separate agent
-  (or a human), independent of both the agent that produced the artifact under
-  review and the orchestrator, for every review round including trivial ones; it is
-  never collapsed into another role. The orchestrator drives the loop and owns
-  convergence and cost, so it is biased toward dismissing findings to converge, and
-  letting it triage would let that bias decide which findings count.
-- Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the
-  plan and the triager's valid verdicts, keeping the plan's status current.
+- Orchestrator (`orchestrator.md`). Owns the plan and its status, drives the phases, spawns the other roles and routes context to them, runs the review loop, and escalates to a human on impasse. It does not plan, implement, review, or triage itself.
+- Planner (`planner.md`, with `clarifying-questions.md` and `open-questions-gate.md`). Drafts the plan.
+- Reviewers (`reviewer.md`). Independently and adversarially review an artifact, assuming there are issues, and report each finding with a severity and concrete evidence. Prefer several reviewers with different lenses, and different models where available, since same-model reviewers share blind spots.
+- Triager (`triager.md`). Judges the reviewers' findings on their evidence and severity and returns a verdict for each. The triager is always a separate agent (or a human), independent of both the agent that produced the artifact under review and the orchestrator, for every review round including trivial ones; it is never collapsed into another role. The orchestrator drives the loop and owns convergence and cost, so it is biased toward dismissing findings to converge, and letting it triage would let that bias decide which findings count.
+- Implementer (`implementer.md`). Makes small, reviewable changes to satisfy the plan and the triager's valid verdicts, keeping the plan's status current.
 
-Among the spawned roles, the planner and the implementer are writers (they change
-the plan or the code) and the reviewers and the triager are read-only with respect
-to the plan and code (they write only their own findings files); the orchestrator
-itself drives the loop and maintains the ledger, spawning the writers rather than
-implementing itself. "Writer agent" below means a spawned writer role.
+Among the spawned roles, the planner and the implementer are writers (they change the plan or the code) and the reviewers and the triager are read-only with respect to the plan and code (they write only their own findings files); the orchestrator itself drives the loop and maintains the ledger, spawning the writers rather than implementing itself. "Writer agent" below means a spawned writer role.
 
 Phases (the orchestrator drives these, spawning the role shown):
 
-1. Front-load context. The relevant role reads the code and docs it needs before
-   acting.
-2. Plan. The orchestrator spawns a planner to draft a plan under `docs/plans/`
-   from `docs/plans/TEMPLATE.md` (seed its Project Principles from this file's
-   principles, in order, then the project's own, consolidating overlaps; record
-   the implementation steps in the Roadmap and state the Success Criteria) and to
-   resolve the open questions before implementation.
-3. Review the plan, then triage. The orchestrator spawns reviewers on the plan,
-   then a triager on their findings; the planner revises per the valid verdicts.
-   Repeat per the convergence rule below, then start implementing.
-4. Implement and review, step by step. While the plan's Roadmap has a pending
-   step, the orchestrator spawns an implementer to make that step's change (small
-   and reviewable), then spawns reviewers on it (give them the before and after
-   commit hashes or the diff range) and a triager; the implementer fixes per the
-   valid verdicts. Repeat the review per the convergence rule, then mark the step
-   complete in the Roadmap and move to the next step.
-5. Accept. When no pending steps remain, the orchestrator spawns reviewers for an
-   acceptance review against the plan's Success Criteria, then a triager on their
-   findings, using the same reviewer and triager roles as the other review phases.
-   Acceptance is a single reviewers-then-triager pass, not the consecutive-clean
-   convergence loop: it does not require clean rounds and does not run its own
-   round loop or cap. If the triager confirms every criterion is met, the work is
-   done. If not, each valid shortfall is a finding that goes back to planning (add
-   or revise steps) or implementation; the fix is then verified by a later
-   acceptance pass, not by another acceptance round on the spot.
+1. Front-load context. The relevant role reads the code and docs it needs before acting.
+2. Plan. The orchestrator spawns a planner to draft a plan under `docs/plans/` from `docs/plans/TEMPLATE.md` (seed its Project Principles from this file's principles, in order, then the project's own, consolidating overlaps; record the implementation steps in the Roadmap and state the Success Criteria) and to resolve the open questions before implementation.
+3. Review the plan, then triage. The orchestrator spawns reviewers on the plan, then a triager on their findings; the planner revises per the valid verdicts. Repeat per the convergence rule below, then start implementing.
+4. Implement and review, step by step. While the plan's Roadmap has a pending step, the orchestrator spawns an implementer to make that step's change (small and reviewable), then spawns reviewers on it (give them the before and after commit hashes or the diff range) and a triager; the implementer fixes per the valid verdicts. Repeat the review per the convergence rule, then mark the step complete in the Roadmap and move to the next step.
+5. Accept. When no pending steps remain, the orchestrator spawns reviewers for an acceptance review against the plan's Success Criteria, then a triager on their findings, using the same reviewer and triager roles as the other review phases. Acceptance is a single reviewers-then-triager pass, not the consecutive-clean convergence loop: it does not require clean rounds and does not run its own round loop or cap. If the triager confirms every criterion is met, the work is done. If not, each valid shortfall is a finding that goes back to planning (add or revise steps) or implementation; the fix is then verified by a later acceptance pass, not by another acceptance round on the spot.
 
-Stop condition. The workflow is done when every step in the plan's Roadmap is
-complete and an acceptance review confirms the changes meet the plan's Success
-Criteria. Escalating to a human is not a stop: it is a request for a decision on
-an impasse, after which the orchestrator applies the decision and resumes the
-workflow where it paused.
+Stop condition. The workflow is done when every step in the plan's Roadmap is complete and an acceptance review confirms the changes meet the plan's Success Criteria. Escalating to a human is not a stop: it is a request for a decision on an impasse, after which the orchestrator applies the decision and resumes the workflow where it paused.
 
-Human requests (interrupts). A human may add or change requests at any point.
-Before acting on one, the orchestrator runs a single bounded intake assessment
-(itself, or a short planner pass, not a full plan cycle) and reports back: what
-the request touches, whether it changes the Roadmap scope or Success Criteria, its
-risk and reversibility, any ambiguity or contradiction with a decision already
-folded into the plan, and a recommended routing. The human decides, per the
-human-input contract below; the orchestrator only advises, and defaults to the
-durable path when the assessment is uncertain. This intake is also where the agent
-gives feedback on the request itself, so the human can correct or refine it before
-any work starts.
+Human requests (interrupts). A human may add or change requests at any point. Before acting on one, the orchestrator runs a single bounded intake assessment (itself, or a short planner pass, not a full plan cycle) and reports back: what the request touches, whether it changes the Roadmap scope or Success Criteria, its risk and reversibility, any ambiguity or contradiction with a decision already folded into the plan, and a recommended routing. The human decides, per the human-input contract below; the orchestrator only advises, and defaults to the durable path when the assessment is uncertain. This intake is also where the agent gives feedback on the request itself, so the human can correct or refine it before any work starts.
 
-A request is trivial only if it is local, reversible, changes neither the Success
-Criteria nor the Roadmap scope, and raises no new open question; such a request
-may be folded in directly. Anything that touches the plan's scope or criteria, or
-carries real risk, is non-trivial and routes to the planner to fold into the plan
-(revising the Roadmap steps and Success Criteria and resolving any new open
-questions), then re-enters plan review. Human input is authoritative and, when
-non-trivial, always enters through the plan, so it is captured durably in the
-Roadmap and Success Criteria rather than done ad hoc. This is the push counterpart
-to escalation, where the orchestrator pulls a human decision on an impasse. Match
-the intake's ceremony to the stakes: it exists to save the full plan cycle for
-genuinely small requests, so keep it lighter than what it replaces.
+A request is trivial only if it is local, reversible, changes neither the Success Criteria nor the Roadmap scope, and raises no new open question; such a request may be folded in directly. Anything that touches the plan's scope or criteria, or carries real risk, is non-trivial and routes to the planner to fold into the plan (revising the Roadmap steps and Success Criteria and resolving any new open questions), then re-enters plan review. Human input is authoritative and, when non-trivial, always enters through the plan, so it is captured durably in the Roadmap and Success Criteria rather than done ad hoc. This is the push counterpart to escalation, where the orchestrator pulls a human decision on an impasse. Match the intake's ceremony to the stakes: it exists to save the full plan cycle for genuinely small requests, so keep it lighter than what it replaces.
 
-Human-input contract (how every decision is put to the human). Wherever the
-workflow needs a human decision, the agent presents it the same way: the viable
-options or approaches, the trade-offs of each, a recommendation, and the reasoning,
-with the reasoning judged against the plan's numbered Project Principles. This one
-format covers every human-input point: an escalation on an impasse, the intake of a
-new or changed request, an open question or a clarifying question raised before or
-during the work, and a decision-seeking question the human asks directly. A purely
-factual question is answered directly, not put through the contract; the contract
-applies where the human is asking which way to go, not for a fact. Scale it to the
-stakes: the full structure for a real decision, a one-line recommendation and
-reason for a trivial confirmation. The human decides; the agent advises and never
-decides for them. A resolved decision is recorded in the plan's Open Questions
-section and folded into the step it affects, and it reopens only on evidence that
-beats its recorded reasoning. Each human-input point refers to this contract rather
-than restating it.
+Human-input contract (how every decision is put to the human). Wherever the workflow needs a human decision, the agent presents it the same way: the viable options or approaches, the trade-offs of each, a recommendation, and the reasoning, with the reasoning judged against the plan's numbered Project Principles. This one format covers every human-input point: an escalation on an impasse, the intake of a new or changed request, an open question or a clarifying question raised before or during the work, and a decision-seeking question the human asks directly. A purely factual question is answered directly, not put through the contract; the contract applies where the human is asking which way to go, not for a fact. Scale it to the stakes: the full structure for a real decision, a one-line recommendation and reason for a trivial confirmation. The human decides; the agent advises and never decides for them. A resolved decision is recorded in the plan's Open Questions section and folded into the step it affects, and it reopens only on evidence that beats its recorded reasoning. Each human-input point refers to this contract rather than restating it.
 
-Question-driven (Socratic) input is a first-class entry mode, alongside the
-request-driven interrupt above: a human may drive the work by asking a question
-rather than giving a task. When they do, the orchestrator answers with the same
-contract (the options, their trade-offs, a recommendation, and Principle-judged
-reasoning), the human decides, and the resolved answer becomes a durable
-Open-Questions decision like any other. This mode converges when the human commits a
-decision to action, under the same "no re-raise without new evidence" rule; it adds
-no new phase or role, reusing the intake and Open-Questions machinery.
+Question-driven (Socratic) input is a first-class entry mode, alongside the request-driven interrupt above: a human may drive the work by asking a question rather than giving a task. When they do, the orchestrator answers with the same contract (the options, their trade-offs, a recommendation, and Principle-judged reasoning), the human decides, and the resolved answer becomes a durable Open-Questions decision like any other. This mode converges when the human commits a decision to action, under the same "no re-raise without new evidence" rule; it adds no new phase or role, reusing the intake and Open-Questions machinery.
 
-Convergence (when the orchestrator ends one review loop and moves on; distinct
-from the Stop condition above, which ends the whole workflow). After each
-review-then-triage round, the orchestrator decides from the triager's verdicts
-and the round count:
+Convergence (when the orchestrator ends one review loop and moves on; distinct from the Stop condition above, which ends the whole workflow). After each review-then-triage round, the orchestrator decides from the triager's verdicts and the round count:
 
-- New valid findings this round: have the planner or implementer address them,
-  then spawn another round (fresh reviewers, given the ledger) on the revised
-  artifact.
-- A clean round (reviewers found nothing this round, every finding dismissed, or a
-  ledger re-raise without new evidence): a candidate for convergence. A round where
-  the reviewers report zero findings counts as clean. Because fresh reviewers are
-  sampled each round, one clean round is weak evidence on its own, so require
-  consecutive clean rounds before converging (a round with new valid findings resets
-  the streak), scaled to the stakes: one for a trivial or low-risk artifact, two for
-  a risky or high-blast-radius one. An artifact is risky or high-blast-radius when a
-  defect in it would be costly or hard to reverse: it is security-, safety-, data-,
-  or money-sensitive, is widely depended on, or changes something hard to roll back.
-  Classify the artifact once, when its review loop opens, and record that
-  classification (and so the required clean-round count) in the ledger, so the count
-  is a recorded property of the artifact rather than a fresh subjective judgement
-  each round. On reaching the required consecutive clean rounds, the review has
-  converged: move on, start implementing after a plan review, or mark the step
-  complete and continue after a work review.
-- The total rounds on an artifact reach the total-round cap (default five):
-  escalate to a human, presenting the decision per the human-input contract (the
-  options, their trade-offs, a recommendation, and Principle-judged reasoning, with
-  the ledger as the evidence), then apply the decision and resume.
-  This fires whatever the clean-versus-new-valid mix, so a loop that keeps finding
-  new genuine issues and one relitigating a single finding escalate on the same
-  schedule; the cap bounds both, including the case where each round keeps
-  producing new valid findings so the loop makes progress yet never reaches a clean
-  round. If a round both reaches the cap and is the converging clean round, the
-  convergence check applies first, so the loop converges rather than escalating. A
-  valid finding may instead be resolved by consciously accepting its residual risk
-  and recording that; an accepted risk does not block convergence. When the human's
-  decision is applied and the loop resumes, reset the artifact's round counters
-  (both the consecutive-clean count and the total-round count) so the cap does not
-  immediately re-fire on the next round; if the decision instead ends the loop
-  (accept the artifact, or send it back for a specific fix that closes this loop),
-  the counters retire with it.
+- New valid findings this round: have the planner or implementer address them, then spawn another round (fresh reviewers, given the ledger) on the revised artifact.
+- A clean round (reviewers found nothing this round, every finding dismissed, or a ledger re-raise without new evidence): a candidate for convergence. A round where the reviewers report zero findings counts as clean. Because fresh reviewers are sampled each round, one clean round is weak evidence on its own, so require consecutive clean rounds before converging (a round with new valid findings resets the streak), scaled to the stakes: one for a trivial or low-risk artifact, two for a risky or high-blast-radius one. An artifact is risky or high-blast-radius when a defect in it would be costly or hard to reverse: it is security-, safety-, data-, or money-sensitive, is widely depended on, or changes something hard to roll back. Classify the artifact once, when its review loop opens, and record that classification (and so the required clean-round count) in the ledger, so the count is a recorded property of the artifact rather than a fresh subjective judgement each round. On reaching the required consecutive clean rounds, the review has converged: move on, start implementing after a plan review, or mark the step complete and continue after a work review.
+- The total rounds on an artifact reach the total-round cap (default five): escalate to a human, presenting the decision per the human-input contract (the options, their trade-offs, a recommendation, and Principle-judged reasoning, with the ledger as the evidence), then apply the decision and resume. This fires whatever the clean-versus-new-valid mix, so a loop that keeps finding new genuine issues and one relitigating a single finding escalate on the same schedule; the cap bounds both, including the case where each round keeps producing new valid findings so the loop makes progress yet never reaches a clean round. If a round both reaches the cap and is the converging clean round, the convergence check applies first, so the loop converges rather than escalating. A valid finding may instead be resolved by consciously accepting its residual risk and recording that; an accepted risk does not block convergence. When the human's decision is applied and the loop resumes, reset the artifact's round counters (both the consecutive-clean count and the total-round count) so the cap does not immediately re-fire on the next round; if the decision instead ends the loop (accept the artifact, or send it back for a specific fix that closes this loop), the counters retire with it.
 
-A backstop guards the loop against a stochastic reviewer or triager: before a
-dismissed finding of high or critical severity (high-or-above on the four-level
-`low`/`medium`/`high`/`critical` scale) counts towards a clean round, have a
-second, independent triager (or a human) confirm the dismissal. This guards the
-dangerous tail, a real critical finding waved away, without doubling the cost of
-ordinary triage. The re-check is a step in the loop, not an aside: convergence
-blocks until it returns. If it upholds the dismissal, the finding stays dismissed
-and the round may count as clean. If it overturns the dismissal (the finding was
-valid after all), flip that round's outcome from clean to new-valid, reset the
-consecutive-clean count to zero, and send the finding back to the planner or
-implementer to fix, then spawn another round on the revised artifact.
+A backstop guards the loop against a stochastic reviewer or triager: before a dismissed finding of high or critical severity (high-or-above on the four-level `low`/`medium`/`high`/`critical` scale) counts towards a clean round, have a second, independent triager (or a human) confirm the dismissal. This guards the dangerous tail, a real critical finding waved away, without doubling the cost of ordinary triage. The re-check is a step in the loop, not an aside: convergence blocks until it returns. If it upholds the dismissal, the finding stays dismissed and the round may count as clean. If it overturns the dismissal (the finding was valid after all), flip that round's outcome from clean to new-valid, reset the consecutive-clean count to zero, and send the finding back to the planner or implementer to fix, then spawn another round on the revised artifact.
 
-Tracking progress. Two things are tracked, at two lifetimes. Step-level progress
-(which implementation steps are done, in progress, or pending) lives durably in
-the plan's Roadmap, the status table described in the plan's Documentation
-Protocol; the implementer keeps it current. Round-level state (the review loop)
-lives in the orchestrator's review ledger, a versioned file kept beside the plan
-(separate from it) and deleted when the task closes. The two review counts (the
-consecutive-clean count and the total-round count) are per-artifact, not per-task:
-when the review loop moves to a new artifact or step, both counts reset to zero,
-even though the ledger that records them spans the whole task.
+Tracking progress. Two things are tracked, at two lifetimes. Step-level progress (which implementation steps are done, in progress, or pending) lives durably in the plan's Roadmap, the status table described in the plan's Documentation Protocol; the implementer keeps it current. Round-level state (the review loop) lives in the orchestrator's review ledger, a versioned file kept beside the plan (separate from it) and deleted when the task closes. The two review counts (the consecutive-clean count and the total-round count) are per-artifact, not per-task: when the review loop moves to a new artifact or step, both counts reset to zero, even though the ledger that records them spans the whole task.
 
-Preventing relitigation (the ledger). The orchestrator keeps a review ledger for
-the task, one row per finding: the round it was raised in, the triager's verdict,
-the reasoning, and the action taken (fixed in `<commit>`, or dismissed because
-`<reason>`); it also records each round's outcome (new valid findings, or clean),
-so the consecutive clean rounds and the round total are countable from the ledger.
-Recording that outcome also yields data, over real use, on how often clean rounds
-are noisy, which is what should inform the required-clean-rounds default. The
-orchestrator counts rounds from the ledger and applies the convergence rule (the
-required consecutive clean rounds end the loop; the total rounds on an artifact
-reaching the total-round cap (default five) trigger escalation). It hands the
-ledger to
-each new round under the
-rule: do not re-raise a settled finding without new evidence that its verdict was
-wrong. For a genuinely contested finding, the triager may hold a short debate, the
-producer arguing it is invalid and a reviewer arguing it is valid, before ruling.
-The ledger is separate from the plan, but versioned like it: keep it in a file
-tracked in version control beside its plan (for example
-`docs/plans/<task>.ledger.md`) and commit it, so it survives the orchestrator
-losing context and travels across machines and sessions; delete it when the task
-closes. Never put individual findings in the plan's Open
-Questions section; only durable decisions, the ones that change the plan, fold
-into the plan's steps, and a folded decision reopens only by evidence that beats
-its recorded reasoning.
+Preventing relitigation (the ledger). The orchestrator keeps a review ledger for the task, one row per finding: the round it was raised in, the triager's verdict, the reasoning, and the action taken (fixed in `<commit>`, or dismissed because `<reason>`); it also records each round's outcome (new valid findings, or clean), so the consecutive clean rounds and the round total are countable from the ledger. Recording that outcome also yields data, over real use, on how often clean rounds are noisy, which is what should inform the required-clean-rounds default. The orchestrator counts rounds from the ledger and applies the convergence rule (the required consecutive clean rounds end the loop; the total rounds on an artifact reaching the total-round cap (default five) trigger escalation). It hands the ledger to each new round under the rule: do not re-raise a settled finding without new evidence that its verdict was wrong. For a genuinely contested finding, the triager may hold a short debate, the producer arguing it is invalid and a reviewer arguing it is valid, before ruling. The ledger is separate from the plan, but versioned like it: keep it in a file tracked in version control beside its plan (for example `docs/plans/<task>.ledger.md`) and commit it, so it survives the orchestrator losing context and travels across machines and sessions; delete it when the task closes. Never put individual findings in the plan's Open Questions section; only durable decisions, the ones that change the plan, fold into the plan's steps, and a folded decision reopens only by evidence that beats its recorded reasoning.
 
 Checkpoints (the human-decision queue and progress). The plan's "Open Questions, Decisions, Issues and Blockers" section is a single living human-decision queue of the decisions the human owns, in the item format the plan template defines. At every checkpoint the orchestrator updates this queue and pushes its open items to the human, each per the human-input contract, rather than waiting for the human to pull them: a new human would not know to watch it, and a pull-only model is fragile.
 
 A step boundary, one Roadmap step converged and the next not yet started, is a checkpoint: the orchestrator runs the queue push and reports what completed and what is next, then by default continues to the next step without blocking (report-and-continue), so the human keeps visibility and can interrupt at any time. The human may set another cadence at kickoff: gate for a go-ahead at each boundary, or run autonomously through to acceptance. The compaction checkpoint below and an escalation are also checkpoints and take the same queue push.
 
-File safety and durability (git is the recovery substrate). Every writer agent's
-damage must stay a visible, committed-or-recoverable diff, on any harness, whether
-or not it offers isolation. This is the always-on baseline; running writers under
-isolation builds on it rather than replacing it (see Writer isolation below). The
-rules, each carried out by the role it names:
+File safety and durability (git is the recovery substrate). Every writer agent's damage must stay a visible, committed-or-recoverable diff, on any harness, whether or not it offers isolation. This is the always-on baseline; running writers under isolation builds on it rather than replacing it (see Writer isolation below). The rules, each carried out by the role it names:
 
-- Clean tree before a writer. Commit pending work, especially the plan and the
-  ledger, before spawning a writer agent, so the writer's kill or misstep leaves
-  only a visible uncommitted diff and never risks already-decided state.
-- Commit before delete. Commit any workflow-managed file (a findings file, the
-  ledger at task close, any transient artifact) before deleting it, so the deletion
-  is a committed deletion recoverable from git history.
-- Format only your own files. An implementer formats only the files it changed; it
-  must not run repo-wide formatters (for example `just fmt` or `nix fmt`) or
-  `git checkout` / `git restore` on files it does not own, and leaves incidental
-  reformatting to the orchestrator.
-- Validate in scratch. Run destructive validations in a temporary directory or a
-  worktree, not the live tree.
-- Recover on interrupt. On any agent kill or interrupt, the orchestrator inspects
-  `git status` and the diff, reverts stray temporary artifacts, discards or
-  completes partial work, and confirms a known-good tree before continuing.
+- Clean tree before a writer. Commit pending work, especially the plan and the ledger, before spawning a writer agent, so the writer's kill or misstep leaves only a visible uncommitted diff and never risks already-decided state.
+- Commit before delete. Commit any workflow-managed file (a findings file, the ledger at task close, any transient artifact) before deleting it, so the deletion is a committed deletion recoverable from git history.
+- Format only your own files. An implementer formats only the files it changed; it must not run repo-wide formatters (for example `just fmt` or `nix fmt`) or `git checkout` / `git restore` on files it does not own, and leaves incidental reformatting to the orchestrator.
+- Validate in scratch. Run destructive validations in a temporary directory or a worktree, not the live tree.
+- Recover on interrupt. On any agent kill or interrupt, the orchestrator inspects `git status` and the diff, reverts stray temporary artifacts, discards or completes partial work, and confirms a known-good tree before continuing.
 
-Writer isolation (capability-tiered). Run each writer agent in the strongest
-isolation the harness supports, in preference order:
+Writer isolation (capability-tiered). Run each writer agent in the strongest isolation the harness supports, in preference order:
 
-1. Container isolation, if available (for example via the agent-box or
-   agent-images projects), preferred because it isolates the filesystem, the
-   environment, and a security sandbox.
-2. Worktree isolation, if that is what the harness offers (for example a git
-   worktree), which isolates the filesystem.
-3. The file-safety discipline above, as the fallback when the harness offers no
-   isolation.
+1. Container isolation, if available (for example via the agent-box or agent-images projects), preferred because it isolates the filesystem, the environment, and a security sandbox.
+2. Worktree isolation, if that is what the harness offers (for example a git worktree), which isolates the filesystem.
+3. The file-safety discipline above, as the fallback when the harness offers no isolation.
 
-Read-only agents need no isolation: they do not change the plan or the code, so
-there is no blast radius to contain (minimal by default). Isolation is the
-structural upgrade over the file-safety baseline: a killed or misbehaving isolated
-writer cannot touch the main tree, so its damage is contained rather than only
-recoverable after the fact. The isolation mechanism
-(the container and worktree integration itself) is an optional module; this rule
-is the always-applicable selection policy and holds whether or not that module is
-built, resolving to the file-safety fallback until it is.
+Read-only agents need no isolation: they do not change the plan or the code, so there is no blast radius to contain (minimal by default). Isolation is the structural upgrade over the file-safety baseline: a killed or misbehaving isolated writer cannot touch the main tree, so its damage is contained rather than only recoverable after the fact. The isolation mechanism (the container and worktree integration itself) is an optional module; this rule is the always-applicable selection policy and holds whether or not that module is built, resolving to the file-safety fallback until it is.
 
-Checkpoint and resuming after context loss. The plan and the ledger are the durable
-state; an agent's working context is not, so the workflow survives a compaction or a
-lost session by keeping that durable state current and committed, then rebuilding
-from it.
+Checkpoint and resuming after context loss. The plan and the ledger are the durable state; an agent's working context is not, so the workflow survives a compaction or a lost session by keeping that durable state current and committed, then rebuilding from it.
 
-- Before a context loss (for example a compaction): the orchestrator flushes the
-  plan, the ledger, and the plan's Open Questions queue to current, pushes any
-  still-open queue items to the human (the checkpoint queue push above), verifies the
-  plan's Status line (the resume anchor) reflects where the work actually is, and
-  commits everything (the same commit-before-risk durability discipline as before a
-  writer, applied to a distinct trigger). A human can trigger this with the
-  compaction-prep prompt in `.agents/user-prompts/`.
-- On resume: reconstruct state from `AGENTS.md`, the plan (its Status line first),
-  and the ledger, then continue from where they say the work left off rather than
-  starting over. A human can trigger this with the resume prompt in
-  `.agents/user-prompts/`.
+- Before a context loss (for example a compaction): the orchestrator flushes the plan, the ledger, and the plan's Open Questions queue to current, pushes any still-open queue items to the human (the checkpoint queue push above), verifies the plan's Status line (the resume anchor) reflects where the work actually is, and commits everything (the same commit-before-risk durability discipline as before a writer, applied to a distinct trigger). A human can trigger this with the compaction-prep prompt in `.agents/user-prompts/`.
+- On resume: reconstruct state from `AGENTS.md`, the plan (its Status line first), and the ledger, then continue from where they say the work left off rather than starting over. A human can trigger this with the resume prompt in `.agents/user-prompts/`.
 
-This names the plan, the ledger, and the plan's Open Questions queue, not any
-specific harness memory feature, so it works on any harness.
+This names the plan, the ledger, and the plan's Open Questions queue, not any specific harness memory feature, so it works on any harness.
 
 Prose formatting. Prose in Markdown and in comments is not hard-wrapped: write natural lines and let the editor or renderer soft-wrap them. Do not insert manual line breaks to hit a column width, and do not reflow existing prose to a width. Line length is never a review finding, so reviewers and triagers do not raise or act on it. Where the project's formatter owns Markdown wrapping (for example prettier), let it own wrapping rather than wrapping by hand.
 

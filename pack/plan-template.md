@@ -11,25 +11,13 @@ fill each section in.>
 
 ## Project Principles
 
-<The design and quality tenets that govern this work, and that an agent should
-honour when making decisions and writing code. These shape the output more than
-any single instruction, so make them concrete. Begin with the repository's
-AGENTS.md principles, in their order, then add the project-specific ones after
-them. Where a project-specific principle overlaps or duplicates one from
-AGENTS.md, consolidate the two into a single principle, amending it to encompass
-both rather than listing near-duplicates. Keep the result a numbered list, as in
-AGENTS.md, so they can be referenced by number (for example "Principle 3").>
+<The design and quality tenets that govern this work, and that an agent should honour when making decisions and writing code. These shape the output more than any single instruction, so make them concrete. Begin with the repository's AGENTS.md principles, in their order, then add the project-specific ones after them. Where a project-specific principle overlaps or duplicates one from AGENTS.md, consolidate the two into a single principle, amending it to encompass both rather than listing near-duplicates. Keep the result a numbered list, as in AGENTS.md, so they can be referenced by number (for example "Principle 3").>
 
 1. <A principle, stated concretely.>
 
 ## Documentation Protocol
 
-<How this plan is kept current during the work. For example: progress lives in
-the Roadmap (an ordered table of step slugs and their status), which is the
-single source of truth for status and order; the Step Details carry each step's
-design and, once done, its outcome, and do not repeat the status label. Steps are
-identified by a stable slug, not a number, so cross-references survive
-reordering. Resolved open questions are marked resolved in the Open Questions queue, not deleted, and their decision folded into the relevant step, so a decision is not addressed twice.>
+<How this plan is kept current during the work. For example: progress lives in the Roadmap (an ordered table of step slugs and their status), which is the single source of truth for status and order; the Step Details carry each step's design and, once done, its outcome, and do not repeat the status label. Steps are identified by a stable slug, not a number, so cross-references survive reordering. Resolved open questions are marked resolved in the Open Questions queue, not deleted, and their decision folded into the relevant step, so a decision is not addressed twice.>
 
 ## Open Questions, Decisions, Issues and Blockers
 
@@ -37,10 +25,7 @@ reordering. Resolved open questions are marked resolved in the Open Questions qu
 
 ## Roadmap
 
-<Steps in implementation order, with status. This table is the single source of
-truth for status and order; each slug keys a detail block below. Statuses: not
-started, in progress, complete, skipped, next, optional, deferred, blocked on
-<slug>.>
+<Steps in implementation order, with status. This table is the single source of truth for status and order; each slug keys a detail block below. Statuses: not started, in progress, complete, skipped, next, optional, deferred, blocked on <slug>.>
 
 | Step   | Status      |
 | ------ | ----------- |
@@ -48,9 +33,7 @@ started, in progress, complete, skipped, next, optional, deferred, blocked on
 
 ## Step Details
 
-<One block per step, headed by its slug. Carry the design, decisions, and (once
-done) the outcome and evidence; do not repeat the status label, it lives in the
-Roadmap. To add a step, add a block here and insert its slug into the Roadmap.>
+<One block per step, headed by its slug. Carry the design, decisions, and (once done) the outcome and evidence; do not repeat the status label, it lives in the Roadmap. To add a step, add a block here and insert its slug into the Roadmap.>
 
 ### <slug>: <title>
 

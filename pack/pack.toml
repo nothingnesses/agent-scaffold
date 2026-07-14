@@ -60,3 +60,10 @@ ownership = "reference"
 source = "principles.toml"
 dest = ".agents/principles.toml"
 ownership = "reference"
+
+# Human-invoked prompts (a human copies, fills in, and pastes these to drive the
+# workflow), kept separate from the role prompts under `.agents/prompts/`.
+[[asset]]
+source = "user-prompts/kickoff.md"
+dest = ".agents/user-prompts/kickoff.md"
+ownership = "reference"

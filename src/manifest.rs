@@ -288,6 +288,7 @@ mod tests {
 				".agents/prompts/triager.md",
 				".agents/prompts/implementer.md",
 				".agents/principles.toml",
+				".agents/user-prompts/kickoff.md",
 			]
 		);
 	}

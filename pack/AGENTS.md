@@ -266,9 +266,10 @@ isolation the harness supports, in preference order:
    isolation.
 
 Read-only agents need no isolation: they do not change the plan or the code, so
-there is no blast radius to contain (minimal by default). Isolation is the structural upgrade over the file-safety baseline: a
-killed or misbehaving isolated writer cannot touch the main tree, so its damage is
-contained rather than only recoverable after the fact. The isolation mechanism
+there is no blast radius to contain (minimal by default). Isolation is the
+structural upgrade over the file-safety baseline: a killed or misbehaving isolated
+writer cannot touch the main tree, so its damage is contained rather than only
+recoverable after the fact. The isolation mechanism
 (the container and worktree integration itself) is an optional module; this rule
 is the always-applicable selection policy and holds whether or not that module is
 built, resolving to the file-safety fallback until it is.

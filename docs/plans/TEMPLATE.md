@@ -33,7 +33,7 @@ reordering. Resolved open questions are marked resolved in the Open Questions qu
 
 ## Open Questions, Decisions, Issues and Blockers
 
-<This is the single living human-decision queue: everything undecided or blocking that the human owns. Each item has a stable id, a one-line ask, a status (`open`, `decided -> folded into <slug>`, or `superseded`), and a pointer to the step or ledger that carries the detail (the approaches, their trade-offs, a recommendation, and the reasoning judged against the numbered Project Principles, so a decision is a matter of confirming rather than reconstructing). A resolved item is marked resolved, not deleted, and its decision is folded into the step it affects, so the same question is not addressed twice. The orchestrator updates this queue at every checkpoint and pushes the open items to you. State "none" when empty.>
+<This is the single living human-decision queue: everything undecided or blocking that the human owns. Each item has a stable id, a one-line ask, a status (`open`, `decided -> folded into <slug>`, or `superseded`), and a pointer to the step or ledger that carries the detail (the approaches, their trade-offs, a recommendation, and the reasoning judged against the numbered Project Principles, so a decision is a matter of confirming rather than reconstructing). A resolved item is marked resolved, not deleted, and its decision is folded into the step it affects, so the same question is not addressed twice. The orchestrator maintains this queue under the push-at-checkpoint rule in `AGENTS.md`. State "none" when empty.>
 
 ## Roadmap
 

@@ -16,6 +16,6 @@ Task: [describe what you want done].
 
 [Optional: constraints, context, or where the relevant code lives.]
 
-[Optional: set the checkpoint cadence. By default, at each step boundary the orchestrator reports what completed and what is next, then continues (report-and-continue). Say "gate at each step boundary" to be asked for a go-ahead between steps, or "run autonomously to acceptance" to be interrupted only for decisions that need you.]
+[Optional: set the checkpoint cadence. By default, at each step boundary the orchestrator reports what completed and what is next, then continues (report-and-continue). Say "gate at each step boundary" to be asked for a go-ahead between steps, or "run autonomously through to acceptance" to be interrupted only for decisions that need you.]
 
 Then drive the workflow to completion as `AGENTS.md` defines it.

@@ -631,3 +631,12 @@ queue item duplicates its step's five-rule content (terse-queue); (low) Q-18
 restates the decided tier order (terse-queue); (low) `findings-files` "share one
 schema" is loosely worded and its cluster membership disagrees with `state-schema`.
 Separate triager dispatched (reads the file per Q-14).
+
+Consolidating-plan triage (separate triager, read the file per Q-14): 4 valid (1
+med, 3 low), none dismissed. Med = a Success Criteria bullet still says the
+Getting-started section "holds an editable kickoff prompt", contradicting the
+revised `human-onboarding` (prompt moves to `.agents/user-prompts/`). Lows = Q-17
+and Q-18 queue items restate step detail (terse-queue), and `findings-files` "one
+schema" is loose + its cluster membership disagrees with `state-schema`. Verdicts
+in `consolidate-triage.md`. Resuming the planner for the 4 fixes; then grep-verify
+and commit the consolidated plan.

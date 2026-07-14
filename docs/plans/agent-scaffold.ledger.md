@@ -562,3 +562,35 @@ now (clean-tree-before-writer invariant, orchestrator recovery protocol on any
 kill/interrupt, validation-in-scratch) and isolation as the structural fix (already
 decided; this mishap is added evidence to prioritise it). Fold into the
 discipline/isolation cluster at the next planner touch.
+
+`pack-rebuild-tracking` review (Q-14 file): reviewer 0/0/0/4L, all robustness gaps
+that cannot currently trigger (pack/ is maintainer-controlled, all-ASCII,
+symlink-free): symlink recursion, lossy `path.display()` on non-UTF8 names,
+additions relying on directory mtime, and the relative "pack" root not derived from
+`CARGO_MANIFEST_DIR`. Findings in `docs/plans/agent-scaffold.reviews/pack-rebuild-tracking-A.md`.
+Separate triager dispatched (reads the file per Q-14) to adjudicate and recommend
+which to fix vs accept-with-rationale.
+
+New human requests (intake, per the human-input contract; awaiting the human's
+decision):
+- Q-15: a reusable compaction-prep USER prompt plus a workflow checkpoint/resume
+  procedure (before a compaction, flush the plan + ledger + queue current and commit
+  so state survives context loss; on resume, reconstruct from AGENTS.md + plan +
+  ledger). Recommend adopt: a thin prompt + a short AGENTS.md "Checkpoint / resuming
+  after context loss" section that reuses the existing durability rules; keep the
+  wording harness-agnostic (plan/ledger/durable notes, not a specific memory).
+- Q-16: separate USER prompts from AGENT/role prompts into their own directory (for
+  example `.agents/user-prompts/`) holding the kickoff prompt and the compaction-prep
+  prompt; `.agents/prompts/` stays the role prompts. Revises `human-onboarding` (the
+  kickoff prompt moves to the dir, thin trigger-prompts do not duplicate workflow
+  content; AGENTS.md points to it). Recommend adopt.
+Both non-trivial -> planner; join the consolidating planner-pass backlog.
+
+`pack-rebuild-tracking` triage (separate triager, read the file per Q-14): 4 valid
+low. FIX Finding 4 (derive the `track` root from `CARGO_MANIFEST_DIR` to match the
+`include_dir!` base, removing a silent-divergence footgun; one source of truth).
+ACCEPT Findings 1 (symlink guard), 2 (lossy path.display), 3 (dir-mtime for
+additions, already documented) with brief rationale comments, since pack/ is
+maintainer-controlled, all-ASCII, symlink-free. Verdicts in
+`docs/plans/agent-scaffold.reviews/pack-rebuild-tracking-triage.md`. Resuming the
+implementer for the Finding-4 fix + rationale comments.

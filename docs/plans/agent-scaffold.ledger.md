@@ -897,6 +897,16 @@ them and relays the human's..." with "relays them to the human and returns the
 answers/decisions" in both prompts; S1 recorded as a `deliberation-mode` scope note (no
 `orchestrator.md` edit here). Regenerated; re-reviewed in round 2.
 
+`gate-prompt-clarity` round 2 (fixes committed 593b71d): one fresh reviewer (opus, given
+the settled findings) verified all three fixes (blank line restored; no "surface" verb;
+S1 intentionally deferred with the `deliberation-mode` scope note present, orchestrator.md
+untouched), mirrors in sync, no new defect (`gate-prompt-clarity-round2-reviewer.md`).
+Round 2 outcome: CLEAN (zero findings; no triager needed). Convergence: LOW-risk, one
+clean round; new-valid (r1), clean (r2) -> streak = 1 -> CONVERGED. Roadmap:
+`gate-prompt-clarity` COMPLETE, `compaction-prep` next. Committing the round-2 review file
+(durable), then a follow-up commit deletes all four gate-prompt-clarity review files
+(committed deletion).
+
 ## RESUME STATE (compaction checkpoint, read this first)
 
 We are DOGFOODING the role-separated workflow on this repo itself (it is
@@ -909,8 +919,8 @@ Current state: `convergence-accounting`, `workflow-doc-fixes`,
 `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, and
 `agent-isolation`, `user-prompts-dir`, and `human-onboarding` are complete and
 committed. The human-interface cluster is being implemented in the order
-`user-prompts-dir` (done) -> `human-onboarding` (done); a small `gate-prompt-clarity`
-step (`Q-20`) is NEXT, then `compaction-prep`. The remaining not-started steps (see the Roadmap) implement,
+`user-prompts-dir` (done) -> `human-onboarding` (done); `gate-prompt-clarity`
+(`Q-20`) is done; `compaction-prep` is NEXT. The remaining not-started steps (see the Roadmap) implement,
 into the pack, the workflow rules we have already ADOPTED and been operating by this
 session. The full whole-codebase review is a LATER job, after these steps land, not
 the current job.

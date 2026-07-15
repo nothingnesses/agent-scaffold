@@ -394,4 +394,70 @@ mod tests {
 		let line = r#"{"type":"intake","task":"demo","classification":"trivial","replanned":false,"ts":123}"#;
 		assert_eq!(one_error(line), "field `ts` has wrong type (expected string)");
 	}
+
+	/// Schema drift-guard: the metrics schema lives in two places, this validator
+	/// (the source of truth) and the human-readable prose in `pack/instrument.md`.
+	/// This test asserts every value the validator accepts is documented verbatim
+	/// in that prose, so changing the schema on one side without the other fails
+	/// here (Principle 16, one source of truth; Principle 11, the test exercises
+	/// the real accepted set). The enum spellings are iterated from each type's own
+	/// `VARIANTS` array rather than re-hardcoded, so renaming a variant in code
+	/// automatically re-points the check at the new spelling, and the prose must
+	/// then document that new spelling or this test fails. The record-type and
+	/// field lists mirror what `check_record` matches on and requires; if a field
+	/// is added to or removed from the validator, update this list to match.
+	#[test]
+	fn instrument_prose_documents_every_accepted_schema_value() {
+		let prose = include_str!("../pack/instrument.md");
+
+		// Every record-type name `check_record` accepts (its `match record_type`).
+		for record_type in ["round", "escalation", "dismissal_recheck", "intake"] {
+			assert!(
+				prose.contains(record_type),
+				"record type `{record_type}` accepted by the validator is not documented in pack/instrument.md"
+			);
+		}
+
+		// Every field name the validator requires or checks: the common fields on
+		// every record, then the per-type fields. Mirrors `check_record`.
+		for field in [
+			"type",
+			"task",
+			"ts",
+			"artifact",
+			"phase",
+			"changed_since_prev",
+			"outcome",
+			"valid_findings",
+			"severities",
+			"consecutive_clean",
+			"human_decision",
+			"result",
+			"classification",
+			"replanned",
+		] {
+			assert!(
+				prose.contains(field),
+				"field `{field}` checked by the validator is not documented in pack/instrument.md"
+			);
+		}
+
+		// Every accepted enum spelling, driven from the validator's own `VARIANTS`
+		// so a code-side rename is automatically checked at its new spelling.
+		for (enum_name, variants) in [
+			("Phase", Phase::VARIANTS),
+			("RoundOutcome", RoundOutcome::VARIANTS),
+			("HumanDecision", HumanDecision::VARIANTS),
+			("RecheckResult", RecheckResult::VARIANTS),
+			("Classification", Classification::VARIANTS),
+			("Severity", Severity::VARIANTS),
+		] {
+			for variant in variants {
+				assert!(
+					prose.contains(variant),
+					"enum `{enum_name}` value `{variant}` accepted by the validator is not documented in pack/instrument.md"
+				);
+			}
+		}
+	}
 }

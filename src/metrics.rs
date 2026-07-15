@@ -411,9 +411,12 @@ mod tests {
 		let prose = include_str!("../pack/instrument.md");
 
 		// Every record-type name `check_record` accepts (its `match record_type`).
+		// Anchor on the quoted form the prose uses (`type: "round"`), not a bare
+		// substring: `round`/`escalation` also occur as plain words elsewhere, so an
+		// unanchored match would not catch the deletion of a type's documentation.
 		for record_type in ["round", "escalation", "dismissal_recheck", "intake"] {
 			assert!(
-				prose.contains(record_type),
+				prose.contains(&format!("\"{record_type}\"")),
 				"record type `{record_type}` accepted by the validator is not documented in pack/instrument.md"
 			);
 		}

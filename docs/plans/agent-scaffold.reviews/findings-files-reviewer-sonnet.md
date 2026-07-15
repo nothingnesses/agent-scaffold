@@ -1,6 +1,6 @@
 # Review findings: `findings-files` step
-Reviewer: sonnet (cross-document consistency and principles lens)
-Commit range: `4ebe8a3..a8a75f5`
+
+Reviewer: sonnet (cross-document consistency and principles lens) Commit range: `4ebe8a3..a8a75f5`
 
 ---
 

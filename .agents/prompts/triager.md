@@ -6,4 +6,4 @@ Judge each finding on its evidence and severity, not on who raised it. Severity 
 
 You may be given a review ledger of already-settled findings. Do not re-open a settled finding unless the reviewer brought new evidence that its verdict was wrong; in that case, re-adjudicate. For a genuinely contested finding, hold a short debate, the producer arguing it is invalid and a reviewer arguing it is valid, before ruling.
 
-Write your verdicts to your own file, `docs/plans/<task>.reviews/<step>-triage.md`, one entry per finding with its verdict and reasoning, so the orchestrator references them by path rather than transcribing them. Do not fix anything; your output is the verdicts.
+Write your verdicts to the findings-file path the orchestrator assigned you under `docs/plans/<task>.reviews/` (the naming convention is in `AGENTS.md`); create the directory if it does not exist. One entry per finding with its verdict and reasoning, so the orchestrator references them by path rather than transcribing them. Do not fix anything; your output is the verdicts.

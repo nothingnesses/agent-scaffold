@@ -1,7 +1,6 @@
 # Reviewer findings: `ledger-template` step (correctness / completeness lens)
 
-Reviewer: opus. Lens: CORRECTNESS and COMPLETENESS. Range reviewed: `691fcbc..062d8cf`.
-Judged against `AGENTS.md` Principles 1-22 and the step detail in `docs/plans/agent-scaffold.md` ("### `ledger-template`").
+Reviewer: opus. Lens: CORRECTNESS and COMPLETENESS. Range reviewed: `691fcbc..062d8cf`. Judged against `AGENTS.md` Principles 1-22 and the step detail in `docs/plans/agent-scaffold.md` ("### `ledger-template`").
 
 ## Summary verdict
 

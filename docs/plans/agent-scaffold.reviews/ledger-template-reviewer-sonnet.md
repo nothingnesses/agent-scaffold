@@ -1,9 +1,6 @@
 # Review findings: ledger-template step
 
-Reviewer: sonnet (consistency / principles lens)
-Commit range: 691fcbc..062d8cf
-Artifact: pack/LEDGER.template.md (new), pack/pack.toml (asset entry), src/manifest.rs (test entry), pack/AGENTS.md (reference sentence added), pack/prompts/orchestrator.md (create-from-template sentence added)
-Artifact classification: low-risk (workflow-doc and asset addition; no logic change)
+Reviewer: sonnet (consistency / principles lens) Commit range: 691fcbc..062d8cf Artifact: pack/LEDGER.template.md (new), pack/pack.toml (asset entry), src/manifest.rs (test entry), pack/AGENTS.md (reference sentence added), pack/prompts/orchestrator.md (create-from-template sentence added) Artifact classification: low-risk (workflow-doc and asset addition; no logic change)
 
 ---
 

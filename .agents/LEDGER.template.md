@@ -8,15 +8,15 @@ Artifact classification: <for each artifact reviewed, record low-risk (one clean
 
 ## Round summaries
 
-<One row per review round for an artifact. Outcome is exactly one of `clean` or `new valid findings` (a round with zero findings counts as clean). The total-round count and the consecutive-clean streak are countable from this table; both reset to zero when the loop moves to a new artifact or step. There is no cross-round finding identity: a round is scored by its outcome, not by tracking a finding across rounds.>
+<One row per review round for an artifact. Outcome is exactly one of `clean` or `new valid findings` (a round with zero findings counts as clean). The total-round count and the consecutive-clean streak are countable from this table; both reset to zero when the loop moves to a new artifact or step. There is no cross-round finding identity: a round is scored by its outcome, not by tracking a finding across rounds. The Consecutive clean column is a convenience view derived from the Outcome column, which is authoritative.>
 
 | Round | Artifact | Changed since prev | Outcome | Valid findings | Consecutive clean |
 | --- | --- | --- | --- | --- | --- |
-| <n> | <what was reviewed> | <yes / no / n.a.> | <clean \| new valid> | <count, e.g. 2 (1 medium, 1 low)> | <streak> |
+| <n> | <what was reviewed> | <yes / no / n.a.> | <clean \| new valid findings> | <count, e.g. 2 (1 medium, 1 low)> | <streak> |
 
 ## Findings
 
-<One entry per finding raised in a round, for the relitigation record. Severity is the four-level scale (`low` / `medium` / `high` / `critical`). Verdict is the triager's (`valid` / `invalid`). Action is `fixed in <commit>`, `dismissed because <reason>`, or `accepted residual risk`. The id is a within-round label for reference (for example R1, S2, F3), not a cross-round identity. Reference each agent's findings file by its path under `docs/plans/<task>.reviews/` rather than copying its text.>
+<One entry per finding raised in a round, for the relitigation record. Severity is the four-level scale (`low` / `medium` / `high` / `critical`). Verdict is the triager's (`valid` / `invalid`). Action is `fixed in <commit>`, `dismissed because <reason>`, or `accepted residual risk`. The id is a within-round label for reference (for example R1, S2, F3), not a cross-round identity. The full findings live in each agent's file under `docs/plans/<task>.reviews/`; cite those file paths in the Round records section below rather than copying their text, so this table stays a compact index.>
 
 | ID  | Round | Severity | Triager verdict | Reasoning | Action |
 | --- | ----- | -------- | --------------- | --------- | ------ |

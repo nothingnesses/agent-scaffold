@@ -105,43 +105,43 @@ Live queue:
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                     | Status      |
-| ------------------------ | ----------- |
-| `core-assets`            | complete    |
-| `file-dropper`           | complete    |
-| `idempotency-safety`     | complete    |
-| `selection-ui`           | complete    |
-| `mode-enum`              | complete    |
-| `tag-selection`          | complete    |
-| `available-filter`       | complete    |
-| `include-all-visible`    | skipped     |
-| `pack-manifest`          | complete    |
-| `external-packs`         | complete    |
-| `pack-owned-principles`  | complete    |
-| `init-vcs`               | complete    |
-| `convergence-accounting` | complete    |
-| `workflow-doc-fixes`     | complete    |
-| `pack-rebuild-tracking`  | complete    |
-| `triager-independence`   | complete    |
-| `file-safety-rules`      | complete    |
-| `agent-isolation`        | complete    |
-| `user-prompts-dir`       | complete    |
-| `human-onboarding`       | complete    |
-| `gate-prompt-clarity`    | complete    |
-| `compaction-prep`        | complete    |
-| `deliberation-mode`      | complete    |
-| `human-review-queue`     | complete    |
-| `no-wrap-convention`     | complete    |
-| `findings-files`         | complete    |
-| `ledger-template`        | complete    |
-| `state-schema`           | deferred    |
-| `optional-modules`       | optional    |
-| `greenfield-flake`       | optional    |
-| `later-enhancements`     | optional    |
-| `git-url-fetch`          | deferred    |
-| `tui-authoring`          | optional    |
-| `workflow-calibration`   | deferred    |
-| `instrument-flag`        | in progress |
+| Step                     | Status   |
+| ------------------------ | -------- |
+| `core-assets`            | complete |
+| `file-dropper`           | complete |
+| `idempotency-safety`     | complete |
+| `selection-ui`           | complete |
+| `mode-enum`              | complete |
+| `tag-selection`          | complete |
+| `available-filter`       | complete |
+| `include-all-visible`    | skipped  |
+| `pack-manifest`          | complete |
+| `external-packs`         | complete |
+| `pack-owned-principles`  | complete |
+| `init-vcs`               | complete |
+| `convergence-accounting` | complete |
+| `workflow-doc-fixes`     | complete |
+| `pack-rebuild-tracking`  | complete |
+| `triager-independence`   | complete |
+| `file-safety-rules`      | complete |
+| `agent-isolation`        | complete |
+| `user-prompts-dir`       | complete |
+| `human-onboarding`       | complete |
+| `gate-prompt-clarity`    | complete |
+| `compaction-prep`        | complete |
+| `deliberation-mode`      | complete |
+| `human-review-queue`     | complete |
+| `no-wrap-convention`     | complete |
+| `findings-files`         | complete |
+| `ledger-template`        | complete |
+| `state-schema`           | next     |
+| `optional-modules`       | optional |
+| `greenfield-flake`       | optional |
+| `later-enhancements`     | optional |
+| `git-url-fetch`          | deferred |
+| `tui-authoring`          | optional |
+| `workflow-calibration`   | deferred |
+| `instrument-flag`        | complete |
 
 ## Step Details
 
@@ -524,6 +524,8 @@ Not started; optional. The design is decided below; the build is deferred. An op
 Data-output format (decided). The per-task review ledger stays human-readable Markdown (rows per finding plus round-summary lines), because the orchestrator and humans read it during the task and it is committed beside its plan. The cross-task metrics log is JSON Lines (JSONL): one self-contained JSON object per event, append-only, machine-parseable, and tolerant of fields added over time, so a small script can aggregate many tasks. Each record carries a `type` discriminator (`round`, `escalation`, `dismissal_recheck`, or `intake`) and the fields listed under `workflow-calibration` for that event. This split keeps the in-task artifact readable and the analysis artifact parseable.
 
 Decided design (`Q-4`, `Q-5`, `Q-6`). The CLI surface is a `--instrument` flag (`Q-4`) that toggles a rendered `{{...}}` block in the workflow templates, rather than an optional module under `optional-modules`. The log location is a committed cross-task file, `docs/metrics/workflow.jsonl` (`Q-5`), so it accumulates and travels. The orchestrator writes the JSONL directly rather than through a helper (`Q-6`). Evidence-grounding: with the flag on, a scaffolded project's workflow appends parseable JSONL records that a small script aggregates into the calibration inputs; with it off, the scaffold output is byte-identical to the non-instrumented run.
+
+Outcome (complete; implemented in `1cd3211`, converged at `68da587`). Added the `--instrument` flag (`src/main.rs`), a reserved `{{instrument}}` computed variable (in `build_assets`, filled from the new `pack/instrument.md` render fragment when set, empty otherwise), and `instrument` in `RESERVED_VARS` (`src/manifest.rs`). `pack/instrument.md` carries the metrics-logging section (JSONL to `docs/metrics/workflow.jsonl`, record types `round` / `escalation` / `dismissal_recheck` / `intake` with their fields); it is a render fragment read directly, not a manifest asset. Reviewed with two independent reviewers (opus correctness, sonnet schema/design) and a separate triager: round 1 found two valid medium findings (the raw off render left trailing blank lines so byte-identity only held after the formatter; and the Pack format docs did not mention `{{instrument}}` or `instrument.md`), plus an accepted low (`unwrap_or_default` IO-error masking, matching the `principles.toml` convention) and a deferred low (records lack a task-id/timestamp for cross-task segmentation, carried forward into `state-schema` as `Q-24`'s neighbour); one finding (Roadmap not updated) was ruled invalid. The fix normalises every rendered asset to exactly one trailing newline (in `render()`), so off is now byte-identical without any formatter (a reviewer confirmed the raw binary output is byte-for-byte identical to the committed file), with a test pinning the invariant; the Pack format docs (README and this plan) now document both reserved variables and the fragment pattern. Round 2 (fresh reviewer) was clean, so the low-risk artifact converged at one clean round; 50 tests pass, clippy clean. See `docs/plans/agent-scaffold.ledger.md` for the round records. Data-integrity of the metrics (`Q-24`) is validated in `state-schema` (detection), and the task-id/timestamp gap (V-4) is recorded there to fix when that step lands.
 
 ## Success Criteria
 

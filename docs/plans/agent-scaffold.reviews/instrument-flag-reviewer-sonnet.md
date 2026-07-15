@@ -1,8 +1,6 @@
 # Review: instrument-flag (design consistency)
 
-Reviewer: sonnet (design-consistency lens)
-Diff range: a5264a2..1cd3211
-Date: 2026-07-15
+Reviewer: sonnet (design-consistency lens) Diff range: a5264a2..1cd3211 Date: 2026-07-15
 
 ## What was reviewed
 

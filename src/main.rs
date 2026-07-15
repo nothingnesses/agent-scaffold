@@ -12,6 +12,7 @@
 mod manifest;
 mod metrics;
 mod pack;
+mod plan;
 mod tui;
 
 use {
@@ -26,8 +27,12 @@ use {
 		Ownership,
 	},
 	pack::Detail,
+	serde::Serialize,
 	std::{
-		collections::HashMap,
+		collections::{
+			BTreeMap,
+			HashMap,
+		},
 		fs,
 		io::{
 			self,
@@ -254,7 +259,7 @@ fn scaffold(
 #[command(
 	name = "agent-scaffold",
 	version,
-	about = "Scaffold the agent workflow into a project.",
+	about = "Scaffold the agent workflow into a project, and validate or project its state.",
 	arg_required_else_help = true
 )]
 struct Cli {
@@ -267,8 +272,10 @@ struct Cli {
 enum Command {
 	/// Scaffold the agent workflow into a project. On a terminal the principle selector opens unless --write or --dry-run is given.
 	Scaffold(ScaffoldArgs),
-	/// Validate the workflow's metrics log against the record schema; exits non-zero on any malformed record.
+	/// Validate the workflow's metrics log against the record schema, and (with --plan) the plan's structured regions; exits non-zero on any violation.
 	Validate(ValidateArgs),
+	/// Project the workflow state: emit a derived summary of the plan's Roadmap steps and open questions plus a metrics-record count. Best-effort; a missing file yields a partial projection.
+	Status(StatusArgs),
 }
 
 /// Arguments for the `scaffold` subcommand.
@@ -317,6 +324,52 @@ struct ValidateArgs {
 	/// Path to the JSONL metrics log to validate.
 	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
 	metrics: PathBuf,
+	/// Path to a Markdown plan to validate (its Roadmap and Open Questions regions). When omitted, only the metrics log is validated.
+	#[arg(long)]
+	plan: Option<PathBuf>,
+}
+
+/// Arguments for the `status` subcommand.
+#[derive(Args)]
+struct StatusArgs {
+	/// Path to a Markdown plan to project (its Roadmap steps and Open Questions items). When omitted, the plan part of the projection is empty.
+	#[arg(long)]
+	plan: Option<PathBuf>,
+	/// Path to the JSONL metrics log to summarise (a record count).
+	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
+	metrics: PathBuf,
+	/// Emit the projection as JSON instead of a short human-readable summary.
+	#[arg(long)]
+	json: bool,
+}
+
+/// A derived, best-effort projection of the workflow state, serialised by
+/// `status`. Every part is optional so a missing plan or metrics file yields a
+/// partial projection rather than a failure; nothing here is a source of truth
+/// (it is regenerable from the plan and the metrics log).
+#[derive(Serialize)]
+struct Projection {
+	/// The plan projection, present only when a readable `--plan` was given.
+	plan: Option<PlanProjection>,
+	/// The metrics summary, present only when the metrics log exists.
+	metrics: Option<MetricsProjection>,
+}
+
+/// The plan half of the projection: the Roadmap steps and the Open Questions
+/// items, as parsed from the plan's structured regions.
+#[derive(Serialize)]
+struct PlanProjection {
+	/// The Roadmap steps (slug plus status), in table order.
+	steps: Vec<plan::Step>,
+	/// The Open Questions queue items (id, status, ask), in list order.
+	open_questions: Vec<plan::Question>,
+}
+
+/// The metrics half of the projection: a small summary of the metrics log.
+#[derive(Serialize)]
+struct MetricsProjection {
+	/// The number of records (non-blank lines) in the metrics log.
+	records: usize,
 }
 
 fn main() -> io::Result<()> {
@@ -324,32 +377,143 @@ fn main() -> io::Result<()> {
 	match cli.command {
 		Command::Scaffold(args) => run_scaffold(args),
 		Command::Validate(args) => run_validate(args),
+		Command::Status(args) => run_status(args),
 	}
 }
 
-/// Validate the metrics log at `args.metrics` against the record schema. An
-/// absent log is not an error (not every project instruments), so it exits 0
-/// with a note. A present log that has any malformed record exits with code 1 (a
-/// validation failure, distinct from the code 2 used for usage errors), printing
-/// each offending line and reason to stderr; a valid log prints a one-line ok
-/// summary and exits 0.
+/// Validate the metrics log at `args.metrics` against the record schema and, when
+/// `--plan` is given, the plan's structured regions against the plan schema.
+///
+/// An absent file (the metrics log, or a `--plan` path) is not a validation
+/// failure: not every project instruments, and a plan is validated only on
+/// request, so a missing file prints a note to stderr and is skipped rather than
+/// hard-failing (the same treatment for both, so the behaviour is consistent).
+/// Every actual violation (a malformed metrics record, or a broken plan region)
+/// is collected, prefixed with its file, and printed to stderr; if any exist the
+/// run exits with code 1 (a validation failure, distinct from the code 2 used for
+/// usage errors). Otherwise each present, valid file prints a one-line ok summary
+/// and the run exits 0. With no `--plan`, this is metrics-only, unchanged from the
+/// previous increment.
 fn run_validate(args: ValidateArgs) -> io::Result<()> {
-	let path = &args.metrics;
-	if !path.exists() {
-		eprintln!("no metrics log at {}; nothing to validate", path.display());
-		return Ok(());
+	let mut problems: Vec<String> = Vec::new();
+	let mut summaries: Vec<String> = Vec::new();
+
+	let metrics_path = &args.metrics;
+	if metrics_path.exists() {
+		let contents = fs::read_to_string(metrics_path)?;
+		let errors = metrics::validate_log(&contents);
+		if errors.is_empty() {
+			summaries.push(format!(
+				"{}: {} records, valid",
+				metrics_path.display(),
+				metrics::count_records(&contents)
+			));
+		} else {
+			for error in &errors {
+				problems.push(format!(
+					"{}:{}: {}",
+					metrics_path.display(),
+					error.line,
+					error.reason
+				));
+			}
+		}
+	} else {
+		eprintln!("no metrics log at {}; nothing to validate", metrics_path.display());
 	}
-	let contents = fs::read_to_string(path)?;
-	let errors = metrics::validate_log(&contents);
-	if errors.is_empty() {
-		println!("{}: {} records, valid", path.display(), metrics::count_records(&contents));
+
+	if let Some(plan_path) = &args.plan {
+		if plan_path.exists() {
+			let contents = fs::read_to_string(plan_path)?;
+			let plan_problems = plan::validate_plan(&contents);
+			if plan_problems.is_empty() {
+				summaries.push(format!(
+					"{}: {} steps, {} open-questions items, valid",
+					plan_path.display(),
+					plan::parse_roadmap(&contents).len(),
+					plan::parse_questions(&contents).len()
+				));
+			} else {
+				for problem in &plan_problems {
+					problems.push(format!("{}: {}", plan_path.display(), problem));
+				}
+			}
+		} else {
+			eprintln!("no plan at {}; nothing to validate", plan_path.display());
+		}
+	}
+
+	if problems.is_empty() {
+		for summary in &summaries {
+			println!("{summary}");
+		}
 		Ok(())
 	} else {
-		for error in &errors {
-			eprintln!("{}:{}: {}", path.display(), error.line, error.reason);
+		for problem in &problems {
+			eprintln!("{problem}");
 		}
 		std::process::exit(1);
 	}
+}
+
+/// Emit a best-effort projection of the workflow state: from `--plan` (when given
+/// and readable) the Roadmap steps and Open Questions items, and from the metrics
+/// log (when present) a record count. Unlike `validate`, this never hard-fails on
+/// a missing or malformed file; a missing plan or metrics file simply leaves that
+/// part of the projection empty. With `--json` the projection is printed as
+/// pretty JSON; otherwise a short human-readable summary is printed.
+fn run_status(args: StatusArgs) -> io::Result<()> {
+	let plan = match &args.plan {
+		Some(path) if path.exists() => {
+			let contents = fs::read_to_string(path)?;
+			Some(PlanProjection {
+				steps: plan::parse_roadmap(&contents),
+				open_questions: plan::parse_questions(&contents),
+			})
+		}
+		_ => None,
+	};
+	let metrics = if args.metrics.exists() {
+		let contents = fs::read_to_string(&args.metrics)?;
+		Some(MetricsProjection {
+			records: metrics::count_records(&contents),
+		})
+	} else {
+		None
+	};
+	let projection = Projection {
+		plan,
+		metrics,
+	};
+
+	if args.json {
+		let json = serde_json::to_string_pretty(&projection).map_err(io::Error::other)?;
+		println!("{json}");
+	} else {
+		match &projection.plan {
+			Some(plan) => {
+				// Group the steps by status so the summary is a few lines, not one per step.
+				let mut by_status: BTreeMap<&str, usize> = BTreeMap::new();
+				for step in &plan.steps {
+					*by_status.entry(step.status.as_str()).or_default() += 1;
+				}
+				let breakdown: Vec<String> =
+					by_status.iter().map(|(status, count)| format!("{count} {status}")).collect();
+				println!(
+					"plan: {} steps ({}); {} open-questions items",
+					plan.steps.len(),
+					breakdown.join(", "),
+					plan.open_questions.len()
+				);
+			}
+			None => println!("plan: not provided"),
+		}
+		match &projection.metrics {
+			Some(metrics) => println!("metrics: {} records", metrics.records),
+			None => println!("metrics: no log found"),
+		}
+	}
+	Ok(())
 }
 
 fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {

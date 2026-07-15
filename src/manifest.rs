@@ -15,7 +15,10 @@ use {
 	},
 	serde::Deserialize,
 	std::{
-		collections::HashMap,
+		collections::{
+			HashMap,
+			HashSet,
+		},
 		fs,
 		io,
 		path::PathBuf,
@@ -47,6 +50,27 @@ struct AssetSpec {
 	/// Whether to render (`{{var}}` substitution) rather than copy verbatim.
 	#[serde(default)]
 	render: bool,
+	/// The optional module this asset belongs to. `None` (an absent field) is a
+	/// core asset, always dropped; `Some(name)` is dropped only when that module
+	/// is selected with `--module <name>`. The `name` must be declared in a
+	/// `[[module]]` section (validated in `load`).
+	#[serde(default)]
+	module: Option<String>,
+}
+
+/// One `[[module]]` entry: an optional module a pack declares. The `[[module]]`
+/// section is the authoritative set of known module names, so both a `--module`
+/// selection and an asset's `module` tag validate against it (no dangling
+/// references). Membership itself is single-sourced on the assets' `module` tag;
+/// this section only names each module and describes it.
+#[derive(Debug, Clone, Deserialize)]
+struct ModuleSpec {
+	/// The module name, referenced by `--module <name>` and by an asset's
+	/// `module = "<name>"` tag.
+	name: String,
+	/// A human-readable description of what the module adds.
+	#[expect(dead_code, reason = "declared for the schema and TUI; not yet read by the loader")]
+	description: String,
 }
 
 /// One `[[var]]` entry: a variable a pack declares for `{{name}}` substitution.
@@ -69,6 +93,11 @@ struct Manifest {
 	asset: Vec<AssetSpec>,
 	#[serde(default)]
 	var: Vec<VarSpec>,
+	/// The modules the pack declares. Defaults to empty, so a pack with no
+	/// `[[module]]` section (for example the built-in pack) still parses and is
+	/// module-free.
+	#[serde(default)]
+	module: Vec<ModuleSpec>,
 }
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
@@ -87,6 +116,16 @@ pub enum LoadError {
 	MissingRequiredVar(String),
 	/// A reserved variable name was declared by the pack or set with `--var`.
 	ReservedVar(String),
+	/// A `--module` named a module the pack does not declare (a usage error).
+	UnknownModule(String),
+	/// An `[[asset]]` was tagged with a module the pack does not declare in any
+	/// `[[module]]` section (a pack-authoring error).
+	UndeclaredAssetModule {
+		/// The tagged asset's source path within the pack.
+		asset: String,
+		/// The undeclared module name the asset referenced.
+		module: String,
+	},
 }
 
 impl std::fmt::Display for LoadError {
@@ -102,6 +141,15 @@ impl std::fmt::Display for LoadError {
 				write!(f, "required variable `{name}` was not supplied (use --var {name}=...)"),
 			LoadError::ReservedVar(name) =>
 				write!(f, "`{name}` is a reserved variable and cannot be declared or set"),
+			LoadError::UnknownModule(name) =>
+				write!(f, "no module named `{name}` is declared by the pack"),
+			LoadError::UndeclaredAssetModule {
+				asset,
+				module,
+			} => write!(
+				f,
+				"asset `{asset}` is tagged with module `{module}`, which no [[module]] declares"
+			),
 		}
 	}
 }
@@ -229,16 +277,50 @@ pub fn render(
 /// tool-computed `builtin` variables (for example `{{principles}}`), and the
 /// `--var` `overrides`; each asset is then read from the pack and rendered with
 /// that map when the manifest marks it `render = true`.
+///
+/// `selected_modules` are the module names passed with `--module`. A core asset
+/// (no `module` tag) is always included; a tagged asset is included only when its
+/// module is selected. Both a selected module and an asset's tag must name a
+/// module the pack declares in a `[[module]]` section: an unknown `--module` is a
+/// usage error and a tag with no matching `[[module]]` is a pack-authoring error,
+/// and either fails the load so nothing is written (no dangling references).
 pub fn load(
 	source: &PackSource,
 	builtin: &HashMap<String, String>,
 	overrides: &HashMap<String, String>,
+	selected_modules: &[String],
 ) -> Result<Vec<Asset>, LoadError> {
 	let manifest = source.manifest()?;
+	// The authoritative set of module names the pack declares.
+	let declared: HashSet<&str> = manifest.module.iter().map(|m| m.name.as_str()).collect();
+	// A `--module` naming a module the pack does not declare is a usage error.
+	for name in selected_modules {
+		if !declared.contains(name.as_str()) {
+			return Err(LoadError::UnknownModule(name.clone()));
+		}
+	}
+	// An asset tagged with a module the pack does not declare is a pack-authoring
+	// error, checked for every asset regardless of selection.
+	for spec in &manifest.asset {
+		if let Some(module) = &spec.module {
+			if !declared.contains(module.as_str()) {
+				return Err(LoadError::UndeclaredAssetModule {
+					asset: spec.source.clone(),
+					module: module.clone(),
+				});
+			}
+		}
+	}
+	let selected: HashSet<&str> = selected_modules.iter().map(String::as_str).collect();
 	let vars = resolve_vars(&manifest.var, builtin, overrides)?;
 	manifest
 		.asset
 		.into_iter()
+		.filter(|spec| match &spec.module {
+			// Core assets always load; a module's assets only when it is selected.
+			None => true,
+			Some(module) => selected.contains(module.as_str()),
+		})
 		.map(|spec| {
 			let raw = source.read(&spec.source)?;
 			let contents = if spec.render { render(&raw, &vars) } else { raw };
@@ -292,7 +374,7 @@ mod tests {
 
 	#[test]
 	fn builtin_manifest_lists_the_expected_assets() {
-		let assets = load(&builtin(), &HashMap::new(), &HashMap::new()).unwrap();
+		let assets = load(&builtin(), &HashMap::new(), &HashMap::new(), &[]).unwrap();
 		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
 		assert_eq!(
 			dests,
@@ -320,7 +402,7 @@ mod tests {
 	fn builtin_renders_only_the_rendered_assets() {
 		let mut vars = HashMap::new();
 		vars.insert("principles".to_string(), "SENTINEL-LIST".to_string());
-		let assets = load(&builtin(), &vars, &HashMap::new()).unwrap();
+		let assets = load(&builtin(), &vars, &HashMap::new(), &[]).unwrap();
 		let by_dest = |dest: &str| assets.iter().find(|a| a.dest == dest).unwrap();
 
 		// The two guidance copies are rendered: the placeholder is gone and the
@@ -370,7 +452,8 @@ mod tests {
 		// source-reading path; declared-variable resolution is covered below.
 		let mut builtin = HashMap::new();
 		builtin.insert("who".to_string(), "there".to_string());
-		let assets = load(&PackSource::Directory(root.clone()), &builtin, &HashMap::new()).unwrap();
+		let assets =
+			load(&PackSource::Directory(root.clone()), &builtin, &HashMap::new(), &[]).unwrap();
 
 		assert_eq!(assets.len(), 1);
 		assert_eq!(assets[0].dest, "out/greeting.md");
@@ -400,12 +483,12 @@ mod tests {
 		overrides.insert("who".to_string(), "world".to_string());
 
 		// `greeting` falls back to its default; `who` takes the override.
-		let assets = load(&source, &HashMap::new(), &overrides).unwrap();
+		let assets = load(&source, &HashMap::new(), &overrides, &[]).unwrap();
 		assert_eq!(assets[0].contents, "hi world\n");
 
 		// Overriding the optional variable too.
 		overrides.insert("greeting".to_string(), "hey".to_string());
-		let assets = load(&source, &HashMap::new(), &overrides).unwrap();
+		let assets = load(&source, &HashMap::new(), &overrides, &[]).unwrap();
 		assert_eq!(assets[0].contents, "hey world\n");
 		fs::remove_dir_all(&root).unwrap();
 	}
@@ -413,7 +496,8 @@ mod tests {
 	#[test]
 	fn missing_required_variable_errors() {
 		let root = var_fixture("var-missing");
-		let result = load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new());
+		let result =
+			load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]);
 		match result {
 			Err(LoadError::MissingRequiredVar(name)) => assert_eq!(name, "who"),
 			other => panic!("expected MissingRequiredVar, got {:?}", other.map(|_| ())),
@@ -427,7 +511,7 @@ mod tests {
 		let mut overrides = HashMap::new();
 		overrides.insert("who".to_string(), "world".to_string());
 		overrides.insert("nope".to_string(), "x".to_string());
-		let result = load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides);
+		let result = load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]);
 		match result {
 			Err(LoadError::UndeclaredVar(name)) => assert_eq!(name, "nope"),
 			other => panic!("expected UndeclaredVar, got {:?}", other.map(|_| ())),
@@ -445,7 +529,8 @@ mod tests {
 			"a.md",
 			"a\n",
 		);
-		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new()) {
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new(), &[])
+		{
 			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "principles"),
 			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
 		}
@@ -456,7 +541,7 @@ mod tests {
 		let mut overrides = HashMap::new();
 		overrides.insert("who".to_string(), "world".to_string());
 		overrides.insert("principles".to_string(), "x".to_string());
-		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides) {
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]) {
 			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "principles"),
 			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
 		}
@@ -473,7 +558,8 @@ mod tests {
 			"a.md",
 			"a\n",
 		);
-		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new()) {
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new(), &[])
+		{
 			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "instrument"),
 			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
 		}
@@ -484,10 +570,114 @@ mod tests {
 		let mut overrides = HashMap::new();
 		overrides.insert("who".to_string(), "world".to_string());
 		overrides.insert("instrument".to_string(), "x".to_string());
-		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides) {
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]) {
 			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "instrument"),
 			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
 		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	/// A filesystem pack fixture with one `[[module]]` named `extras`, one core
+	/// (untagged) asset, and one asset tagged `module = "extras"`, used by the
+	/// module-filtering tests. The core asset is declared first so a passing test
+	/// also pins that manifest order is preserved for the included assets.
+	fn module_fixture(name: &str) -> PathBuf {
+		let root = scratch(name);
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"extras\"\ndescription = \"extra opt-in assets\"\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n\n\
+			 [[asset]]\nsource = \"extra.md\"\ndest = \"extra.md\"\nownership = \"working\"\nmodule = \"extras\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		fs::write(root.join("extra.md"), "extra\n").unwrap();
+		root
+	}
+
+	#[test]
+	fn a_module_asset_drops_only_when_its_module_is_selected() {
+		let root = module_fixture("module-filter");
+		let source = PackSource::Directory(root.clone());
+
+		// With no module selected, only the core asset loads; the tagged one is absent.
+		let core_only = load(&source, &HashMap::new(), &HashMap::new(), &[]).unwrap();
+		let dests: Vec<&str> = core_only.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md"]);
+
+		// With the module selected, both load, and manifest order is preserved.
+		let both =
+			load(&source, &HashMap::new(), &HashMap::new(), &["extras".to_string()]).unwrap();
+		let dests: Vec<&str> = both.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md", "extra.md"]);
+
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn selecting_an_undeclared_module_errors() {
+		let root = module_fixture("module-unknown");
+		let result = load(
+			&PackSource::Directory(root.clone()),
+			&HashMap::new(),
+			&HashMap::new(),
+			&["bogus".to_string()],
+		);
+		match result {
+			Err(LoadError::UnknownModule(name)) => assert_eq!(name, "bogus"),
+			other => panic!("expected UnknownModule, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn an_asset_tagged_with_an_undeclared_module_errors() {
+		// The pack ships no `[[module]]` at all, so the tagged asset dangles. This
+		// is caught even with no module selected: it is a pack-authoring error.
+		let root = scratch("module-dangling-tag");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[asset]]\nsource = \"ghost.md\"\ndest = \"ghost.md\"\nownership = \"working\"\nmodule = \"ghost\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("ghost.md"), "ghost\n").unwrap();
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+			Err(LoadError::UndeclaredAssetModule {
+				asset,
+				module,
+			}) => {
+				assert_eq!(asset, "ghost.md");
+				assert_eq!(module, "ghost");
+			}
+			other => panic!("expected UndeclaredAssetModule, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn selecting_a_declared_module_with_no_assets_drops_nothing_extra() {
+		// A declared module that tags no asset is a valid selection: it simply adds
+		// nothing, so only the core asset loads.
+		let root = scratch("module-empty");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"empty\"\ndescription = \"declares nothing\"\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		let assets = load(
+			&PackSource::Directory(root.clone()),
+			&HashMap::new(),
+			&HashMap::new(),
+			&["empty".to_string()],
+		)
+		.unwrap();
+		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md"]);
 		fs::remove_dir_all(&root).unwrap();
 	}
 }

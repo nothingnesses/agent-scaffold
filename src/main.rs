@@ -196,14 +196,17 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 /// Build the asset set to drop from the active pack: `{{principles}}` is
 /// rendered from the current selection, `{{instrument}}` is the pack's
 /// `instrument.md` fragment when `instrument` is set (empty otherwise, or when
-/// the pack ships no such fragment), and `overrides` supplies the `--var` values
-/// for any variables the pack declares. Building does not write.
+/// the pack ships no such fragment), `overrides` supplies the `--var` values for
+/// any variables the pack declares, and `modules` are the `--module` selections
+/// whose tagged assets are included (core assets always are). Building does not
+/// write.
 fn build_assets(
 	source: &manifest::PackSource,
 	selected: &[&pack::Principle],
 	detail: Detail,
 	overrides: &HashMap<String, String>,
 	instrument: bool,
+	modules: &[String],
 ) -> Result<Vec<Asset>, manifest::LoadError> {
 	let mut builtin: HashMap<String, String> = HashMap::new();
 	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
@@ -212,7 +215,7 @@ fn build_assets(
 	let instrument_block =
 		if instrument { source.read("instrument.md").unwrap_or_default() } else { String::new() };
 	builtin.insert("instrument".to_string(), instrument_block);
-	manifest::load(source, &builtin, overrides)
+	manifest::load(source, &builtin, overrides, modules)
 }
 
 /// Whether the two-pane selector should open: only on a real terminal (both
@@ -242,7 +245,7 @@ fn scaffold(
 	force: bool,
 	instrument: bool,
 ) -> Result<Vec<(String, Outcome)>, manifest::LoadError> {
-	build_assets(source, selected, detail, overrides, instrument)?
+	build_assets(source, selected, detail, overrides, instrument, &[])?
 		.into_iter()
 		.map(|asset| {
 			let outcome = outcome_of(root, &asset, force);
@@ -311,6 +314,9 @@ struct ScaffoldArgs {
 	/// Set a pack-declared variable, as `--var key=value` (repeatable).
 	#[arg(long = "var", value_name = "KEY=VALUE")]
 	var: Vec<String>,
+	/// Include an optional module's assets, as `--module <name>` (repeatable). Unknown modules are an error.
+	#[arg(long = "module", value_name = "NAME")]
+	modules: Vec<String>,
 	/// Include opt-in workflow instrumentation: render calibration-logging
 	/// instructions into the guidance so the workflow records metrics to
 	/// `docs/metrics/workflow.jsonl`. Off by default.
@@ -607,6 +613,7 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 		args.principle_detail,
 		&overrides,
 		args.instrument,
+		&args.modules,
 	) {
 		Ok(assets) => assets,
 		Err(error) => {
@@ -687,9 +694,15 @@ mod tests {
 		let root = scratch("plan-only");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		let assets =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
-				.unwrap();
+		let assets = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&[],
+		)
+		.unwrap();
 		let outcomes: Vec<Outcome> =
 			assets.iter().map(|asset| outcome_of(&root, asset, false)).collect();
 
@@ -855,17 +868,29 @@ mod tests {
 
 		// Off (the default): the placeholder is substituted to empty, so the
 		// instrumentation section is absent and no literal placeholder remains.
-		let off =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
-				.unwrap();
+		let off = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&[],
+		)
+		.unwrap();
 		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(!agents_off.contents.contains("Instrumentation (metrics logging)"));
 		assert!(!agents_off.contents.contains("{{instrument}}"));
 
 		// On: the fragment is inlined, carrying the section heading and the log path.
-		let on =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), true)
-				.unwrap();
+		let on = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+			&[],
+		)
+		.unwrap();
 		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_on.contents.contains("Instrumentation (metrics logging)"));
 		assert!(agents_on.contents.contains("docs/metrics/workflow.jsonl"));
@@ -881,9 +906,15 @@ mod tests {
 		// external formatter) has to end with exactly one newline, so it stays
 		// byte-identical to the pre-instrument output a downstream user without a
 		// formatter would see.
-		let off =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
-				.unwrap();
+		let off = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&[],
+		)
+		.unwrap();
 		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_off.contents.ends_with('\n'), "AGENTS.md must end with a newline");
 		assert!(
@@ -893,9 +924,15 @@ mod tests {
 
 		// The single-trailing-newline invariant holds for a rendered asset in
 		// general, including with instrumentation on.
-		let on =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), true)
-				.unwrap();
+		let on = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+			&[],
+		)
+		.unwrap();
 		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_on.contents.ends_with('\n'));
 		assert!(!agents_on.contents.ends_with("\n\n"));

@@ -100,49 +100,50 @@ Live queue:
 - `Q-21` (decided -> folded into `human-review-queue`) between-step checkpoint cadence: how the orchestrator behaves at a step boundary. Decided (human, `(d)`+`(b)`): configurable at kickoff, defaulting to report-and-continue (the orchestrator reports what completed and what is next, then continues; the human can opt into gating each boundary, and can interrupt via intake at any time). Decision and reasoning in `human-review-queue`.
 - `Q-20` (decided -> folded into `gate-prompt-clarity`) gate-prompt clarity: `clarifying-questions.md` and `open-questions-gate.md` are agent-run human-decision gates (the "me" in them is the human), not agent-only role prompts; their "ask me" wording is imprecise about the sub-agent -> orchestrator -> human routing, and the README labels them "one prompt per workflow role" though they are planner-phase gates. Decided: keep them as the planner's gate prompts (do not fold into `planner.md`), fix the routing wording, and correct the README label. Recovered from the transcript ([07-11T10:17] "answer at the gates"); a compaction had flattened "human-decision gate" into "agent-facing role prompt". Decision and reasoning in `gate-prompt-clarity`.
 - `Q-24` (decided -> folded into `state-schema`) instrumentation data integrity: the `--instrument` metrics log is written by the orchestrator (an LLM) as hand-authored JSONL (`Q-6`), so records are not guaranteed well-formed. Decided (human): guarantee structure by DETECTION, not prevention, the `state-schema` `validate` subcommand checks `docs/metrics/workflow.jsonl` against a schema defined once (the record types and fields fixed in `pack/instrument.md`), reporting or rejecting malformed records, so the data is deterministically verifiable and bad lines are discardable. `instrument-flag` keeps its tool-free direct-write (no runtime dependency on the binary during a workflow run, honouring the harness-agnostic constraint), so `Q-6` is NOT reopened. A validated-append writer (prevention) was considered and declined because it would require the `agent-scaffold` binary on PATH at workflow-run time. Decision and reasoning in `state-schema`.
+- `Q-25` (decided -> folded into `optional-modules`) module design: the `[[module]]` schema, the module set, and the deterministic-checks module. Decided (human, design pass): a hybrid schema (asset `module = "<name>"` tags + a `[[module]]` metadata section) with a `--module` flag; the priority modules are a deterministic-checks module (a user-configurable, pluggable lint/format gate, `ast-grep` first-party, implementer applies formatters while a read-only `checks-reviewer` runs linters and check-mode formatters into a findings file the triager adjudicates) and the isolation module (agent-box/agent-images pointer setup), built machinery -> checks -> isolation. Decision and reasoning in `optional-modules`.
 
 ## Roadmap
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                     | Status   |
-| ------------------------ | -------- |
-| `core-assets`            | complete |
-| `file-dropper`           | complete |
-| `idempotency-safety`     | complete |
-| `selection-ui`           | complete |
-| `mode-enum`              | complete |
-| `tag-selection`          | complete |
-| `available-filter`       | complete |
-| `include-all-visible`    | skipped  |
-| `pack-manifest`          | complete |
-| `external-packs`         | complete |
-| `pack-owned-principles`  | complete |
-| `init-vcs`               | complete |
-| `convergence-accounting` | complete |
-| `workflow-doc-fixes`     | complete |
-| `pack-rebuild-tracking`  | complete |
-| `triager-independence`   | complete |
-| `file-safety-rules`      | complete |
-| `agent-isolation`        | complete |
-| `user-prompts-dir`       | complete |
-| `human-onboarding`       | complete |
-| `gate-prompt-clarity`    | complete |
-| `compaction-prep`        | complete |
-| `deliberation-mode`      | complete |
-| `human-review-queue`     | complete |
-| `no-wrap-convention`     | complete |
-| `findings-files`         | complete |
-| `ledger-template`        | complete |
-| `state-schema`           | complete |
-| `workflow-viz`           | deferred |
-| `optional-modules`       | optional |
-| `greenfield-flake`       | optional |
-| `later-enhancements`     | optional |
-| `git-url-fetch`          | deferred |
-| `tui-authoring`          | optional |
-| `workflow-calibration`   | deferred |
-| `instrument-flag`        | complete |
+| Step                     | Status      |
+| ------------------------ | ----------- |
+| `core-assets`            | complete    |
+| `file-dropper`           | complete    |
+| `idempotency-safety`     | complete    |
+| `selection-ui`           | complete    |
+| `mode-enum`              | complete    |
+| `tag-selection`          | complete    |
+| `available-filter`       | complete    |
+| `include-all-visible`    | skipped     |
+| `pack-manifest`          | complete    |
+| `external-packs`         | complete    |
+| `pack-owned-principles`  | complete    |
+| `init-vcs`               | complete    |
+| `convergence-accounting` | complete    |
+| `workflow-doc-fixes`     | complete    |
+| `pack-rebuild-tracking`  | complete    |
+| `triager-independence`   | complete    |
+| `file-safety-rules`      | complete    |
+| `agent-isolation`        | complete    |
+| `user-prompts-dir`       | complete    |
+| `human-onboarding`       | complete    |
+| `gate-prompt-clarity`    | complete    |
+| `compaction-prep`        | complete    |
+| `deliberation-mode`      | complete    |
+| `human-review-queue`     | complete    |
+| `no-wrap-convention`     | complete    |
+| `findings-files`         | complete    |
+| `ledger-template`        | complete    |
+| `state-schema`           | complete    |
+| `workflow-viz`           | deferred    |
+| `optional-modules`       | in progress |
+| `greenfield-flake`       | optional    |
+| `later-enhancements`     | optional    |
+| `git-url-fetch`          | deferred    |
+| `tui-authoring`          | optional    |
+| `workflow-calibration`   | deferred    |
+| `instrument-flag`        | complete    |
 
 ## Step Details
 
@@ -483,6 +484,14 @@ Open sub-questions to resolve in the design pass (record them in Open Questions,
 - Interaction with `--template`: whether external packs may define their own modules (they should, since the manifest is the shared contract), and how `--module` validates against the active pack.
 
 Each resulting sub-step must be evidence-grounded: validate with a proof-of-concept (build plus tests plus, where relevant, a functional run); on failure fall back to the recorded next-best; if exhausted, raise the impasse. A guiding invariant for validation: with no module selected, the scaffold output must be byte-identical to today's core output.
+
+Design-pass decisions (2026-07-15/16, human-decided; `Q-25`). The step is RESHAPED from the illustrative modules above (diagram pack, justfile, language starters) to the two concrete modules the human wants, on top of the `--module` machinery; the illustrative ones remain possible future modules but are not the priority. Build in three reviewed increments, each its own review artifact: (1) the `--module` machinery; (2) the deterministic-checks module; (3) the isolation module.
+
+- Module schema (HYBRID): assets self-declare membership with an optional `module = "<name>"` field on `[[asset]]` (and `[[var]]`) entries (untagged = core, always dropped; tagged = dropped only when `--module <name>` is passed), PLUS a lightweight `[[module]]` section declaring each known module's `name` and `description` (metadata, and the authoritative set that `--module` validates against; an unknown `--module` errors and writes nothing). Chosen over a group section that lists a module's assets (which duplicates the asset list and drifts, Principle 1) and over tag-only (no home for a description or a validation list): membership is single-sourced on the assets (no drift), metadata and the validated module set live in the small `[[module]]` section (Principle 1, Principle 2). The manifest parser already tolerates unknown keys, so it is non-breaking. Selection is a repeatable `--module <name>` flag under the `scaffold` verb; the loader drops core assets always and a module's assets only when it is selected, so with no module selected the output is byte-identical. A TUI module pane is deferred (the selector stays principle-only).
+
+- Increment (2), the deterministic-checks module (`Q-25`): a module that scaffolds a user-configurable, pluggable deterministic verification gate over the workflow's CODE OUTPUT, generalising the hardcoded verification convention (`clippy` / `nix fmt` / ASCII-clean). It scaffolds (a) `ast-grep` rule config as the first-party linter plus a documented way to register other check and format commands (so a language with no ast-grep grammar plugs in `ruff` / `eslint` / `clippy` / etc.), (b) a `checks-reviewer` role prompt, and (c) workflow guidance wiring it in. Execution model (human-decided): FORMATTERS auto-apply during the IMPLEMENTER's verify step (a writer action, generalising today's `nix fmt`); the CHECKS-REVIEWER, spawned as one reviewer in the work-review phase and read-only, runs the LINTERS (detect) AND the formatters in CHECK / dry-run mode (verifying the code is actually formatted without applying, so it catches an implementer that did not format), and writes its findings to a findings file per `findings-files` (`Q-14`); the TRIAGER adjudicates those deterministic findings alongside the LLM reviewers' (fix vs suppress/accept), and the implementer fixes the valid ones. An optional git pre-commit hook may also be scaffolded as a mechanical backstop, secondary to the review-integrated path. Rationale: reuses the role-separated + findings-file pipeline (no new machinery), keeps the orchestrator's role clean (it spawns the checks-reviewer like any reviewer rather than producing findings itself), and makes both linting and formatting deterministically-verified gates, the same "do not trust the LLM, verify with a tool" ethos as the metrics validator and the schema drift guards (Principle 5, Principle 6). Its config layout and guidance wording are settled in its own design pass when increment (2) is reached.
+
+- Increment (3), the isolation module (`Q-18` mechanism; content-module scope, human-decided): a CONTENT module that scaffolds POINTER SETUP integrating the external agent-box (`https://github.com/0xferrous/agent-box`) and agent-images (`https://github.com/nothingnesses/agent-images`) projects for writer-agent isolation, transactional changes, and sandboxing, rather than reimplementing isolation or taking a heavy runtime dependency (the tool stays a scaffolder; the isolation RULE already ships via `agent-isolation`). Opted into with `--module isolation`, it drops the config/scripts that wire a project to worktree/container isolation (worktree-first per `agent-isolation`). Its exact integration shape (which files, how they invoke agent-box/agent-images) is settled in its own design pass when increment (3) is reached.
 
 ### `greenfield-flake`: Optional greenfield flake template
 

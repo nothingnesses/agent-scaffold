@@ -41,5 +41,5 @@ fmt:
 # that is intentional and harmless because treefmt is idempotent (a no-op on files
 # already clean), and it leaves the repo at a stable committed fixed point.
 scaffold-self:
-	{{ direnv_prefix }} cargo run -- --output-dir . --write --force --principles default
+	{{ direnv_prefix }} cargo run -- scaffold --output-dir . --write --force --principles default
 	{{ direnv_prefix }} nix fmt

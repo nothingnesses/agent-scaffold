@@ -115,9 +115,11 @@ nix develop        # or: direnv allow, if you use direnv
 
 ## Usage
 
-Writes are off unless confirmed, and a run always prints a plan of what it would do (one line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`).
+Every action is a subcommand. Bare `agent-scaffold` (with no subcommand) prints the list of subcommands and exits; scaffolding runs under the `scaffold` verb.
 
-On an interactive terminal, running `agent-scaffold` with no flags opens the two-pane selector; choosing Save in its confirmation modal writes the scaffold (Cancel or quit writes nothing). For non-interactive use:
+Writes are off unless confirmed, and a scaffold run always prints a plan of what it would do (one line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`).
+
+On an interactive terminal, running `agent-scaffold scaffold` with no flags opens the two-pane selector; choosing Save in its confirmation modal writes the scaffold (Cancel or quit writes nothing). For non-interactive use:
 
 - `--write` applies the changes directly (using `--principles`), skipping the selector. Off a terminal, this is the only way writes happen.
 - `--dry-run` prints the plan and exits without writing and without opening the selector.
@@ -126,13 +128,13 @@ On an interactive terminal, running `agent-scaffold` with no flags opens the two
 Open the selector for the current directory:
 
 ```sh
-agent-scaffold
+agent-scaffold scaffold
 ```
 
 Apply directly, without the selector (into a specific directory):
 
 ```sh
-agent-scaffold --output-dir path/to/project --write
+agent-scaffold scaffold --output-dir path/to/project --write
 ```
 
 Re-running is safe and idempotent: reference assets are refreshed and existing working files are left untouched. Pass `--force` to overwrite working files too (`--force` decides overwrite-versus-skip; `--write` decides whether to write at all, so the two combine).
@@ -153,20 +155,20 @@ Tokens combine and are de-duplicated by first occurrence, so a bare id list keep
 
 ```sh
 # List the default principles and exit, without scaffolding:
-agent-scaffold --list-principles
+agent-scaffold scaffold --list-principles
 
 # List every principle:
-agent-scaffold --principles all --list-principles
+agent-scaffold scaffold --principles all --list-principles
 
 # Scaffold a specific, ordered selection:
-agent-scaffold --principles kiss,verify-dont-trust,tag:fp
+agent-scaffold scaffold --principles kiss,verify-dont-trust,tag:fp
 ```
 
 `--principle-detail` controls how much of each principle is rendered: `name`, `summary` (the default), or `full` (name, rationale, and references).
 
 ### Interactive selection
 
-On a terminal, the two-pane selector opens by default (seeded from `--principles`); pass `--write` or `--dry-run` to skip it:
+On a terminal, `agent-scaffold scaffold` opens the two-pane selector by default (seeded from `--principles`); pass `--write` or `--dry-run` to skip it:
 
 - Left pane lists available principles; right pane lists the included ones in order.
 - `i` / `a` move the highlighted principle to the other pane, inserting it before (`i`) or after (`a`) the cursor.
@@ -181,7 +183,7 @@ On save it prints a ready-to-paste `--principles <ids>` line so the exact select
 By default the tool uses its built-in pack. Point `--template` at a directory to scaffold from your own pack instead:
 
 ```sh
-agent-scaffold --template path/to/my-pack --var project=my-service
+agent-scaffold scaffold --template path/to/my-pack --var project=my-service
 ```
 
 A pack is a directory with a `pack.toml` manifest that declares its assets and any variables:

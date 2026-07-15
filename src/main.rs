@@ -15,7 +15,9 @@ mod tui;
 
 use {
 	clap::{
+		Args,
 		Parser,
+		Subcommand,
 		ValueEnum,
 	},
 	manifest::{
@@ -211,11 +213,11 @@ fn build_assets(
 /// input and output), when there is something to select, and when neither
 /// `--write` nor `--dry-run` has asked for a non-interactive run.
 fn use_selector(
-	cli: &Cli,
+	args: &ScaffoldArgs,
 	principles: &[pack::Principle],
 ) -> bool {
-	!cli.write
-		&& !cli.dry_run
+	!args.write
+		&& !args.dry_run
 		&& !principles.is_empty()
 		&& io::stdin().is_terminal()
 		&& io::stdout().is_terminal()
@@ -244,14 +246,31 @@ fn scaffold(
 		.map_err(manifest::LoadError::from)
 }
 
-/// Scaffold the agent workflow into a project.
+/// Top-level CLI: every action is a subcommand. Bare invocation prints the
+/// subcommand list (`arg_required_else_help`), so a newcomer discovers the
+/// surface rather than triggering a default action.
 #[derive(Parser)]
 #[command(
 	name = "agent-scaffold",
 	version,
-	about = "Scaffold the agent workflow into a project. On a terminal the principle selector opens by default. Pass --write or --dry-run for a non-interactive run."
+	about = "Scaffold the agent workflow into a project, and validate or project its state.",
+	arg_required_else_help = true
 )]
 struct Cli {
+	#[command(subcommand)]
+	command: Command,
+}
+
+/// The available actions, one per verb.
+#[derive(Subcommand)]
+enum Command {
+	/// Scaffold the agent workflow into a project. On a terminal the principle selector opens unless --write or --dry-run is given.
+	Scaffold(ScaffoldArgs),
+}
+
+/// Arguments for the `scaffold` subcommand.
+#[derive(Args)]
+struct ScaffoldArgs {
 	/// Directory to scaffold into (defaults to the current directory).
 	#[arg(long, default_value = ".")]
 	output_dir: PathBuf,
@@ -291,9 +310,14 @@ struct Cli {
 
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
+	match cli.command {
+		Command::Scaffold(args) => run_scaffold(args),
+	}
+}
 
+fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 	// The active pack: the built-in one, or an external directory via --template.
-	let source = match &cli.template {
+	let source = match &args.template {
 		Some(path) => manifest::PackSource::Directory(path.clone()),
 		None => manifest::builtin(),
 	};
@@ -301,7 +325,7 @@ fn main() -> io::Result<()> {
 	// Parse --var key=value overrides. Validation against the pack's declared
 	// variables happens in the loader; here we only reject malformed entries.
 	let mut overrides: HashMap<String, String> = HashMap::new();
-	for entry in &cli.var {
+	for entry in &args.var {
 		match entry.split_once('=') {
 			Some((key, value)) => {
 				overrides.insert(key.to_string(), value.to_string());
@@ -322,7 +346,7 @@ fn main() -> io::Result<()> {
 			std::process::exit(2);
 		}
 	};
-	let selected = match pack::resolve_selection(&principles, &cli.principles) {
+	let selected = match pack::resolve_selection(&principles, &args.principles) {
 		Ok(selected) => selected,
 		Err(error) => {
 			eprintln!("error: {error}");
@@ -330,8 +354,8 @@ fn main() -> io::Result<()> {
 		}
 	};
 
-	if cli.list_principles {
-		println!("{}", pack::render_principles(&selected, cli.principle_detail));
+	if args.list_principles {
+		println!("{}", pack::render_principles(&selected, args.principle_detail));
 		return Ok(());
 	}
 
@@ -339,7 +363,7 @@ fn main() -> io::Result<()> {
 	// confirmation, so Save both records the selection and means "write". --write
 	// and --dry-run take the non-interactive path instead. On abort, nothing is
 	// written.
-	let (selected, write) = if use_selector(&cli, &principles) {
+	let (selected, write) = if use_selector(&args, &principles) {
 		let initial: Vec<usize> = selected
 			.iter()
 			.map(|p| {
@@ -350,10 +374,10 @@ fn main() -> io::Result<()> {
 			})
 			.collect();
 		let save_summary = vec![
-			format!("Scaffold into: {}", cli.output_dir.display()),
+			format!("Scaffold into: {}", args.output_dir.display()),
 			"Creates AGENTS.md and docs/plans/TEMPLATE.md if absent;".to_string(),
 			"always refreshes the .agents/ reference assets.".to_string(),
-			if cli.force {
+			if args.force {
 				"Existing working files WILL be overwritten (--force).".to_string()
 			} else {
 				"Existing working files are left untouched.".to_string()
@@ -373,20 +397,25 @@ fn main() -> io::Result<()> {
 		}
 	} else {
 		// Non-interactive: apply only when --write was given.
-		(selected, cli.write)
+		(selected, args.write)
 	};
 
-	let assets =
-		match build_assets(&source, &selected, cli.principle_detail, &overrides, cli.instrument) {
-			Ok(assets) => assets,
-			Err(error) => {
-				eprintln!("error: {error}");
-				std::process::exit(2);
-			}
-		};
+	let assets = match build_assets(
+		&source,
+		&selected,
+		args.principle_detail,
+		&overrides,
+		args.instrument,
+	) {
+		Ok(assets) => assets,
+		Err(error) => {
+			eprintln!("error: {error}");
+			std::process::exit(2);
+		}
+	};
 	let outcomes: Vec<Outcome> =
-		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
-	let repo = init_plan(cli.vcs, &cli.output_dir)?;
+		assets.iter().map(|asset| outcome_of(&args.output_dir, asset, args.force)).collect();
+	let repo = init_plan(args.vcs, &args.output_dir)?;
 
 	// Always show the plan, then write only if confirmed. The repository line, if
 	// any, comes first: the repo is initialised before the assets are dropped.
@@ -401,16 +430,16 @@ fn main() -> io::Result<()> {
 
 	if write {
 		if matches!(repo, InitPlan::Init) {
-			run_git_init(&cli.output_dir)?;
+			run_git_init(&args.output_dir)?;
 		}
 		for (asset, outcome) in assets.iter().zip(&outcomes) {
-			apply_asset(&cli.output_dir, asset, outcome)?;
+			apply_asset(&args.output_dir, asset, outcome)?;
 		}
 		let changed = outcomes.iter().filter(|o| !matches!(o, Outcome::SkippedExisting)).count();
 		let untouched = outcomes.len() - changed;
 		println!(
 			"Wrote to {} ({changed} changed, {untouched} left untouched).",
-			cli.output_dir.display()
+			args.output_dir.display()
 		);
 	} else {
 		println!("Dry run; nothing written. Pass --write to apply.");

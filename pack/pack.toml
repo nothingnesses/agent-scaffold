@@ -61,6 +61,11 @@ source = "principles.toml"
 dest = ".agents/principles.toml"
 ownership = "reference"
 
+[[asset]]
+source = "LEDGER.template.md"
+dest = ".agents/LEDGER.template.md"
+ownership = "reference"
+
 # Human-invoked prompts (a human copies, fills in, and pastes these to drive the
 # workflow), kept separate from the role prompts under `.agents/prompts/`.
 [[asset]]

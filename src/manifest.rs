@@ -288,6 +288,7 @@ mod tests {
 				".agents/prompts/triager.md",
 				".agents/prompts/implementer.md",
 				".agents/principles.toml",
+				".agents/LEDGER.template.md",
 				".agents/user-prompts/kickoff.md",
 				".agents/user-prompts/compaction-prep.md",
 				".agents/user-prompts/resume.md",

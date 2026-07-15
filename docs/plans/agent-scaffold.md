@@ -105,43 +105,44 @@ Live queue:
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                     | Status   |
-| ------------------------ | -------- |
-| `core-assets`            | complete |
-| `file-dropper`           | complete |
-| `idempotency-safety`     | complete |
-| `selection-ui`           | complete |
-| `mode-enum`              | complete |
-| `tag-selection`          | complete |
-| `available-filter`       | complete |
-| `include-all-visible`    | skipped  |
-| `pack-manifest`          | complete |
-| `external-packs`         | complete |
-| `pack-owned-principles`  | complete |
-| `init-vcs`               | complete |
-| `convergence-accounting` | complete |
-| `workflow-doc-fixes`     | complete |
-| `pack-rebuild-tracking`  | complete |
-| `triager-independence`   | complete |
-| `file-safety-rules`      | complete |
-| `agent-isolation`        | complete |
-| `user-prompts-dir`       | complete |
-| `human-onboarding`       | complete |
-| `gate-prompt-clarity`    | complete |
-| `compaction-prep`        | complete |
-| `deliberation-mode`      | complete |
-| `human-review-queue`     | complete |
-| `no-wrap-convention`     | complete |
-| `findings-files`         | complete |
-| `ledger-template`        | complete |
-| `state-schema`           | next     |
-| `optional-modules`       | optional |
-| `greenfield-flake`       | optional |
-| `later-enhancements`     | optional |
-| `git-url-fetch`          | deferred |
-| `tui-authoring`          | optional |
-| `workflow-calibration`   | deferred |
-| `instrument-flag`        | complete |
+| Step                     | Status      |
+| ------------------------ | ----------- |
+| `core-assets`            | complete    |
+| `file-dropper`           | complete    |
+| `idempotency-safety`     | complete    |
+| `selection-ui`           | complete    |
+| `mode-enum`              | complete    |
+| `tag-selection`          | complete    |
+| `available-filter`       | complete    |
+| `include-all-visible`    | skipped     |
+| `pack-manifest`          | complete    |
+| `external-packs`         | complete    |
+| `pack-owned-principles`  | complete    |
+| `init-vcs`               | complete    |
+| `convergence-accounting` | complete    |
+| `workflow-doc-fixes`     | complete    |
+| `pack-rebuild-tracking`  | complete    |
+| `triager-independence`   | complete    |
+| `file-safety-rules`      | complete    |
+| `agent-isolation`        | complete    |
+| `user-prompts-dir`       | complete    |
+| `human-onboarding`       | complete    |
+| `gate-prompt-clarity`    | complete    |
+| `compaction-prep`        | complete    |
+| `deliberation-mode`      | complete    |
+| `human-review-queue`     | complete    |
+| `no-wrap-convention`     | complete    |
+| `findings-files`         | complete    |
+| `ledger-template`        | complete    |
+| `state-schema`           | in progress |
+| `workflow-viz`           | deferred    |
+| `optional-modules`       | optional    |
+| `greenfield-flake`       | optional    |
+| `later-enhancements`     | optional    |
+| `git-url-fetch`          | deferred    |
+| `tui-authoring`          | optional    |
+| `workflow-calibration`   | deferred    |
+| `instrument-flag`        | complete    |
 
 ## Step Details
 
@@ -381,6 +382,19 @@ Deferred and non-blocking (`Q-11`); sequenced after the human-interface work (`h
 Metrics validation (`Q-24`, decided by the human). The `validate` subcommand also covers the `--instrument` metrics log at `docs/metrics/workflow.jsonl`: it parses each JSONL record against the fixed schema (the record types `round` / `escalation` / `dismissal_recheck` / `intake` and their fields, defined once in `pack/instrument.md`) and reports or rejects malformed records, so the LLM-written data is deterministically verifiable and bad lines are discardable rather than silently corrupting calibration (Principle 5, illegal states caught; Principle 1, one schema). This is DETECTION: `instrument-flag` keeps its tool-free orchestrator-direct-write (`Q-6`), so running a scaffolded project's workflow needs no `agent-scaffold` binary on PATH (harness-agnostic); a validated-append writer that would prevent malformed records at write time was declined for that runtime-dependency cost. The metrics-record schema is part of the ONE shared schema this step reuses, so it is defined once and referenced, not re-specified.
 
 Carried forward from the `instrument-flag` review (V-4, a deferred low finding): the metrics records defined in `pack/instrument.md` currently carry no task identifier or timestamp, but `docs/metrics/workflow.jsonl` is a cross-task accumulating log, so records cannot be segmented by task for aggregation. When this step lands, ADD a task-identifying field (for example a `task` key naming the plan/ledger task, and optionally a timestamp) to every record type in the schema and in `pack/instrument.md`, so per-task calibration stats are computable; the `validate` subcommand then checks it. Resolve the exact field(s) in this step's design pass.
+
+Design-pass decisions (2026-07-15, human-decided). Four questions were put to the human and resolved:
+
+- CLI surface: SUBCOMMAND-ONLY (the human released the backwards-compatibility constraint, so this is the cleanest structure, not a hybrid). Every action is a verb: `agent-scaffold scaffold ...`, `agent-scaffold validate`, and `agent-scaffold status --json`; bare `agent-scaffold` prints the subcommand list (clap `arg_required_else_help = true`), so a newcomer discovers the surface. Chosen over verb-flags (`--validate`) and over a scaffold-as-magic-default hybrid: making scaffold an explicit verb is more uniform (Principle 1, cleaner long-term structure) and scopes each verb's arguments to its own subcommand rather than top-level flags that only apply under a default (Principle 5), matching the git/cargo convention. Consequence: the interactive principle selector now opens on `agent-scaffold scaffold` run on a terminal (bare no longer scaffolds); this is the one deliberate behaviour change, and backwards compatibility with v0.0.1 was explicitly not required. `tui-authoring` later reuses the subcommand surface (`pack new` / `pack edit`).
+- Storage architecture: SINGLE FILE, parse the structured regions. The markdown plan/ledger stay the single source; the machine-relevant state already lives in their structured regions (the Roadmap pipe-table `slug -> status`, the Open Questions queue list `id/ask/status/pointer`, the ledger round-summary pipe-table `round/outcome/streak`), which parse deterministically, while the free narrative (Step Details, round-record prose) holds no machine state and is not parsed. `state-schema` formalises and enforces the schema of those regions (the ONE shared schema) and projects them; the metrics JSONL stays its own append-only file. Splitting the facts into a separate machine data file was declined: it would either duplicate the facts (drift) or move the Roadmap/queue out of the human-readable, tool-free, harness-portable plan, against the markdown-first premise (Principle 1 single source per region, Principle 3, Principle 2). "Full derived" is thus achieved over all machine-relevant state without free-prose parsing.
+- Validation strictness: HARD-FAIL. `validate` exits non-zero and reports on any schema or cross-reference violation (a malformed metrics record, a broken Roadmap table, a queue id with no target, a Roadmap slug with no Step Detail), so CI or an agent can gate on it (Principle 5). `status --json` stays best-effort and never hard-fails.
+- Agent dispatch/return event log: DEFERRED (not built now). The metrics JSONL already records the round-level events calibration needs, and no visualiser consumes an activity timeline yet, so building a third stream now is speculative (Principle 2). The human wants it REVISITED later for a live workflow visualiser (see `workflow-viz`).
+
+Scope, as decided: `validate` (a) checks `docs/metrics/workflow.jsonl` against the metrics-record schema in `pack/instrument.md` (`Q-24`, plus the `task`/timestamp field from V-4), and (b) checks the plan/ledger structured regions parse and their cross-references hold; both hard-fail. `status --json` emits a derived projection of the structured regions (steps and statuses, open-questions items, round-summary state, and a metrics summary), not committed as a source (regenerable). Reuse the ONE schema shared with `ledger-template` / `findings-files` / `human-review-queue`. Because this is a large code step (a CLI restructure, markdown-region parsing, JSONL validation, and a JSON projection), implement it in reviewed increments (the subcommand restructure with a byte-identical scaffold; then the metrics schema + `validate`; then the structured-region parse + `validate` + `status --json`), each reviewed as its own artifact.
+
+### `workflow-viz`: Live workflow visualiser (deferred)
+
+Deferred; a design-questions pass is needed before implementing. The human wants a way to visualise a workflow run over time, in two flavours discussed: a Gantt-style chart of agent dispatch/return (which role ran at which step, and for how long), and a live, streaming process view in the spirit of nix-output-monitor (`nom`), which renders an in-flight Nix build's dependency/progress tree live. This consumes the append-only agent dispatch/return event log deferred in `state-schema` (build that log as this step's input when taken up), and reuses the derived-projection schema. Sequenced after `state-schema` (which settles the shared schema and the projection command) and non-blocking. Record its design sub-questions (the event-log schema and where it is written; live-streaming versus post-hoc rendering; a TUI view reusing the `tui.rs` TEA-lite patterns versus emitting data for an external viewer; how it stays harness-agnostic since only the orchestrator sees agent lifecycles) in Open Questions before implementing.
 
 ### Durability, recovery, isolation, and user prompts (consolidated workflow rules)
 

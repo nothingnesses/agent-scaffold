@@ -1,8 +1,6 @@
 # Review: state-schema increment 2 (validate verb + metrics validator + V-4 fields)
 
-Reviewer: sonnet (schema consistency and design lens)
-Diff range: `4de2b35..bdc0955`
-Files changed: `Cargo.toml`, `Cargo.lock`, `pack/instrument.md`, `src/main.rs`, `src/metrics.rs`
+Reviewer: sonnet (schema consistency and design lens) Diff range: `4de2b35..bdc0955` Files changed: `Cargo.toml`, `Cargo.lock`, `pack/instrument.md`, `src/main.rs`, `src/metrics.rs`
 
 ---
 
@@ -11,11 +9,13 @@ Files changed: `Cargo.toml`, `Cargo.lock`, `pack/instrument.md`, `src/main.rs`, 
 The key check - exact match between the prose schema in `pack/instrument.md` and the Rust validator in `src/metrics.rs` - passes. Field-by-field:
 
 **Common fields (every record):**
+
 - `type`: required string in prose; `require_str(obj, "type")` in code. Match.
 - `task`: required string in prose ("a string naming the plan/ledger task"); `require_str(obj, "task")` in code. Match.
 - `ts`: optional string in prose ("may carry `ts`"); code does `if obj.contains_key("ts") { require_str(obj, "ts")?; }`. Match.
 
 **`type: "round"`:**
+
 - `artifact`: string. Code: `require_str(obj, "artifact")`. Match.
 - `phase`: enum `plan_review`/`work_review`/`acceptance`. Code: `Phase` enum with those exact literals. Match.
 - `changed_since_prev`: boolean. Code: `require_bool`. Match.
@@ -25,14 +25,17 @@ The key check - exact match between the prose schema in `pack/instrument.md` and
 - `consecutive_clean`: count. Code: `require_count`. Match.
 
 **`type: "escalation"`:**
+
 - `artifact`: string. Match.
 - `human_decision`: enum `decision`/`resume`. Code: `HumanDecision` with those literals. Match.
 
 **`type: "dismissal_recheck"`:**
+
 - `artifact`: string. Match.
 - `result`: enum `upheld`/`overturned`. Code: `RecheckResult` with those literals. Match.
 
 **`type: "intake"`:**
+
 - `classification`: enum `trivial`/`non_trivial`. Code: `Classification` with those literals. Match.
 - `replanned`: boolean. Code: `require_bool`. Match.
 

@@ -51,12 +51,15 @@ Exit codes (`run_validate`, `src/main.rs` lines 336-353): absent -> `Ok(())` (0)
 ## Findings
 
 ### Critical
+
 None.
 
 ### High
+
 None. No schema rule is left unenforced; no wrong JSON-type check; no missing or wrong enum variant; counts reject negatives and fractions.
 
 ### Medium
+
 None.
 
 ### Low

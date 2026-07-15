@@ -436,8 +436,11 @@ mod tests {
 			"classification",
 			"replanned",
 		] {
+			// Anchor with backticks: the prose writes every field as `field`, so a
+			// backtick-wrapped match avoids a false positive from a short name
+			// appearing as a substring of another word (for example `ts` in `tasks`).
 			assert!(
-				prose.contains(field),
+				prose.contains(&format!("`{field}`")),
 				"field `{field}` checked by the validator is not documented in pack/instrument.md"
 			);
 		}
@@ -453,8 +456,10 @@ mod tests {
 			("Severity", Severity::VARIANTS),
 		] {
 			for variant in variants {
+				// Backtick-anchored for the same reason as the field checks: the
+				// prose writes every enum value as `value`.
 				assert!(
-					prose.contains(variant),
+					prose.contains(&format!("`{variant}`")),
 					"enum `{enum_name}` value `{variant}` accepted by the validator is not documented in pack/instrument.md"
 				);
 			}

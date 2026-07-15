@@ -90,3 +90,5 @@ Prose formatting. Prose in Markdown and in comments is not hard-wrapped: write n
 Follow these principles. They are numbered for reference, not priority.
 
 {{principles}}
+
+{{instrument}}

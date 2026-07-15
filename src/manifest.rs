@@ -73,7 +73,7 @@ struct Manifest {
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
 /// override them with `--var`.
-const RESERVED_VARS: &[&str] = &["principles"];
+const RESERVED_VARS: &[&str] = &["principles", "instrument"];
 
 /// An error loading a pack: reading or parsing its files, or resolving the
 /// variables its assets substitute.
@@ -438,6 +438,34 @@ mod tests {
 		overrides.insert("principles".to_string(), "x".to_string());
 		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides) {
 			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "principles"),
+			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn reserved_instrument_variable_is_rejected() {
+		// A pack may not declare the reserved `instrument` variable.
+		let declared = fixture_pack(
+			"var-reserved-instrument-declared",
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[var]]\nname = \"instrument\"\ndefault = \"x\"\n",
+			"a.md",
+			"a\n",
+		);
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new()) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "instrument"),
+			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&declared).unwrap();
+
+		// Nor may `--var` set it.
+		let root = var_fixture("var-reserved-instrument-override");
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+		overrides.insert("instrument".to_string(), "x".to_string());
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "instrument"),
 			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
 		}
 		fs::remove_dir_all(&root).unwrap();

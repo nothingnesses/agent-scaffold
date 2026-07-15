@@ -186,16 +186,24 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 }
 
 /// Build the asset set to drop from the active pack: `{{principles}}` is
-/// rendered from the current selection and `overrides` supplies the `--var`
-/// values for any variables the pack declares. Building does not write.
+/// rendered from the current selection, `{{instrument}}` is the pack's
+/// `instrument.md` fragment when `instrument` is set (empty otherwise, or when
+/// the pack ships no such fragment), and `overrides` supplies the `--var` values
+/// for any variables the pack declares. Building does not write.
 fn build_assets(
 	source: &manifest::PackSource,
 	selected: &[&pack::Principle],
 	detail: Detail,
 	overrides: &HashMap<String, String>,
+	instrument: bool,
 ) -> Result<Vec<Asset>, manifest::LoadError> {
 	let mut builtin: HashMap<String, String> = HashMap::new();
 	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
+	// A pack that ships no instrument.md renders nothing, exactly as a pack
+	// without principles.toml renders no principles.
+	let instrument_block =
+		if instrument { source.read("instrument.md").unwrap_or_default() } else { String::new() };
+	builtin.insert("instrument".to_string(), instrument_block);
 	manifest::load(source, &builtin, overrides)
 }
 
@@ -224,8 +232,9 @@ fn scaffold(
 	detail: Detail,
 	overrides: &HashMap<String, String>,
 	force: bool,
+	instrument: bool,
 ) -> Result<Vec<(String, Outcome)>, manifest::LoadError> {
-	build_assets(source, selected, detail, overrides)?
+	build_assets(source, selected, detail, overrides, instrument)?
 		.into_iter()
 		.map(|asset| {
 			let outcome = outcome_of(root, &asset, force);
@@ -273,6 +282,11 @@ struct Cli {
 	/// Set a pack-declared variable, as `--var key=value` (repeatable).
 	#[arg(long = "var", value_name = "KEY=VALUE")]
 	var: Vec<String>,
+	/// Include opt-in workflow instrumentation: render calibration-logging
+	/// instructions into the guidance so the workflow records metrics to
+	/// `docs/metrics/workflow.jsonl`. Off by default.
+	#[arg(long)]
+	instrument: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -362,13 +376,14 @@ fn main() -> io::Result<()> {
 		(selected, cli.write)
 	};
 
-	let assets = match build_assets(&source, &selected, cli.principle_detail, &overrides) {
-		Ok(assets) => assets,
-		Err(error) => {
-			eprintln!("error: {error}");
-			std::process::exit(2);
-		}
-	};
+	let assets =
+		match build_assets(&source, &selected, cli.principle_detail, &overrides, cli.instrument) {
+			Ok(assets) => assets,
+			Err(error) => {
+				eprintln!("error: {error}");
+				std::process::exit(2);
+			}
+		};
 	let outcomes: Vec<Outcome> =
 		assets.iter().map(|asset| outcome_of(&cli.output_dir, asset, cli.force)).collect();
 	let repo = init_plan(cli.vcs, &cli.output_dir)?;
@@ -443,7 +458,7 @@ mod tests {
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
 		let assets =
-			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new())
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
 				.unwrap();
 		let outcomes: Vec<Outcome> =
 			assets.iter().map(|asset| outcome_of(&root, asset, false)).collect();
@@ -499,6 +514,7 @@ mod tests {
 			Detail::Summary,
 			&HashMap::new(),
 			false,
+			false,
 		)
 		.unwrap();
 		assert!(results.iter().all(|(_, o)| *o == Outcome::Created));
@@ -512,8 +528,16 @@ mod tests {
 		let root = scratch("generated");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
-			.unwrap();
+		scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			false,
+		)
+		.unwrap();
 		let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
 		assert!(!agents.contains("{{principles}}"));
 		assert!(agents.contains("1. "));
@@ -525,8 +549,16 @@ mod tests {
 		let root = scratch("rerun");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
-			.unwrap();
+		scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			false,
+		)
+		.unwrap();
 
 		// A user edits a working file after the first run.
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
@@ -537,6 +569,7 @@ mod tests {
 			&selected,
 			Detail::Summary,
 			&HashMap::new(),
+			false,
 			false,
 		)
 		.unwrap();
@@ -555,8 +588,16 @@ mod tests {
 		let root = scratch("force");
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
-		scaffold(&manifest::builtin(), &root, &selected, Detail::Summary, &HashMap::new(), false)
-			.unwrap();
+		scaffold(
+			&manifest::builtin(),
+			&root,
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			false,
+		)
+		.unwrap();
 		fs::write(root.join("AGENTS.md"), "user edits\n").unwrap();
 
 		let results = scaffold(
@@ -566,6 +607,7 @@ mod tests {
 			Detail::Summary,
 			&HashMap::new(),
 			true,
+			false,
 		)
 		.unwrap();
 		let agents = results.iter().find(|(path, _)| *path == "AGENTS.md").map(|(_, o)| o).unwrap();
@@ -574,5 +616,28 @@ mod tests {
 		assert_ne!(contents, "user edits\n");
 		assert!(contents.starts_with("# Agent guidance"));
 		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn instrument_off_omits_the_block_and_on_includes_it() {
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+
+		// Off (the default): the placeholder is substituted to empty, so the
+		// instrumentation section is absent and no literal placeholder remains.
+		let off =
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
+				.unwrap();
+		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(!agents_off.contents.contains("Instrumentation (metrics logging)"));
+		assert!(!agents_off.contents.contains("{{instrument}}"));
+
+		// On: the fragment is inlined, carrying the section heading and the log path.
+		let on =
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), true)
+				.unwrap();
+		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(agents_on.contents.contains("Instrumentation (metrics logging)"));
+		assert!(agents_on.contents.contains("docs/metrics/workflow.jsonl"));
 	}
 }

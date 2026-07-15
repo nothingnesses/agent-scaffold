@@ -10,6 +10,7 @@
 //! pack's guidance template; the other assets are dropped verbatim.
 
 mod manifest;
+mod metrics;
 mod pack;
 mod tui;
 
@@ -266,6 +267,8 @@ struct Cli {
 enum Command {
 	/// Scaffold the agent workflow into a project. On a terminal the principle selector opens unless --write or --dry-run is given.
 	Scaffold(ScaffoldArgs),
+	/// Validate the workflow's metrics log against the record schema; exits non-zero on any malformed record.
+	Validate(ValidateArgs),
 }
 
 /// Arguments for the `scaffold` subcommand.
@@ -308,10 +311,44 @@ struct ScaffoldArgs {
 	instrument: bool,
 }
 
+/// Arguments for the `validate` subcommand.
+#[derive(Args)]
+struct ValidateArgs {
+	/// Path to the JSONL metrics log to validate.
+	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
+	metrics: PathBuf,
+}
+
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
 	match cli.command {
 		Command::Scaffold(args) => run_scaffold(args),
+		Command::Validate(args) => run_validate(args),
+	}
+}
+
+/// Validate the metrics log at `args.metrics` against the record schema. An
+/// absent log is not an error (not every project instruments), so it exits 0
+/// with a note. A present log that has any malformed record exits with code 1 (a
+/// validation failure, distinct from the code 2 used for usage errors), printing
+/// each offending line and reason to stderr; a valid log prints a one-line ok
+/// summary and exits 0.
+fn run_validate(args: ValidateArgs) -> io::Result<()> {
+	let path = &args.metrics;
+	if !path.exists() {
+		eprintln!("no metrics log at {}; nothing to validate", path.display());
+		return Ok(());
+	}
+	let contents = fs::read_to_string(path)?;
+	let errors = metrics::validate_log(&contents);
+	if errors.is_empty() {
+		println!("{}: {} records, valid", path.display(), metrics::count_records(&contents));
+		Ok(())
+	} else {
+		for error in &errors {
+			eprintln!("{}:{}: {}", path.display(), error.line, error.reason);
+		}
+		std::process::exit(1);
 	}
 }
 

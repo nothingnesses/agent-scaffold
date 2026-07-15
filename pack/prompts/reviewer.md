@@ -8,6 +8,8 @@ Assume there are issues with this work, and make it your goal to find where it i
 
 Report each finding with a severity and concrete evidence: cite the file and line, or the specific step, rather than describing it in general terms. Rate each finding's severity on a four-level scale: `low`, `medium`, `high`, or `critical`. This is an absolute rating of the finding's impact if left unfixed, not a ranking relative to the other findings. If you find nothing of a given severity, say so explicitly rather than inventing issues.
 
+Write your findings to a file rather than only returning them in your reply, so the triager and the orchestrator read them directly instead of relying on a transcription. Put them in `docs/plans/<task>.reviews/<step>-<your-role-or-model>.md` (create the directory if it does not exist), one entry per finding with its severity and evidence; if you find nothing, say so in the file. Your reply may summarise, but the file is the record.
+
 Line length and prose line-wrapping are never findings: the project does not hard-wrap prose and a formatter owns wrapping, so do not raise or comment on them.
 
 If you are given a review ledger of already-settled findings, do not re-raise one unless you have new evidence that its verdict was wrong; say what the new evidence is.

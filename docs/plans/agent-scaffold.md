@@ -1,6 +1,6 @@
 # agent-scaffold plan
 
-Status: in progress; see the Roadmap for per-step status and order. In short: the core is complete (the assets and principle data, the file-dropper with two-tier ownership, the idempotency and write-safety pass, the selection UI and its polish, and bring-your-own-template support), `init-vcs` (a git repository by default, `--vcs none` to disable) is complete. A workflow-hardening review round (round 1; see `docs/plans/agent-scaffold.ledger.md`) produced 14 triager-valid findings, and the human queued four workflow-interface features; both are folded into concrete Roadmap steps, correctness before features: `convergence-accounting` (complete, committed `19d69e5`) and `workflow-doc-fixes` for the findings, then `human-onboarding`, `deliberation-mode`, `human-review-queue`, and `ledger-template` for the features. Two more steps joined during implementation: `pack-rebuild-tracking` (to be done before the golden sync-test in `ledger-template`; a `build.rs` so the embedded pack re-embeds on change, since `include_dir!` does not register rebuild dependencies and `scaffold-self` could regenerate from a stale pack) and `triager-independence` (the triager is always a separate agent, independent of both the producer and the orchestrator). A structured state-file request is held as the deferred `state-schema` step (`Q-11`). Open decisions live in the living human-decision queue in the Open Questions section; the earlier optional and deferred steps remain optional. Published to crates.io as `agent-scaffold` v0.0.1 (tag `v0.0.1`); `cargo install agent-scaffold` works. `workflow-doc-fixes`, `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, `agent-isolation`, `user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`, `deliberation-mode`, `human-review-queue`, `no-wrap-convention`, and `findings-files` are also complete (the human-interface cluster is done; `gate-prompt-clarity`, `Q-20`, was recovered via a transcript dig after a compaction flattened the purpose of the planner's gate prompts); the immediate next step is `ledger-template`, the last workflow-hardening step (see the Roadmap); `deliberation-mode` is complete (it added the cross-cutting human-input contract and discharged the two owed follow-ups: the restored "impasse" trigger and the orchestrator gate-relay duty); `human-review-queue` is complete (it made the Open Questions section a push-at-checkpoint living queue, defined the step-boundary checkpoint with a report-and-continue default cadence configurable at kickoff, re-strengthened the onboarding decision duty to the push model, and added the compaction-prep/resume onboarding pointer). `Q-21` (between-step checkpoint cadence; decided: report-and-continue, configurable at kickoff; folded into `human-review-queue`), `Q-22` (prose line-wrapping is not policed; decided; folded into the new `no-wrap-convention` step), and `Q-23` (the onboarding compaction-lifecycle pointer; decided: a thin pointer, folded into `human-review-queue`) are all resolved, so no open questions remain. Standing convention now in force: prose is not hard-wrapped and line length is never a review finding. A consolidating planner pass has folded a backlog of already-decided workflow rules into new Roadmap steps: `file-safety-rules` (git-durability-and-recovery discipline), `agent-isolation` (capability-tiered writer isolation), `findings-files` (reviewers and triagers write findings to files, `Q-14`), `compaction-prep` (checkpoint / resume, `Q-15`), and `user-prompts-dir` (a `.agents/user-prompts/` directory, `Q-16`, revising `human-onboarding`); the queue carries `Q-14` through `Q-18` as decided. A later job, once those land, is a full review of the whole codebase as it currently is (not a diff-based review): drive it with the role-separated reviewer workflow (or prompt agents to review the entire codebase for correctness and quality), not the diff-oriented `/code-review` command. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction, and the "Repository Layout and Current Architecture" section maps the shipped code so a fresh implementor can continue without prior context. Verification convention: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and ASCII-clean before each commit.
+Status: in progress; see the Roadmap for per-step status and order. In short: the core is complete (the assets and principle data, the file-dropper with two-tier ownership, the idempotency and write-safety pass, the selection UI and its polish, and bring-your-own-template support), `init-vcs` (a git repository by default, `--vcs none` to disable) is complete. A workflow-hardening review round (round 1; see `docs/plans/agent-scaffold.ledger.md`) produced 14 triager-valid findings, and the human queued four workflow-interface features; both are folded into concrete Roadmap steps, correctness before features: `convergence-accounting` (complete, committed `19d69e5`) and `workflow-doc-fixes` for the findings, then `human-onboarding`, `deliberation-mode`, `human-review-queue`, and `ledger-template` for the features. Two more steps joined during implementation: `pack-rebuild-tracking` (to be done before the golden sync-test in `ledger-template`; a `build.rs` so the embedded pack re-embeds on change, since `include_dir!` does not register rebuild dependencies and `scaffold-self` could regenerate from a stale pack) and `triager-independence` (the triager is always a separate agent, independent of both the producer and the orchestrator). A structured state-file request is held as the deferred `state-schema` step (`Q-11`). Open decisions live in the living human-decision queue in the Open Questions section; the earlier optional and deferred steps remain optional. Published to crates.io as `agent-scaffold` v0.0.1 (tag `v0.0.1`); `cargo install agent-scaffold` works. `workflow-doc-fixes`, `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, `agent-isolation`, `user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`, `deliberation-mode`, `human-review-queue`, `no-wrap-convention`, `findings-files`, and `ledger-template` are also complete: the ENTIRE workflow-hardening cluster is now done (the human-interface cluster is done; `gate-prompt-clarity`, `Q-20`, was recovered via a transcript dig after a compaction flattened the purpose of the planner's gate prompts). No mandatory step remains: `state-schema` is deferred (`Q-11`, held by the human), and the earlier `optional-modules`, `greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`, `workflow-calibration`, and `instrument-flag` are optional/deferred. The remaining planned work is the LATER whole-codebase acceptance review (see below) and, if the human takes it up, `state-schema`; `deliberation-mode` is complete (it added the cross-cutting human-input contract and discharged the two owed follow-ups: the restored "impasse" trigger and the orchestrator gate-relay duty); `human-review-queue` is complete (it made the Open Questions section a push-at-checkpoint living queue, defined the step-boundary checkpoint with a report-and-continue default cadence configurable at kickoff, re-strengthened the onboarding decision duty to the push model, and added the compaction-prep/resume onboarding pointer). `Q-21` (between-step checkpoint cadence; decided: report-and-continue, configurable at kickoff; folded into `human-review-queue`), `Q-22` (prose line-wrapping is not policed; decided; folded into the new `no-wrap-convention` step), and `Q-23` (the onboarding compaction-lifecycle pointer; decided: a thin pointer, folded into `human-review-queue`) are all resolved, so no open questions remain. Standing convention now in force: prose is not hard-wrapped and line length is never a review finding. A consolidating planner pass has folded a backlog of already-decided workflow rules into new Roadmap steps: `file-safety-rules` (git-durability-and-recovery discipline), `agent-isolation` (capability-tiered writer isolation), `findings-files` (reviewers and triagers write findings to files, `Q-14`), `compaction-prep` (checkpoint / resume, `Q-15`), and `user-prompts-dir` (a `.agents/user-prompts/` directory, `Q-16`, revising `human-onboarding`); the queue carries `Q-14` through `Q-18` as decided. A later job, once those land, is a full review of the whole codebase as it currently is (not a diff-based review): drive it with the role-separated reviewer workflow (or prompt agents to review the entire codebase for correctness and quality), not the diff-oriented `/code-review` command. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction, and the "Repository Layout and Current Architecture" section maps the shipped code so a fresh implementor can continue without prior context. Verification convention: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and ASCII-clean before each commit.
 
 This document plans a tool that scaffolds the agent workflow (front-load context -> structured plan -> iterative and adversarial review -> isolated implementation -> adversarial review) into a project, so the structure does not have to be hand-rolled each time. It follows the same planning format the tool is meant to scaffold.
 
@@ -104,43 +104,43 @@ Live queue:
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                     | Status      |
-| ------------------------ | ----------- |
-| `core-assets`            | complete    |
-| `file-dropper`           | complete    |
-| `idempotency-safety`     | complete    |
-| `selection-ui`           | complete    |
-| `mode-enum`              | complete    |
-| `tag-selection`          | complete    |
-| `available-filter`       | complete    |
-| `include-all-visible`    | skipped     |
-| `pack-manifest`          | complete    |
-| `external-packs`         | complete    |
-| `pack-owned-principles`  | complete    |
-| `init-vcs`               | complete    |
-| `convergence-accounting` | complete    |
-| `workflow-doc-fixes`     | complete    |
-| `pack-rebuild-tracking`  | complete    |
-| `triager-independence`   | complete    |
-| `file-safety-rules`      | complete    |
-| `agent-isolation`        | complete    |
-| `user-prompts-dir`       | complete    |
-| `human-onboarding`       | complete    |
-| `gate-prompt-clarity`    | complete    |
-| `compaction-prep`        | complete    |
-| `deliberation-mode`      | complete    |
-| `human-review-queue`     | complete    |
-| `no-wrap-convention`     | complete    |
-| `findings-files`         | complete    |
-| `ledger-template`        | in progress |
-| `state-schema`           | deferred    |
-| `optional-modules`       | optional    |
-| `greenfield-flake`       | optional    |
-| `later-enhancements`     | optional    |
-| `git-url-fetch`          | deferred    |
-| `tui-authoring`          | optional    |
-| `workflow-calibration`   | deferred    |
-| `instrument-flag`        | optional    |
+| Step                     | Status   |
+| ------------------------ | -------- |
+| `core-assets`            | complete |
+| `file-dropper`           | complete |
+| `idempotency-safety`     | complete |
+| `selection-ui`           | complete |
+| `mode-enum`              | complete |
+| `tag-selection`          | complete |
+| `available-filter`       | complete |
+| `include-all-visible`    | skipped  |
+| `pack-manifest`          | complete |
+| `external-packs`         | complete |
+| `pack-owned-principles`  | complete |
+| `init-vcs`               | complete |
+| `convergence-accounting` | complete |
+| `workflow-doc-fixes`     | complete |
+| `pack-rebuild-tracking`  | complete |
+| `triager-independence`   | complete |
+| `file-safety-rules`      | complete |
+| `agent-isolation`        | complete |
+| `user-prompts-dir`       | complete |
+| `human-onboarding`       | complete |
+| `gate-prompt-clarity`    | complete |
+| `compaction-prep`        | complete |
+| `deliberation-mode`      | complete |
+| `human-review-queue`     | complete |
+| `no-wrap-convention`     | complete |
+| `findings-files`         | complete |
+| `ledger-template`        | complete |
+| `state-schema`           | deferred |
+| `optional-modules`       | optional |
+| `greenfield-flake`       | optional |
+| `later-enhancements`     | optional |
+| `git-url-fetch`          | deferred |
+| `tui-authoring`          | optional |
+| `workflow-calibration`   | deferred |
+| `instrument-flag`        | optional |
 
 ## Step Details
 
@@ -356,6 +356,8 @@ Outcome (complete; implemented across `4fa5e74` (convention + `.prettierrc.json`
 ### `ledger-template`: Scaffold the review ledger as a template asset
 
 Make the review ledger a scaffolded template asset so its schema is pinned rather than invented ad hoc per task. Placement (`Q-2`, decided): the ledger template is a `.agents/` reference asset (for example `.agents/LEDGER.template.md`), copied per task to `docs/plans/<task>.ledger.md`; the template is the single source of the ledger format, referenced (not restated) from `pack/AGENTS.md` and `pack/prompts/orchestrator.md`. Per-task copy (`Q-3`, decided): the template is a reference asset, but the per-task copy is a working file (create-if-absent), so a live ledger is never clobbered. Adding a pack asset also updates the manifest (`pack/pack.toml` gains a `[[asset]]` entry) and its expected-asset test in `src/` (the built-in asset list test). Interacts with F3 (the ledger's committed-beside-its-plan home) and with `convergence-accounting` (the template must carry the round-outcome schema that decision fixes: the `clean`/`new-valid` per-round outcome and the running total-round count, without cross-round finding ids). Validate by proof-of-concept: the template drops through the existing loader, the manifest asset-list test is updated and passes, and the schema referenced from the workflow matches the template.
+
+Outcome (complete; implemented in `062d8cf`, converged at `7e2b11b`). Added `pack/LEDGER.template.md`, a task-agnostic ledger template pinning the round-outcome schema (per round exactly `clean` or `new valid findings`, a running total-round count and a consecutive-clean streak, both per-artifact, no cross-round finding identity, per `convergence-accounting`), a findings table (four-level severity, triager verdict, action vocabulary; within-round ids only), a round-records narrative, and a RESUME STATE block. Shipped as the `.agents/LEDGER.template.md` reference asset (`pack/pack.toml` `[[asset]]` entry after `principles.toml`, and the `builtin_manifest_lists_the_expected_assets` test in `src/manifest.rs` extended), and referenced (not restated) from `pack/AGENTS.md` and `pack/prompts/orchestrator.md`: the orchestrator copies the template to `docs/plans/<task>.ledger.md` at task start if that file is absent, never clobbering a live ledger (Q-3 create-if-absent; the per-task ledger is not itself a manifest asset, so `scaffold-self` cannot clobber it). Reviewed with two independent reviewers (opus correctness, sonnet consistency) and a separate triager: round 1 found five findings (four valid low after the medium was re-severitised, one invalid); the valid ones were one-source-of-truth trims (the finding-file path now lives in the round-records narrative not a table column; `pack/AGENTS.md` and `pack/prompts/orchestrator.md` were trimmed to defer to the template rather than restate a partial finding-row schema; the derived `Consecutive clean` column was labelled; the example row aligned to "new valid findings"). Round 2 (fresh reviewer) was clean, so the low-risk artifact converged at one clean round. This is the last workflow-hardening step; the cluster is complete. See `docs/plans/agent-scaffold.ledger.md` for the round records.
 
 ### `findings-files`: Reviewers and triagers write findings to files
 

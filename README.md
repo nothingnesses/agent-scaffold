@@ -210,7 +210,7 @@ default = "my-project"   # optional; omit `default` to make the variable require
 name = "author"          # required: must be supplied with --var author=...
 ```
 
-Rendering does minimal `{{name}}` substitution (there is no template engine). `{{principles}}` is a built-in variable computed from the selection; it is reserved, so a pack may neither declare it nor set it with `--var`. Setting a variable the pack does not declare, or leaving a required variable unset, is an error and nothing is written.
+Rendering does minimal `{{name}}` substitution (there is no template engine). `{{principles}}` and `{{instrument}}` are built-in variables the tool computes itself; both are reserved, so a pack may neither declare them nor set them with `--var`. `{{principles}}` is computed from the selection. `{{instrument}}` is filled from the pack's optional `instrument.md` render fragment when `--instrument` is set (empty otherwise); like `principles.toml`, that fragment is read directly and inlined, not dropped as its own asset. Setting a variable the pack does not declare, or leaving a required variable unset, is an error and nothing is written.
 
 Principles are a property of the pack: if your pack ships its own `principles.toml`, `--template` selects and renders from that set rather than the built-in one. A pack that ships no `principles.toml` simply has no principles to select.
 

@@ -640,4 +640,34 @@ mod tests {
 		assert!(agents_on.contents.contains("Instrumentation (metrics logging)"));
 		assert!(agents_on.contents.contains("docs/metrics/workflow.jsonl"));
 	}
+
+	#[test]
+	fn rendered_agents_ends_with_a_single_trailing_newline() {
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+
+		// With --instrument off, the empty {{instrument}} substitution must not
+		// leave trailing blank lines: the raw output the binary emits (before any
+		// external formatter) has to end with exactly one newline, so it stays
+		// byte-identical to the pre-instrument output a downstream user without a
+		// formatter would see.
+		let off =
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), false)
+				.unwrap();
+		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(agents_off.contents.ends_with('\n'), "AGENTS.md must end with a newline");
+		assert!(
+			!agents_off.contents.ends_with("\n\n"),
+			"AGENTS.md must not end with a blank line when --instrument is off"
+		);
+
+		// The single-trailing-newline invariant holds for a rendered asset in
+		// general, including with instrumentation on.
+		let on =
+			build_assets(&manifest::builtin(), &selected, Detail::Summary, &HashMap::new(), true)
+				.unwrap();
+		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(agents_on.contents.ends_with('\n'));
+		assert!(!agents_on.contents.ends_with("\n\n"));
+	}
 }

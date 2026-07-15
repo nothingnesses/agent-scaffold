@@ -205,7 +205,14 @@ pub fn builtin() -> PackSource<'static> {
 }
 
 /// Substitute `{{key}}` placeholders in `template` with their values in `vars`.
-/// Placeholders with no matching variable are left as-is.
+/// Placeholders with no matching variable are left as-is. The result is
+/// normalised to end with exactly one trailing newline: a variable that
+/// substitutes to empty (for example `{{instrument}}` when `--instrument` is
+/// off) would otherwise leave the blank lines that surrounded its placeholder,
+/// so the raw output the binary emits, before any external formatter, stays
+/// byte-stable regardless of what a variable expands to. Only rendered
+/// (`render = true`) assets pass through here; verbatim assets keep their exact
+/// bytes.
 pub fn render(
 	template: &str,
 	vars: &HashMap<String, String>,
@@ -214,7 +221,7 @@ pub fn render(
 	for (key, value) in vars {
 		out = out.replace(&format!("{{{{{key}}}}}"), value);
 	}
-	out
+	format!("{}\n", out.trim_end())
 }
 
 /// Load a pack from `source`, producing the assets to drop in manifest order.
@@ -266,8 +273,21 @@ mod tests {
 	fn render_substitutes_known_and_leaves_unknown() {
 		let mut vars = HashMap::new();
 		vars.insert("name".to_string(), "world".to_string());
+		// render normalises to a single trailing newline, so the substituted body
+		// gains one even though the template had none.
 		let out = render("hello {{name}}, {{missing}}", &vars);
-		assert_eq!(out, "hello world, {{missing}}");
+		assert_eq!(out, "hello world, {{missing}}\n");
+	}
+
+	#[test]
+	fn render_normalises_to_a_single_trailing_newline() {
+		let vars = HashMap::new();
+		// Trailing blank lines (as an empty {{var}} substitution would leave) are
+		// collapsed to exactly one newline; a body with none gains one.
+		assert_eq!(render("body\n\n\n", &vars), "body\n");
+		assert_eq!(render("body", &vars), "body\n");
+		assert!(render("body\n\n", &vars).ends_with('\n'));
+		assert!(!render("body\n\n", &vars).ends_with("\n\n"));
 	}
 
 	#[test]

@@ -253,7 +253,7 @@ fn scaffold(
 #[command(
 	name = "agent-scaffold",
 	version,
-	about = "Scaffold the agent workflow into a project, and validate or project its state.",
+	about = "Scaffold the agent workflow into a project.",
 	arg_required_else_help = true
 )]
 struct Cli {

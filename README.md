@@ -31,6 +31,7 @@ docs/plans/TEMPLATE.md             planning-document template (working file)
     implementer.md                 implement the plan
   user-prompts/                    prompts a human copies and pastes to drive work
     kickoff.md                     start a new task under the workflow
+    explore.md                     ask for a design-space exploration, not a decision
     pause.md                       checkpoint durable state before stopping for now
     compaction-prep.md             flush durable state before a compaction
     resume.md                      continue an in-progress task after context loss

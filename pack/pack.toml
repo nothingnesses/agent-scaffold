@@ -74,6 +74,11 @@ dest = ".agents/user-prompts/kickoff.md"
 ownership = "reference"
 
 [[asset]]
+source = "user-prompts/explore.md"
+dest = ".agents/user-prompts/explore.md"
+ownership = "reference"
+
+[[asset]]
 source = "user-prompts/pause.md"
 dest = ".agents/user-prompts/pause.md"
 ownership = "reference"

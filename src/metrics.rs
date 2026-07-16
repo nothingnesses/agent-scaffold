@@ -258,14 +258,15 @@ fn check_record(value: &Value) -> Result<(), String> {
 			require_count(obj, "valid_findings")?;
 			require_severities(obj, "severities")?;
 			require_count(obj, "consecutive_clean")?;
-			// Optional calibration fields, validated only when present so the
-			// records written before they existed still pass: the artifact's
-			// risk tier at loop-open, and the per-reviewer attribution.
-			if obj.contains_key("risk_class") {
-				require_enum(obj, "risk_class", RiskClass::VARIANTS, |text| {
-					RiskClass::parse(text).is_some()
-				})?;
-			}
+			// The artifact's convergence risk tier at loop-open is required: it
+			// sets how many clean rounds the round takes to converge, so a round
+			// record without it cannot be checked against the convergence rule.
+			require_enum(obj, "risk_class", RiskClass::VARIANTS, |text| {
+				RiskClass::parse(text).is_some()
+			})?;
+			// The per-reviewer attribution stays optional, validated only when
+			// present so a round with no attribution omits it rather than writing
+			// an empty array.
 			if obj.contains_key("reviewers") {
 				require_reviewers(obj, "reviewers")?;
 			}
@@ -448,13 +449,22 @@ mod tests {
 	}
 
 	#[test]
-	fn optional_round_calibration_fields_are_accepted() {
-		// A `round` carrying the optional `risk_class` and `reviewers` fields is
-		// valid, and a `round` omitting them (the pre-existing shape) is still valid.
+	fn the_optional_reviewers_field_is_accepted_present_or_absent() {
+		// `reviewers` is the only optional `round` calibration field: a round
+		// carrying it (alongside the now-required `risk_class`) is valid, and a
+		// round omitting it (but still carrying `risk_class`) is equally valid.
 		let with = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","raw_findings":2,"valid_findings":0}]}"#;
-		let without = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1}"#;
+		let without = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk"}"#;
 		assert_eq!(validate_log(with), Vec::new());
 		assert_eq!(validate_log(without), Vec::new());
+	}
+
+	#[test]
+	fn a_round_missing_risk_class_is_reported() {
+		// `risk_class` is required on a `round` record: a round without it (the
+		// pre-backfill shape) is now a missing-field error.
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1}"#;
+		assert_eq!(one_error(line), "missing field `risk_class`");
 	}
 
 	#[test]
@@ -469,13 +479,13 @@ mod tests {
 	#[test]
 	fn a_reviewers_element_missing_a_field_is_reported() {
 		// A reviewer entry without `model`; the error locates the array position.
-		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[{"role":"reviewer","raw_findings":1,"valid_findings":0}]}"#;
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","raw_findings":1,"valid_findings":0}]}"#;
 		assert_eq!(one_error(line), "field `reviewers`[0]: missing field `model`");
 	}
 
 	#[test]
 	fn a_reviewers_field_of_wrong_type_is_reported() {
-		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":"opus"}"#;
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":"opus"}"#;
 		assert_eq!(one_error(line), "field `reviewers` has wrong type (expected array)");
 	}
 
@@ -483,19 +493,19 @@ mod tests {
 	fn an_empty_reviewers_array_is_reported() {
 		// A present `reviewers` array must have at least one entry; a round with no
 		// attribution omits the field instead (the optional path).
-		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[]}"#;
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[]}"#;
 		assert_eq!(one_error(line), "field `reviewers` is empty");
 	}
 
 	#[test]
 	fn a_non_object_reviewers_element_is_reported() {
-		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[42]}"#;
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[42]}"#;
 		assert_eq!(one_error(line), "field `reviewers`[0] has wrong type (expected object)");
 	}
 
 	#[test]
 	fn a_reviewers_element_with_a_bad_count_is_reported() {
-		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[{"role":"reviewer","model":"opus","raw_findings":-1,"valid_findings":0}]}"#;
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","raw_findings":-1,"valid_findings":0}]}"#;
 		assert_eq!(
 			one_error(line),
 			"field `reviewers`[0]: field `raw_findings` value `-1` is not a non-negative integer"

@@ -444,6 +444,7 @@ mod tests {
 				".agents/principles.toml",
 				".agents/LEDGER.template.md",
 				".agents/user-prompts/kickoff.md",
+				".agents/user-prompts/pause.md",
 				".agents/user-prompts/compaction-prep.md",
 				".agents/user-prompts/resume.md",
 			]

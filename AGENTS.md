@@ -8,7 +8,7 @@ New to this workflow? To start a task, copy the kickoff prompt in `.agents/user-
 
 Your part does not end at kickoff. The workflow brings decisions back to you: when the agents reach a question, an impasse, or a trade-off, the orchestrator lays out the options, their trade-offs, a recommendation, and its reasoning, and you decide. Decisions accumulate in the plan's "Open Questions" section, the single human-decision queue. You do not have to watch it: at each checkpoint (each time the workflow pauses to sync progress with you, for example when a step finishes) the orchestrator raises the open items with you and brings its recommendation, so deciding on what it raises is the main standing thing asked of you.
 
-For long-running work, two prompts in `.agents/user-prompts/` carry state across a context loss. Before the agent's context fills up (a compaction), paste `compaction-prep.md` to flush the plan and ledger to a clean checkpoint; to continue afterwards, paste `resume.md` so the agent rebuilds from that durable state rather than starting over.
+For long-running work, prompts in `.agents/user-prompts/` carry state across a break. To stop for now, paste `pause.md` to flush the plan and ledger to a clean checkpoint (or `compaction-prep.md`, the same checkpoint framed for the specific case of an imminent compaction); to continue afterwards, paste `resume.md` so the agent rebuilds from that durable state rather than starting over.
 
 ## Workflow
 

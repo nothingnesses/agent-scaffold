@@ -4,4 +4,4 @@ Paste this to a fresh agent after a compaction or a lost session to continue an 
 
 ---
 
-Continue the in-progress task. Reconstruct your state per the "Checkpoint and resuming after context loss" section of `AGENTS.md`. Act as the orchestrator and continue from where the plan and the ledger say the work left off; do not start over.
+Continue the in-progress task. Reconstruct your state per the "Checkpoint and resuming after context loss" section of `AGENTS.md`, then run the preflight defined there (restate the process and disciplines, state the writer-isolation tier available here, and confirm with me how you will adhere) before doing any work. Act as the orchestrator and continue from where the plan and the ledger say the work left off; do not start over.

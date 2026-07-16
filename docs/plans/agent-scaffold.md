@@ -151,8 +151,8 @@ Steps in implementation order, with status. The Roadmap is the single source of 
 | `tui-authoring`          | optional    |
 | `workflow-calibration`   | deferred    |
 | `instrument-flag`        | complete    |
-| `exploration-mode`       | next        |
-| `ledger-parse`           | not started |
+| `exploration-mode`       | complete    |
+| `ledger-parse`           | next        |
 | `workflow-invariants`    | not started |
 | `state-queries`          | not started |
 
@@ -577,6 +577,8 @@ Next. Decided (`Q-29`, human, after the two-explorer design pass). The workflow 
 - Optional light review: reuse the reviewer/triager roles as a single pass (not the convergence loop) with a "is the design space complete, are the trade-offs honest, is the recommendation Principle-grounded" lens; note that the multi-independent-explorer-plus-synthesis setup (which produced this very decision) is the adversarial analog. Match ceremony to stakes; not mandatory.
 
 Explicitly NOT built: a new workflow phase parallel to Plan/Implement/Accept, a machine-parsed exploration schema, or an `explore` subcommand (the artifact is a Markdown file under a named convention). First dogfood instance: the `docs/plans/agent-scaffold.explorations/workflow-process-cluster.md` note capturing this cluster's own exploration.
+
+Outcome (complete; implemented in `9757a64`, converged at `ad38211`). Added `exploring` to `QUEUE_EXACT_STATUSES` in `src/plan.rs` (documented in `pack/plan-template.md`, so the `plan_template_documents_every_accepted_status` drift guard extends automatically), the design-space-exploration intake mode and the `docs/plans/<task>.explorations/` design-notes artifact convention in `pack/AGENTS.md`, and the exploration-trigger user prompt `explore.md` (sibling of `kickoff.md`, folded in on the human's request during the step). Reviewed by two independent reviewers (opus correctness/consistency, sonnet doc quality) and a separate triager: round 1 found six valid findings, three medium contradictions (the intake prose made the orchestrator the writer rather than spawning explorers; the explorer was an unnamed writer outside the file-safety rules; `orchestrator.md`'s Socratic clause competed with the new mode) plus two low and a nit, all fixed, and two were dismissed as scope creep the step excluded. Round 2 (fresh confirming reviewer) verified all fixes and the `explore.md` wiring and was clean, so the low-risk artifact converged at one clean round; 95 tests, clippy clean, scaffold byte-identical. First live use of the `exploring` status: `Q-30` (test-driven module) and `Q-31` (mutation module), queued for a later design pass. See `docs/plans/agent-scaffold.ledger.md` for the round records.
 
 ### `ledger-parse`: Parse the ledger's structured regions (keystone)
 

@@ -57,7 +57,10 @@ const ROADMAP_BLOCKED_PREFIX: &str = "blocked on ";
 /// The exact-match Open Questions statuses: the non-parametric queue vocabulary.
 /// These match exactly (a near-miss such as `openfoo` is rejected), unlike the
 /// parametric fold-into form below. The drift guard iterates this set too.
-const QUEUE_EXACT_STATUSES: &[&str] = &["open", "superseded"];
+/// `exploring` is a sub-state of `open`: the item is awaiting a design-space
+/// exploration before its options are decidable (see the `exploration-mode`
+/// step), distinct from `open` (options ready, awaiting the human's choice).
+const QUEUE_EXACT_STATUSES: &[&str] = &["open", "exploring", "superseded"];
 
 /// The parametric Open Questions status prefix: `decided -> folded into <slug>`
 /// names the step the decision was folded into. The trailing space is significant:
@@ -318,7 +321,7 @@ fn roadmap_status_ok(status: &str) -> bool {
 }
 
 /// Whether an Open Questions status is in the queue vocabulary: an exact
-/// `QUEUE_EXACT_STATUSES` value (`open` or `superseded`), or the parametric
+/// `QUEUE_EXACT_STATUSES` value (`open`, `exploring`, or `superseded`), or the parametric
 /// `decided -> folded into <slug>` form (its trailing target slug is cross-referenced
 /// separately in `validate_plan`). The exact statuses match exactly, so a near-miss
 /// such as `openfoo` is rejected rather than accepted by a loose prefix.
@@ -643,8 +646,10 @@ mod tests {
 		// The exact statuses match exactly, so a near-miss with a trailing suffix is
 		// rejected, while the parametric fold-into keeps its prefix match.
 		assert!(question_status_ok("open"));
+		assert!(question_status_ok("exploring"));
 		assert!(question_status_ok("superseded"));
 		assert!(!question_status_ok("openfoo"));
+		assert!(!question_status_ok("exploringxyz"));
 		assert!(!question_status_ok("supersededxyz"));
 		assert!(question_status_ok("decided -> folded into `beta`"));
 	}

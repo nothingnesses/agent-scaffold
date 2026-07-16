@@ -83,6 +83,13 @@ struct VarSpec {
 	/// The default value, or `None` when the variable is required.
 	#[serde(default)]
 	default: Option<String>,
+	/// The optional module this variable belongs to. `None` (an absent field) is a
+	/// core variable, always resolved; `Some(name)` participates only when that
+	/// module is selected with `--module <name>`, and is skipped entirely
+	/// otherwise (not required, not defaulted, absent from the substitution map).
+	/// The `name` must be declared in a `[[module]]` section (validated in `load`).
+	#[serde(default)]
+	module: Option<String>,
 }
 
 /// The on-disk shape of a `pack.toml`. Unknown keys are ignored, so a future
@@ -118,12 +125,18 @@ pub enum LoadError {
 	ReservedVar(String),
 	/// A `--module` named a module the pack does not declare (a usage error).
 	UnknownModule(String),
-	/// An `[[asset]]` was tagged with a module the pack does not declare in any
-	/// `[[module]]` section (a pack-authoring error).
-	UndeclaredAssetModule {
-		/// The tagged asset's source path within the pack.
-		asset: String,
-		/// The undeclared module name the asset referenced.
+	/// Two `[[module]]` sections declared the same name (a pack-authoring error).
+	DuplicateModule(String),
+	/// An `[[asset]]` or `[[var]]` was tagged with a module the pack does not
+	/// declare in any `[[module]]` section (a pack-authoring error). Shared across
+	/// both entry kinds so one validation path covers every module tag.
+	UndeclaredModuleTag {
+		/// The kind of entry carrying the dangling tag: `"asset"` or `"var"`.
+		kind: &'static str,
+		/// The tagged entry's identifier: an asset's source path or a variable's
+		/// name.
+		entry: String,
+		/// The undeclared module name the entry referenced.
 		module: String,
 	},
 }
@@ -143,12 +156,15 @@ impl std::fmt::Display for LoadError {
 				write!(f, "`{name}` is a reserved variable and cannot be declared or set"),
 			LoadError::UnknownModule(name) =>
 				write!(f, "no module named `{name}` is declared by the pack"),
-			LoadError::UndeclaredAssetModule {
-				asset,
+			LoadError::DuplicateModule(name) =>
+				write!(f, "module `{name}` is declared by more than one [[module]] section"),
+			LoadError::UndeclaredModuleTag {
+				kind,
+				entry,
 				module,
 			} => write!(
 				f,
-				"asset `{asset}` is tagged with module `{module}`, which no [[module]] declares"
+				"{kind} `{entry}` is tagged with module `{module}`, which no [[module]] declares"
 			),
 		}
 	}
@@ -279,11 +295,16 @@ pub fn render(
 /// that map when the manifest marks it `render = true`.
 ///
 /// `selected_modules` are the module names passed with `--module`. A core asset
-/// (no `module` tag) is always included; a tagged asset is included only when its
-/// module is selected. Both a selected module and an asset's tag must name a
-/// module the pack declares in a `[[module]]` section: an unknown `--module` is a
-/// usage error and a tag with no matching `[[module]]` is a pack-authoring error,
-/// and either fails the load so nothing is written (no dangling references).
+/// or variable (no `module` tag) is always included; a tagged one participates
+/// only when its module is selected: an unselected module's assets are dropped
+/// and its variables are skipped entirely (not required, not defaulted, absent
+/// from the substitution map, so a `--var` naming one is an `UndeclaredVar` error
+/// just as for a variable the pack never declared). Both a selected module and an
+/// entry's tag must name a module the pack declares in a `[[module]]` section: an
+/// unknown `--module` is a usage error, a tag with no matching `[[module]]` is a
+/// pack-authoring error, and a `[[module]]` name declared twice is a pack-authoring
+/// error; any of these fails the load so nothing is written (no dangling or
+/// ambiguous references).
 pub fn load(
 	source: &PackSource,
 	builtin: &HashMap<String, String>,
@@ -291,28 +312,59 @@ pub fn load(
 	selected_modules: &[String],
 ) -> Result<Vec<Asset>, LoadError> {
 	let manifest = source.manifest()?;
-	// The authoritative set of module names the pack declares.
-	let declared: HashSet<&str> = manifest.module.iter().map(|m| m.name.as_str()).collect();
+	// The authoritative set of module names the pack declares. A name declared by
+	// two `[[module]]` sections is a pack-authoring error rather than a silent
+	// dedupe, caught as the set is built.
+	let mut declared: HashSet<&str> = HashSet::new();
+	for module in &manifest.module {
+		if !declared.insert(module.name.as_str()) {
+			return Err(LoadError::DuplicateModule(module.name.clone()));
+		}
+	}
 	// A `--module` naming a module the pack does not declare is a usage error.
 	for name in selected_modules {
 		if !declared.contains(name.as_str()) {
 			return Err(LoadError::UnknownModule(name.clone()));
 		}
 	}
-	// An asset tagged with a module the pack does not declare is a pack-authoring
-	// error, checked for every asset regardless of selection.
+	// An asset or variable tagged with a module the pack does not declare is a
+	// pack-authoring error, checked for every entry regardless of selection.
 	for spec in &manifest.asset {
 		if let Some(module) = &spec.module {
 			if !declared.contains(module.as_str()) {
-				return Err(LoadError::UndeclaredAssetModule {
-					asset: spec.source.clone(),
+				return Err(LoadError::UndeclaredModuleTag {
+					kind: "asset",
+					entry: spec.source.clone(),
+					module: module.clone(),
+				});
+			}
+		}
+	}
+	for spec in &manifest.var {
+		if let Some(module) = &spec.module {
+			if !declared.contains(module.as_str()) {
+				return Err(LoadError::UndeclaredModuleTag {
+					kind: "var",
+					entry: spec.name.clone(),
 					module: module.clone(),
 				});
 			}
 		}
 	}
 	let selected: HashSet<&str> = selected_modules.iter().map(String::as_str).collect();
-	let vars = resolve_vars(&manifest.var, builtin, overrides)?;
+	// Only core variables and those whose module is selected participate in
+	// resolution; a variable tagged with an unselected module is skipped entirely,
+	// so its requirement never fires and a stray `--var` for it is undeclared.
+	let active_vars: Vec<VarSpec> = manifest
+		.var
+		.iter()
+		.filter(|spec| match &spec.module {
+			None => true,
+			Some(module) => selected.contains(module.as_str()),
+		})
+		.cloned()
+		.collect();
+	let vars = resolve_vars(&active_vars, builtin, overrides)?;
 	manifest
 		.asset
 		.into_iter()
@@ -644,14 +696,16 @@ mod tests {
 		.unwrap();
 		fs::write(root.join("ghost.md"), "ghost\n").unwrap();
 		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
-			Err(LoadError::UndeclaredAssetModule {
-				asset,
+			Err(LoadError::UndeclaredModuleTag {
+				kind,
+				entry,
 				module,
 			}) => {
-				assert_eq!(asset, "ghost.md");
+				assert_eq!(kind, "asset");
+				assert_eq!(entry, "ghost.md");
 				assert_eq!(module, "ghost");
 			}
-			other => panic!("expected UndeclaredAssetModule, got {:?}", other.map(|_| ())),
+			other => panic!("expected UndeclaredModuleTag, got {:?}", other.map(|_| ())),
 		}
 		fs::remove_dir_all(&root).unwrap();
 	}
@@ -678,6 +732,130 @@ mod tests {
 		.unwrap();
 		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
 		assert_eq!(dests, vec!["core.md"]);
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	/// A pack with a `[[module]]` named `extras`, a core asset that renders a core
+	/// variable, and a REQUIRED variable (`extra`, no default) tagged to `extras`
+	/// whose value renders into a `module`-tagged asset. The required tagged
+	/// variable lets the tests prove it is only demanded when its module is
+	/// selected.
+	fn module_var_fixture(name: &str) -> PathBuf {
+		let root = scratch(name);
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"extras\"\ndescription = \"opt-in extras\"\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\nrender = true\n\n\
+			 [[asset]]\nsource = \"extra.md\"\ndest = \"extra.md\"\nownership = \"working\"\nrender = true\nmodule = \"extras\"\n\n\
+			 [[var]]\nname = \"who\"\ndefault = \"world\"\n\n\
+			 [[var]]\nname = \"extra\"\nmodule = \"extras\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "hi {{who}}\n").unwrap();
+		fs::write(root.join("extra.md"), "extra {{extra}}\n").unwrap();
+		root
+	}
+
+	#[test]
+	fn a_module_tagged_var_is_not_required_when_its_module_is_unselected() {
+		let root = module_var_fixture("module-var-unselected");
+		let source = PackSource::Directory(root.clone());
+
+		// No module selected: the required `extra` var is skipped, so the load
+		// succeeds without it and only the core asset drops.
+		let assets = load(&source, &HashMap::new(), &HashMap::new(), &[]).unwrap();
+		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md"]);
+		assert_eq!(assets[0].contents, "hi world\n");
+
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_module_tagged_var_is_required_and_resolved_when_its_module_is_selected() {
+		let root = module_var_fixture("module-var-selected");
+		let source = PackSource::Directory(root.clone());
+
+		// Module selected but the required var unsupplied: the load fails.
+		match load(&source, &HashMap::new(), &HashMap::new(), &["extras".to_string()]) {
+			Err(LoadError::MissingRequiredVar(name)) => assert_eq!(name, "extra"),
+			other => panic!("expected MissingRequiredVar, got {:?}", other.map(|_| ())),
+		}
+
+		// Module selected and the var supplied: both assets drop and the tagged
+		// var renders into the tagged asset.
+		let mut overrides = HashMap::new();
+		overrides.insert("extra".to_string(), "value".to_string());
+		let assets = load(&source, &HashMap::new(), &overrides, &["extras".to_string()]).unwrap();
+		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md", "extra.md"]);
+		assert_eq!(assets[1].contents, "extra value\n");
+
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn overriding_a_skipped_module_var_is_an_undeclared_var_error() {
+		// A `--var` for a var whose module is not selected is treated exactly like
+		// a var the pack never declared: the var is skipped entirely, so the
+		// override names nothing and fails as UndeclaredVar.
+		let root = module_var_fixture("module-var-skipped-override");
+		let mut overrides = HashMap::new();
+		overrides.insert("extra".to_string(), "value".to_string());
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]) {
+			Err(LoadError::UndeclaredVar(name)) => assert_eq!(name, "extra"),
+			other => panic!("expected UndeclaredVar, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_var_tagged_with_an_undeclared_module_errors() {
+		// A `[[var]]` tagging a module no `[[module]]` declares is a pack-authoring
+		// error, caught even with no module selected.
+		let root = scratch("module-var-dangling-tag");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[var]]\nname = \"ghost\"\nmodule = \"ghost\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("a.md"), "a\n").unwrap();
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+			Err(LoadError::UndeclaredModuleTag {
+				kind,
+				entry,
+				module,
+			}) => {
+				assert_eq!(kind, "var");
+				assert_eq!(entry, "ghost");
+				assert_eq!(module, "ghost");
+			}
+			other => panic!("expected UndeclaredModuleTag, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn duplicate_module_names_error() {
+		// Two `[[module]]` sections with the same name is a pack-authoring error,
+		// not a silent dedupe.
+		let root = scratch("module-duplicate");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"extras\"\ndescription = \"first\"\n\n\
+			 [[module]]\nname = \"extras\"\ndescription = \"second\"\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+			Err(LoadError::DuplicateModule(name)) => assert_eq!(name, "extras"),
+			other => panic!("expected DuplicateModule, got {:?}", other.map(|_| ())),
+		}
 		fs::remove_dir_all(&root).unwrap();
 	}
 }

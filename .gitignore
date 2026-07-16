@@ -9,3 +9,6 @@ result-*
 # Environment files.
 .env
 .env.*
+
+# Agent worktrees (isolation substrate).
+.claude/

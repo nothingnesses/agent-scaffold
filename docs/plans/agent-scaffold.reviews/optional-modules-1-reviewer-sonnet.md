@@ -1,13 +1,13 @@
 # Review: optional-modules increment 1 (`--module` machinery)
 
-Reviewer: sonnet (design consistency and documentation lens)
-Diff range: `74083fa..f34ed1c`
+Reviewer: sonnet (design consistency and documentation lens) Diff range: `74083fa..f34ed1c`
 
 ---
 
 ## F-1 (medium): README pack-format section does not document `[[module]]`, `module = "<name>"`, or `--module`
 
 The README's "Bring your own pack" section (lines 213-241) documents `[[asset]]`, `[[var]]`, `{{principles}}`, and `{{instrument}}` in full, but says nothing about:
+
 - The `[[module]]` section and its `name` / `description` fields.
 - The `module = "<name>"` field that `[[asset]]` entries now accept.
 - The `--module <name>` flag and its interaction with the pack.
@@ -53,6 +53,7 @@ Files: `docs/plans/agent-scaffold.md` lines 61-67.
 The Repository Layout descriptions of `src/manifest.rs` (line 58) and `src/main.rs` (line 56) in `docs/plans/agent-scaffold.md` are not updated to reflect the changes in this increment.
 
 Specific stale claims:
+
 - `Manifest { asset: Vec<AssetSpec>, var: Vec<VarSpec> }` - missing `module: Vec<ModuleSpec>`.
 - `AssetSpec { source, dest, ownership, render }` - missing `module: Option<String>`.
 - `load(source, builtin_vars, overrides)` - missing the new `selected_modules: &[String]` parameter.

@@ -9,8 +9,10 @@
 //! and validates their schema and cross-references, so `validate` can hard-fail on
 //! a broken table, an unknown status, a duplicate slug, a slug with no Step Detail,
 //! or an out-of-set queue status (Principle 5, illegal states caught; Principle 16,
-//! one source of truth per region). It parses the plan only; the ledger's
-//! round-summary narrative is out of scope for this increment.
+//! one source of truth per region). It parses the plan only; the ledger is a
+//! narrative artifact with no machine-parsed tables, and the structured round log
+//! (`docs/metrics/workflow.jsonl`) is handled by `metrics.rs`, so neither is parsed
+//! here.
 
 use {
 	serde::Serialize,

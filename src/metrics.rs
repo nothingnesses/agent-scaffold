@@ -209,6 +209,12 @@ fn require_reviewers(
 	let array = value
 		.as_array()
 		.ok_or_else(|| format!("field `{name}` has wrong type (expected array)"))?;
+	// A present-but-empty array cannot describe a real round (every review round
+	// has at least one reviewer); a round with no attribution omits the field
+	// entirely via the optional path, so an empty array is a malformed record.
+	if array.is_empty() {
+		return Err(format!("field `{name}` is empty"));
+	}
 	for (index, element) in array.iter().enumerate() {
 		let entry = element
 			.as_object()
@@ -471,6 +477,20 @@ mod tests {
 	fn a_reviewers_field_of_wrong_type_is_reported() {
 		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":"opus"}"#;
 		assert_eq!(one_error(line), "field `reviewers` has wrong type (expected array)");
+	}
+
+	#[test]
+	fn an_empty_reviewers_array_is_reported() {
+		// A present `reviewers` array must have at least one entry; a round with no
+		// attribution omits the field instead (the optional path).
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[]}"#;
+		assert_eq!(one_error(line), "field `reviewers` is empty");
+	}
+
+	#[test]
+	fn a_non_object_reviewers_element_is_reported() {
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[42]}"#;
+		assert_eq!(one_error(line), "field `reviewers`[0] has wrong type (expected object)");
 	}
 
 	#[test]

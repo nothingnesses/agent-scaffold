@@ -97,6 +97,17 @@ enum_field! {
 }
 
 enum_field! {
+	/// The convergence risk tier the orchestrator classified a review artifact
+	/// into at loop-open, which sets how many clean rounds it takes to converge.
+	/// Kept distinct from the intake `Classification` (`trivial`/`non_trivial`)
+	/// because it is a different judgement about a different thing.
+	RiskClass {
+		LowRisk => "low_risk",
+		Risky => "risky",
+	}
+}
+
+enum_field! {
 	/// A finding severity on the four-level scale.
 	Severity {
 		Low => "low",
@@ -184,6 +195,37 @@ fn require_severities(
 	Ok(())
 }
 
+/// Check the `round` record's optional `reviewers` attribution: a JSON array
+/// whose every element is an object carrying a string `role` and `model` plus
+/// non-negative integer `raw_findings` and `valid_findings` counts. This is the
+/// per-reviewer breakdown used to calibrate reviewer productivity and whether
+/// running multiple models earns its cost; the caller only invokes it when the
+/// field is present, since it is optional.
+fn require_reviewers(
+	obj: &Map<String, Value>,
+	name: &str,
+) -> Result<(), String> {
+	let value = obj.get(name).ok_or_else(|| format!("missing field `{name}`"))?;
+	let array = value
+		.as_array()
+		.ok_or_else(|| format!("field `{name}` has wrong type (expected array)"))?;
+	for (index, element) in array.iter().enumerate() {
+		let entry = element
+			.as_object()
+			.ok_or_else(|| format!("field `{name}`[{index}] has wrong type (expected object)"))?;
+		// Reuse the scalar checkers, prefixing their message with the array
+		// position so the line-level error still points at the offending element.
+		let at = |result: Result<(), String>| {
+			result.map_err(|reason| format!("field `{name}`[{index}]: {reason}"))
+		};
+		at(require_str(entry, "role").map(|_| ()))?;
+		at(require_str(entry, "model").map(|_| ()))?;
+		at(require_count(entry, "raw_findings"))?;
+		at(require_count(entry, "valid_findings"))?;
+	}
+	Ok(())
+}
+
 /// Check one already-parsed record against the schema, returning the first
 /// schema violation as a reason string, or `Ok(())` when the record is valid.
 /// Unknown extra fields are permitted (forward-compatible); only a missing
@@ -210,6 +252,17 @@ fn check_record(value: &Value) -> Result<(), String> {
 			require_count(obj, "valid_findings")?;
 			require_severities(obj, "severities")?;
 			require_count(obj, "consecutive_clean")?;
+			// Optional calibration fields, validated only when present so the
+			// records written before they existed still pass: the artifact's
+			// risk tier at loop-open, and the per-reviewer attribution.
+			if obj.contains_key("risk_class") {
+				require_enum(obj, "risk_class", RiskClass::VARIANTS, |text| {
+					RiskClass::parse(text).is_some()
+				})?;
+			}
+			if obj.contains_key("reviewers") {
+				require_reviewers(obj, "reviewers")?;
+			}
 		}
 		"escalation" => {
 			require_str(obj, "artifact")?;
@@ -273,7 +326,7 @@ mod tests {
 	/// A valid log with one record of each type, exercising the optional `ts`
 	/// field and an unknown extra field (both accepted).
 	const VALID_LOG: &str = concat!(
-		r#"{"type":"round","task":"demo","artifact":"AGENTS.md","phase":"plan_review","changed_since_prev":true,"outcome":"new_valid","valid_findings":3,"severities":["high","low"],"consecutive_clean":0,"ts":"2026-07-15T12:00:00Z"}"#,
+		r#"{"type":"round","task":"demo","artifact":"AGENTS.md","phase":"plan_review","changed_since_prev":true,"outcome":"new_valid","valid_findings":3,"severities":["high","low"],"consecutive_clean":0,"risk_class":"risky","reviewers":[{"role":"reviewer","model":"opus","raw_findings":4,"valid_findings":2},{"role":"reviewer","model":"sonnet","raw_findings":3,"valid_findings":1}],"ts":"2026-07-15T12:00:00Z"}"#,
 		"\n",
 		r#"{"type":"escalation","task":"demo","artifact":"AGENTS.md","human_decision":"resume","note":"extra field ok"}"#,
 		"\n",
@@ -389,6 +442,47 @@ mod tests {
 	}
 
 	#[test]
+	fn optional_round_calibration_fields_are_accepted() {
+		// A `round` carrying the optional `risk_class` and `reviewers` fields is
+		// valid, and a `round` omitting them (the pre-existing shape) is still valid.
+		let with = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","raw_findings":2,"valid_findings":0}]}"#;
+		let without = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1}"#;
+		assert_eq!(validate_log(with), Vec::new());
+		assert_eq!(validate_log(without), Vec::new());
+	}
+
+	#[test]
+	fn a_bad_risk_class_is_reported() {
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"medium"}"#;
+		assert_eq!(
+			one_error(line),
+			"field `risk_class` value `medium` not one of [low_risk, risky]"
+		);
+	}
+
+	#[test]
+	fn a_reviewers_element_missing_a_field_is_reported() {
+		// A reviewer entry without `model`; the error locates the array position.
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[{"role":"reviewer","raw_findings":1,"valid_findings":0}]}"#;
+		assert_eq!(one_error(line), "field `reviewers`[0]: missing field `model`");
+	}
+
+	#[test]
+	fn a_reviewers_field_of_wrong_type_is_reported() {
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":"opus"}"#;
+		assert_eq!(one_error(line), "field `reviewers` has wrong type (expected array)");
+	}
+
+	#[test]
+	fn a_reviewers_element_with_a_bad_count_is_reported() {
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"reviewers":[{"role":"reviewer","model":"opus","raw_findings":-1,"valid_findings":0}]}"#;
+		assert_eq!(
+			one_error(line),
+			"field `reviewers`[0]: field `raw_findings` value `-1` is not a non-negative integer"
+		);
+	}
+
+	#[test]
 	fn an_optional_ts_of_wrong_type_is_reported() {
 		// `ts` is optional, but when present it must be a string.
 		let line = r#"{"type":"intake","task":"demo","classification":"trivial","replanned":false,"ts":123}"#;
@@ -434,6 +528,11 @@ mod tests {
 			"valid_findings",
 			"severities",
 			"consecutive_clean",
+			"risk_class",
+			"reviewers",
+			"role",
+			"model",
+			"raw_findings",
 			"human_decision",
 			"result",
 			"classification",
@@ -456,6 +555,7 @@ mod tests {
 			("HumanDecision", HumanDecision::VARIANTS),
 			("RecheckResult", RecheckResult::VARIANTS),
 			("Classification", Classification::VARIANTS),
+			("RiskClass", RiskClass::VARIANTS),
 			("Severity", Severity::VARIANTS),
 		] {
 			for variant in variants {

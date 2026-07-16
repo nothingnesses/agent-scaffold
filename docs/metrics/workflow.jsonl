@@ -42,3 +42,4 @@
 {"type":"round","task":"state-schema-inc2","artifact":"metrics drift guard completeness","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1}
 {"type":"round","task":"state-schema-inc3","artifact":"plan parser + validate --plan + status","phase":"work_review","changed_since_prev":true,"outcome":"new_valid","valid_findings":6,"severities":["medium","low","low","low","low","low"],"consecutive_clean":0}
 {"type":"round","task":"state-schema-inc3","artifact":"plan parser strictness fixes","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1}
+{"type":"round","task":"optional-modules-inc1","artifact":"module machinery","phase":"work_review","changed_since_prev":true,"outcome":"new_valid","valid_findings":4,"severities":["medium","medium","low","low"],"consecutive_clean":0}

@@ -2,9 +2,14 @@
 # runs out of the box. It is yours to edit or replace; a project curates its own
 # rules in this directory. See https://ast-grep.github.io/guide/rule-config.html
 # for the full rule grammar.
+#
+# This rule is `language: rust`, so it inspects only Rust files; a non-Rust
+# project gets zero findings from it until it adds rules for its own languages.
+# `severity: error` makes a hit a non-zero `ast-grep scan` exit, so the check
+# fails loudly rather than passing silently.
 id: no-dbg-macro
 language: rust
-severity: warning
+severity: error
 message: Remove the dbg! debugging macro before committing.
 note: Seeded example rule demonstrating the ast-grep rule format. Curate your own rules in this directory.
 rule:

@@ -15,13 +15,20 @@
 #   command   (required) the primary command. lint: detect (read-only).
 #             format: APPLY (rewrites files). test: run the suite. mutation: run
 #             the mutation tool.
-#   check     (optional) a NON-mutating secondary command whose meaning is by
-#             kind. format: the dry-run that exits non-zero when files are
-#             unformatted, so the checks-reviewer can verify formatting without
-#             applying it. test: the compile-only command (exit 0 means "it
-#             builds", which lets the workflow tell "compiles and fails" from
-#             "does not compile"). lint and mutation do not use it.
-#   paths     (optional) globs scoping the check.
+#   check     (optional) a secondary command whose meaning is by kind. format:
+#             the check-mode command. Prefer a NON-mutating dry-run where the
+#             formatter supports one (for example `rustfmt --check`,
+#             `prettier --check`, `black --check`), which exits non-zero when
+#             files are unformatted without changing them. Some formatters have no
+#             dry-run (treefmt v2, via `nix fmt`, is one: `--fail-on-change`
+#             formats in place THEN fails if anything changed), so their check
+#             mutates the tree and must be run where the changes are safe to
+#             discard. test: the compile-only command (exit 0 means "it builds",
+#             which lets the workflow tell "compiles and fails" from "does not
+#             compile"). lint and mutation do not use it.
+#   paths     (optional) an array of globs scoping the check to matching files, so
+#             in a polyglot repo a check runs only over its language (see the
+#             commented `ruff` example below, scoped to `**/*.py`).
 #   budget    (optional, mutation only) a wall-clock cap, for example "10m".
 #   threshold (optional, mutation only) the max surviving mutants tolerated
 #             before a finding is raised.
@@ -43,14 +50,42 @@ kind = "lint"
 command = "ast-grep scan --config .agents/checks/ast-grep/sgconfig.yml"
 
 # -- Formatter. The implementer runs `command` to APPLY formatting over its
-#    changed files; the checks-reviewer runs `check` (dry-run) to confirm the tree
-#    is formatted without touching it. `nix fmt` is this project's convention;
-#    swap in your own formatter and its check-mode flag. --
+#    changed files; the checks-reviewer runs `check` to confirm the tree is
+#    formatted. `nix fmt` is this project's convention (treefmt v2); swap in your
+#    own. Note treefmt v2 has no true dry-run: `--fail-on-change` formats in place
+#    and then exits non-zero if anything changed, so this `check` mutates the tree
+#    (unlike a real dry-run such as `rustfmt --check`). Run it where the changes
+#    are safe to discard. --
 [[check]]
 name = "format"
 kind = "format"
 command = "nix fmt"
-check = "nix fmt -- --check"
+check = "nix fmt -- --fail-on-change"
+
+# -- Plug-in examples (commented; nothing here runs by default). Any tool is one
+#    `[[check]]` row naming a command, ast-grep included; these show the pattern
+#    for non-ast-grep tools and for scoping a check to one language. --
+
+# -- A text/regex linter plugging in identically to ast-grep, this one forbidding
+#    non-ASCII bytes (a common convention; this very project enforces it). It is
+#    grep-based, not an ast-grep rule, because ast-grep rules must match AST kinds,
+#    so a bare byte/regex check is not expressible as one. ripgrep exits 0 when it
+#    FINDS a match (a violation), which is inverted from a pass/fail gate, so the
+#    command wraps it in `! ...` to exit non-zero on a hit and zero when clean.
+#    Remove or edit this if the project legitimately uses unicode. --
+# [[check]]
+# name = "ascii-clean"
+# kind = "lint"
+# command = "sh -c '! rg --pcre2 -n \"[^\\x00-\\x7F]\" .'"
+
+# -- Any other linter plugs in as one row. `paths` scopes it to one language's
+#    files, so a polyglot repo (Rust + Python + TS, say) just adds one row per
+#    tool, each scoped via `paths`. --
+# [[check]]
+# name = "ruff"
+# kind = "lint"
+# command = "ruff check"
+# paths = ["**/*.py"]
 
 # -- Reserved kinds. Inert in the checks module; the later test-driven and
 #    mutation modules tell you to uncomment and fill these. Shown here as schema

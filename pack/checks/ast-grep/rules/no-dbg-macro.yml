@@ -1,0 +1,11 @@
+# Seeded example ast-grep rule demonstrating the rule format, so `ast-grep scan`
+# runs out of the box. It is yours to edit or replace; a project curates its own
+# rules in this directory. See https://ast-grep.github.io/guide/rule-config.html
+# for the full rule grammar.
+id: no-dbg-macro
+language: rust
+severity: warning
+message: Remove the dbg! debugging macro before committing.
+note: Seeded example rule demonstrating the ast-grep rule format. Curate your own rules in this directory.
+rule:
+  pattern: dbg!($$$ARGS)

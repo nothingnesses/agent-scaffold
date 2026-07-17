@@ -1,0 +1,7 @@
+# ast-grep project config for the checks module (referenced by the `ast-grep`
+# row in .agents/checks.toml). `ruleDirs` is resolved relative to THIS file's
+# directory, so `rules` points at .agents/checks/ast-grep/rules/. This file and
+# the rules it points at are yours to curate: add your own rule files (*.yml)
+# under that directory.
+ruleDirs:
+  - rules

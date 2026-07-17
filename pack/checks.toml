@@ -31,14 +31,16 @@
 # `command`s over the files it changed during its verify step. Plug in any other
 # linter or formatter by adding a `[[check]]` row; nothing here is privileged.
 
-# -- First-party linter: ast-grep (structural, language-aware lint). ast-grep
-#    reads its own rules config (an `sgconfig.yml`), which this module does not
-#    ship: add your ast-grep rules, or replace this row with your language's
-#    linter (ruff / eslint / clippy / etc.) in the same shape. --
+# -- First-party linter: ast-grep (structural, language-aware lint). The module
+#    seeds ast-grep's own config at .agents/checks/ast-grep/sgconfig.yml plus one
+#    example rule under .agents/checks/ast-grep/rules/, so this runs out of the
+#    box; curate your own rules in that directory. Replace this row with your
+#    language's linter (ruff / eslint / clippy / etc.) in the same shape if
+#    ast-grep does not cover your language. --
 [[check]]
 name = "ast-grep"
 kind = "lint"
-command = "ast-grep scan"
+command = "ast-grep scan --config .agents/checks/ast-grep/sgconfig.yml"
 
 # -- Formatter. The implementer runs `command` to APPLY formatting over its
 #    changed files; the checks-reviewer runs `check` (dry-run) to confirm the tree

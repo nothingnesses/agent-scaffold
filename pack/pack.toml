@@ -119,6 +119,21 @@ dest = ".agents/checks.toml"
 ownership = "working"
 module = "checks"
 
+# The seeded first-party ast-grep scaffold: the project config and one example
+# rule, so `ast-grep scan` runs out of the box. Both are create-if-absent working
+# files (a project curates its own rules), copied verbatim.
+[[asset]]
+source = "checks/ast-grep/sgconfig.yml"
+dest = ".agents/checks/ast-grep/sgconfig.yml"
+ownership = "working"
+module = "checks"
+
+[[asset]]
+source = "checks/ast-grep/rules/no-dbg-macro.yml"
+dest = ".agents/checks/ast-grep/rules/no-dbg-macro.yml"
+ownership = "working"
+module = "checks"
+
 # The read-only checks-reviewer role prompt, a tool-owned reference asset.
 [[asset]]
 source = "prompts/checks-reviewer.md"

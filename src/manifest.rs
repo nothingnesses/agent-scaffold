@@ -619,34 +619,40 @@ mod tests {
 	}
 
 	#[test]
-	fn builtin_checks_module_adds_its_two_assets() {
-		// The built-in `checks` module tags two assets. With no module selected they
+	fn builtin_checks_module_adds_its_four_assets() {
+		// The built-in `checks` module tags four assets. With no module selected they
 		// are filtered out (the default list stays byte-identical, pinned by
 		// `builtin_manifest_lists_the_expected_assets`).
 		let core = load(&builtin(), &HashMap::new(), &HashMap::new(), &[]).unwrap();
 		let core_dests: Vec<&str> = core.iter().map(|a| a.dest.as_str()).collect();
-		assert!(!core_dests.contains(&".agents/checks.toml"), "checks.toml stays out when off");
-		assert!(
-			!core_dests.contains(&".agents/prompts/checks-reviewer.md"),
-			"checks-reviewer stays out when off"
-		);
+		for absent in [
+			".agents/checks.toml",
+			".agents/prompts/checks-reviewer.md",
+			".agents/checks/ast-grep/sgconfig.yml",
+			".agents/checks/ast-grep/rules/no-dbg-macro.yml",
+		] {
+			assert!(!core_dests.contains(&absent), "{absent} stays out when the module is off");
+		}
 
-		// `--module checks` drops exactly the two checks assets on top of the core
+		// `--module checks` drops exactly the four checks assets on top of the core
 		// set, each with its declared ownership.
 		let with_checks =
 			load(&builtin(), &HashMap::new(), &HashMap::new(), &["checks".to_string()]).unwrap();
-		let checks_toml = with_checks
-			.iter()
-			.find(|a| a.dest == ".agents/checks.toml")
-			.expect("checks.toml drops when the module is selected");
-		assert_eq!(checks_toml.ownership, Ownership::Working);
-		let reviewer = with_checks
-			.iter()
-			.find(|a| a.dest == ".agents/prompts/checks-reviewer.md")
-			.expect("checks-reviewer drops when the module is selected");
-		assert_eq!(reviewer.ownership, Ownership::Reference);
-		// Exactly the two module assets are added, nothing else.
-		assert_eq!(with_checks.len(), core.len() + 2);
+		let owned = |dest: &str| {
+			with_checks
+				.iter()
+				.find(|a| a.dest == dest)
+				.unwrap_or_else(|| panic!("{dest} drops when the module is selected"))
+				.ownership
+		};
+		// The config, the ast-grep scaffold, and the example rule are user working
+		// files; the checks-reviewer role prompt is a tool-owned reference asset.
+		assert_eq!(owned(".agents/checks.toml"), Ownership::Working);
+		assert_eq!(owned(".agents/checks/ast-grep/sgconfig.yml"), Ownership::Working);
+		assert_eq!(owned(".agents/checks/ast-grep/rules/no-dbg-macro.yml"), Ownership::Working);
+		assert_eq!(owned(".agents/prompts/checks-reviewer.md"), Ownership::Reference);
+		// Exactly the four module assets are added, nothing else.
+		assert_eq!(with_checks.len(), core.len() + 4);
 	}
 
 	/// Write a filesystem pack fixture (a `pack.toml` plus one source file) and

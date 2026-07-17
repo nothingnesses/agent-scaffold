@@ -984,8 +984,16 @@ mod tests {
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
 
-		// No module: the checks guidance is absent from AGENTS.md and neither checks
-		// asset drops, so the module-free scaffold stays byte-identical.
+		// The four assets the checks module drops.
+		let checks_assets = [
+			".agents/checks.toml",
+			".agents/checks/ast-grep/sgconfig.yml",
+			".agents/checks/ast-grep/rules/no-dbg-macro.yml",
+			".agents/prompts/checks-reviewer.md",
+		];
+
+		// No module: the checks guidance is absent from AGENTS.md and none of the
+		// checks assets drop, so the module-free scaffold stays byte-identical.
 		let off = build_assets(
 			&manifest::builtin(),
 			&selected,
@@ -997,11 +1005,12 @@ mod tests {
 		.unwrap();
 		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(!agents_off.contents.contains("## Deterministic checks"));
-		assert!(!off.iter().any(|a| a.dest == ".agents/checks.toml"));
-		assert!(!off.iter().any(|a| a.dest == ".agents/prompts/checks-reviewer.md"));
+		for dest in checks_assets {
+			assert!(!off.iter().any(|a| a.dest == dest), "{dest} must stay out when off");
+		}
 
 		// --module checks: the guidance partial is inlined into the `{{modules}}`
-		// slot and both checks assets drop.
+		// slot and all four checks assets drop.
 		let on = build_assets(
 			&manifest::builtin(),
 			&selected,
@@ -1014,8 +1023,9 @@ mod tests {
 		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_on.contents.contains("## Deterministic checks"));
 		assert!(agents_on.contents.contains(".agents/checks.toml"));
-		assert!(on.iter().any(|a| a.dest == ".agents/checks.toml"));
-		assert!(on.iter().any(|a| a.dest == ".agents/prompts/checks-reviewer.md"));
+		for dest in checks_assets {
+			assert!(on.iter().any(|a| a.dest == dest), "{dest} must drop with --module checks");
+		}
 		// The tail stays clean even with the slot filled: exactly one trailing newline.
 		assert!(agents_on.contents.ends_with('\n'));
 		assert!(!agents_on.contents.ends_with("\n\n"));

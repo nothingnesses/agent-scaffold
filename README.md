@@ -184,7 +184,7 @@ On save it prints a ready-to-paste `--principles <ids>` line so the exact select
 
 Two read-only subcommands inspect the state a running workflow keeps (they never write anything).
 
-`validate` checks the workflow's metrics log against its record schema and, with `--plan`, the plan's structured regions (the Roadmap table and the Open Questions queue) against the plan schema. It reports every malformed record or region and exits non-zero if any exist, so it can gate a commit or run in CI:
+`validate` checks the workflow's metrics log against its record schema and, with `--plan`, the plan's structured regions (the Roadmap table and the Open Questions queue) against the plan schema. With `--workflow` (which requires `--plan`) it also cross-references the two: every Roadmap step marked `complete` must have converging round records in the log, so a step marked done without its review loop (or that never reached the clean-round streak its risk class requires) is caught. It reports every malformed record or region and every workflow disagreement, and exits non-zero if any exist, so it can gate a commit or run in CI:
 
 ```sh
 # Validate the default metrics log (docs/metrics/workflow.jsonl):
@@ -192,6 +192,9 @@ agent-scaffold validate
 
 # Also validate a plan's Roadmap and Open Questions structure:
 agent-scaffold validate --plan docs/plans/my-task.md
+
+# Also cross-reference the plan's Roadmap against the round log:
+agent-scaffold validate --plan docs/plans/my-task.md --workflow
 ```
 
 `status` prints a best-effort projection of that state: the plan's Roadmap steps grouped by status and its Open Questions count, plus a metrics-record count. Unlike `validate` it never fails on a missing or malformed file (a missing part is simply left out of the projection), and `--json` emits the projection as JSON for another tool to consume:

@@ -339,8 +339,9 @@ pub(crate) struct Round {
 	/// The `task` value verbatim (the leading slug plus an optional `-inc<x>`
 	/// increment suffix); the increment grouping keys off it unstripped.
 	pub(crate) task: String,
-	/// The review artifact this round covers (its convergence streak is
-	/// per-artifact).
+	/// The review artifact this round covers. The convergence streak spans the
+	/// different artifacts one increment's rounds name, so it is counted per
+	/// increment (the `task`), not per artifact.
 	pub(crate) artifact: String,
 	/// Whether the round was clean or produced a new valid finding.
 	pub(crate) outcome: RoundOutcome,

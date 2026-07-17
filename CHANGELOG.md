@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `validate --workflow` cross-references a plan's Roadmap against the round log (`src/workflow.rs`): every Roadmap step marked `complete` must have converging round records, so a step marked done without its review loop, or one that never reached the clean-round streak its risk class requires, is reported. It requires `--plan` and reuses the same metrics log as the rest of `validate`.
+- Two Roadmap statuses, `trivial` and `grandfathered`, terminal complete-like statuses that declare a step's review history (a review deliberately skipped, or a step predating round-logging) so the workflow cross-reference does not flag it.
+
 ### Changed
 
 - Hardened the scaffolded workflow guidance (`AGENTS.md` and the role prompts) after a design review. The review ledger and orchestrator round state move to a file committed beside its plan, so the workflow survives the orchestrator losing context and resumes across machines and sessions; the orchestrator follows an explicit per-round procedure to append the ledger and increment or reset the clean-round count. Convergence now requires consecutive clean rounds scaled to the stakes, and a review loop escalates to a human when the total rounds on an artifact reach the total-round cap (default five). A dismissed high-severity finding is re-checked by a second independent triager. The acceptance review gains a triager, matching the other review phases. A human interrupt now goes through a bounded intake assessment that advises on impact and gives feedback on the request, routing trivial requests directly and non-trivial ones through the plan.

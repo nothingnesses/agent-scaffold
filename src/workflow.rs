@@ -13,13 +13,15 @@
 //!
 //! - W3, the key invariant: every Roadmap step marked `complete` must have round
 //!   records that converge. A `complete` step with no matching records is the
-//!   `pause.md` catch (marked done without review). Steps carrying a review-exempt
-//!   status (`trivial`, `grandfathered`, `skipped`) are not checked; W3 checks only
-//!   `complete` steps.
-//! - The round log's internal consistency: within each artifact's records for one
-//!   increment, a `clean` outcome advances the consecutive-clean streak by one and
-//!   a `new_valid` resets it to zero, so the logged `consecutive_clean` values are
-//!   fully determined by the outcome sequence; a disagreement is reported.
+//!   `pause.md` catch (marked done without review). W3 checks only `complete`
+//!   steps; all others (`trivial`, `grandfathered`, `skipped`, and the in-flight
+//!   statuses) are not checked.
+//! - The round log's internal consistency: within one increment's records, a
+//!   `clean` outcome advances the consecutive-clean streak by one and a `new_valid`
+//!   resets it to zero, so the logged `consecutive_clean` values are fully
+//!   determined by the outcome sequence; a disagreement is reported. That streak is
+//!   per loop (per increment): it is one running counter across the different
+//!   artifacts an increment's rounds name, not a per-artifact count.
 
 use {
 	crate::{
@@ -49,6 +51,15 @@ const INCREMENT_MARKER: &str = "-inc";
 /// run) is returned unchanged. This maps every increment of a step onto the one
 /// Roadmap slug W3 keys off, so `round-log-core-incA` and `round-log-core-incB`
 /// both resolve to `round-log-core`.
+///
+/// Latent over-strip risk (T3): the strip is purely lexical, so a slug that itself
+/// ends `-inc<alnum>` (for example a hypothetical `foo-incidental`, or a Roadmap
+/// pair `increment` / `increment-tracker`) would be mis-stripped to its prefix and
+/// its rounds misrouted to the wrong step. No current slug hits this, and the
+/// alphanumeric run is genuinely needed (`round-log-core` uses `-incA` / `-incB`).
+/// Hardening would gate the strip on the remainder matching a known Roadmap slug
+/// (an allowlist), removing the ambiguity at the cost of passing the step slugs in;
+/// deferred while no live slug is affected.
 fn leading_slug(task: &str) -> &str {
 	if let Some(marker) = task.rfind(INCREMENT_MARKER) {
 		let suffix = &task[marker + INCREMENT_MARKER.len() ..];
@@ -75,24 +86,35 @@ pub(crate) fn check_workflow(
 }
 
 /// The round log's internal-consistency check: group records by increment
-/// (`task`) and artifact, then walk each group in file order recomputing the
-/// streak the outcome sequence implies (a `clean` adds one, a `new_valid` resets
-/// to zero) and report any record whose logged `consecutive_clean` disagrees. The
-/// implied streak is recomputed independently of the logged values, so one wrong
-/// record yields exactly one problem rather than cascading into the rest of its
-/// group.
+/// (`task`) alone, then walk each group in file order recomputing the streak the
+/// outcome sequence implies (a `clean` adds one, a `new_valid` resets to zero) and
+/// report any record whose logged `consecutive_clean` disagrees. The streak spans
+/// the different artifacts one increment's rounds name, so it is recomputed per
+/// increment, not per artifact. The implied streak is recomputed independently of
+/// the logged values, so one wrong record yields exactly one problem rather than
+/// cascading into the rest of its group.
 fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
-	// Group by (task, artifact): the streak is per artifact and each increment is
-	// its own review loop, so records for different increments or artifacts do not
-	// share a streak. BTreeMap keeps the report deterministic; each group's Vec
-	// stays in file order because the records are pushed in file order.
-	let mut groups: BTreeMap<(&str, &str), Vec<&Round>> = BTreeMap::new();
+	// Group by increment (`task`) only: `consecutive_clean` is a per-loop running
+	// streak that spans the different `artifact` values named across one increment's
+	// rounds (a change round, then fixes, then verification), so those records share
+	// a single streak. Each increment (each full `-inc<x>` task string) is its own
+	// review loop, so records for different increments do not share a streak. The
+	// counter resets at increment boundaries, which is correct because each is a
+	// distinct task string. BTreeMap keeps the report deterministic; each group's
+	// Vec stays in file order because the records are pushed in file order.
+	let mut groups: BTreeMap<&str, Vec<&Round>> = BTreeMap::new();
 	for round in rounds {
-		groups.entry((round.task.as_str(), round.artifact.as_str())).or_default().push(round);
+		groups.entry(round.task.as_str()).or_default().push(round);
 	}
 
 	let mut problems = Vec::new();
-	for ((task, artifact), records) in &groups {
+	for (task, records) in &groups {
+		// Recompute the implied streak across the increment's whole record history
+		// in file order. Latent limitation (T4): there is no re-opened-loop boundary,
+		// so an increment that legitimately re-opens with a bare `clean` (rather than
+		// a `new_valid` reset) would keep climbing and be miscounted. Real re-opens
+		// start with `new_valid` (which resets to zero), so current data never hits
+		// this.
 		let mut implied: u64 = 0;
 		for round in records {
 			match round.outcome {
@@ -101,8 +123,8 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 			}
 			if round.consecutive_clean != implied {
 				problems.push(format!(
-					"round log line {}: task `{}` artifact `{}` records consecutive_clean {} but its outcome sequence implies {}",
-					round.line, task, artifact, round.consecutive_clean, implied
+					"round log line {}: task `{}` records consecutive_clean {} but its outcome sequence implies {}",
+					round.line, task, round.consecutive_clean, implied
 				));
 			}
 		}
@@ -111,19 +133,20 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 }
 
 /// The W3 check: for every Roadmap step marked `complete`, its rounds must show
-/// convergence. Steps with any other status are skipped, so the review-exempt
-/// terminal statuses (`trivial`, `grandfathered`, `skipped`) and the in-flight
-/// ones are not checked. For a `complete` step:
+/// convergence. Steps with any other status are skipped, so the terminal statuses
+/// (`trivial`, `grandfathered`, `skipped`) and the in-flight ones are not checked.
+/// For a `complete` step:
 ///
 /// - Filter round records whose leading slug equals the step slug. No matching
 ///   records is a violation (the `pause.md` catch: marked complete without review,
 ///   and not declared `trivial` or `grandfathered`).
 /// - Group the matching records by increment (the full `task`). Within each
-///   increment the `risk_class` must be consistent, and each artifact's
-///   consecutive-clean streak must reach the class's required count (`low_risk` 1,
-///   `risky` 2). Grouping per increment, not per step, is what lets a step whose
-///   increments converged under different risk classes pass (for example
-///   `round-log-core`, `low_risk` at `-incA` and `risky` at `-incB`).
+///   increment the `risk_class` must be consistent, and the increment's peak
+///   consecutive-clean streak (over all its records, spanning the artifacts its
+///   rounds name) must reach the class's required count (`low_risk` 1, `risky` 2).
+///   Grouping per increment, not per step, is what lets a step whose increments
+///   converged under different risk classes pass (for example `round-log-core`,
+///   `low_risk` at `-incA` and `risky` at `-incB`).
 fn w3_problems(
 	steps: &[Step],
 	rounds: &[Round],
@@ -161,26 +184,27 @@ fn w3_problems(
 				continue;
 			}
 			let required = class.required_streak();
-			// The streak is per artifact: take each artifact's peak
-			// consecutive_clean within the increment and require it to reach the
-			// class count.
-			let mut peak: BTreeMap<&str, u64> = BTreeMap::new();
-			for round in records {
-				let entry = peak.entry(round.artifact.as_str()).or_default();
-				*entry = (*entry).max(round.consecutive_clean);
-			}
-			for (artifact, reached) in &peak {
-				if *reached < required {
-					problems.push(format!(
-						"Roadmap step `{}` increment `{}` artifact `{}` reached a consecutive-clean streak of {} but its `{}` risk class needs {}",
-						step.slug,
-						increment,
-						artifact,
-						reached,
-						class.label(),
-						required
-					));
-				}
+			// The streak is per loop (per increment), not per artifact:
+			// `consecutive_clean` is one running counter across the different
+			// artifacts the increment's rounds name, so take the peak
+			// consecutive_clean over ALL of the increment's records and require that
+			// single peak to reach the class count.
+			//
+			// Peak, not terminal (T9): this matches the design's "max
+			// consecutive_clean seen" computation and is deliberate, not a bug. In a
+			// correctly-run loop the loop stops at convergence, so the peak equals the
+			// terminal value; taking the peak is what lets a converged increment pass
+			// regardless of any trailing bookkeeping rounds.
+			let peak = records.iter().map(|round| round.consecutive_clean).max().unwrap_or(0);
+			if peak < required {
+				problems.push(format!(
+					"Roadmap step `{}` increment `{}` reached a consecutive-clean streak of {} but its `{}` risk class needs {}",
+					step.slug,
+					increment,
+					peak,
+					class.label(),
+					required
+				));
 			}
 		}
 	}
@@ -316,6 +340,65 @@ mod tests {
 	}
 
 	#[test]
+	fn a_multi_artifact_loop_that_converges_across_artifacts_passes() {
+		// The real convergence shape: one `risky` increment's review loop runs across
+		// three DISTINCT artifacts (change -> fixes -> verification) and the streak is
+		// one running counter climbing 0 -> 1 -> 2 across them. The peak (2) meets
+		// risky's 2, so the increment converges. Per-artifact grouping would
+		// false-flag the `change` artifact (peak 0) and the `fixes` artifact (peak 1);
+		// per-loop peak passes it.
+		let log = [
+			round_line("converge", "converge change", "new_valid", 0, "risky"),
+			round_line("converge", "converge fixes", "clean", 1, "risky"),
+			round_line("converge", "converge verification", "clean", 2, "risky"),
+		]
+		.join("\n");
+		let problems = w3_problems(&steps(&one_step_plan("converge", "complete")), &rounds(&log));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn a_multi_artifact_loop_that_never_reaches_the_streak_is_caught() {
+		// A `risky` increment whose loop spans two artifacts but whose peak streak is
+		// 1 (never 2) is caught exactly once, on the increment as a whole, not once
+		// per artifact.
+		let log = [
+			round_line("short", "short change", "new_valid", 0, "risky"),
+			round_line("short", "short fixes", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let problems = w3_problems(&steps(&one_step_plan("short", "complete")), &rounds(&log));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("reached a consecutive-clean streak of 1")
+				&& problems[0].contains("`risky` risk class needs 2"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn a_low_risk_failure_names_the_low_risk_class() {
+		// A `low_risk` increment that never logs a clean round (peak 0, needs 1) is
+		// caught, and the message must carry the `low_risk` label so a rename of the
+		// on-disk spelling cannot diverge from `RiskClass::label` silently.
+		let log = round_line("lr", "lr change", "new_valid", 0, "low_risk");
+		let problems = w3_problems(&steps(&one_step_plan("lr", "complete")), &rounds(&log));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("`low_risk` risk class needs 1"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn an_in_flight_step_with_rounds_is_not_checked() {
+		// W3's guard is `status == "complete"`, so an in-flight step (here `in
+		// progress`) is not checked even with matching rounds in the log. This pins
+		// the guard against a future status-list refactor.
+		let log = round_line("wip", "wip change", "new_valid", 0, "risky");
+		let problems = w3_problems(&steps(&one_step_plan("wip", "in progress")), &rounds(&log));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
 	fn a_risk_class_inconsistency_within_one_increment_is_caught() {
 		// Two records for the SAME increment disagreeing on risk_class is a
 		// violation (distinct from the two-increment case, which is fine).
@@ -354,6 +437,21 @@ mod tests {
 			round_line("t", "a", "clean", 2, "low_risk"),
 			round_line("t", "a", "new_valid", 0, "low_risk"),
 			round_line("t", "a", "clean", 1, "low_risk"),
+		]
+		.join("\n");
+		assert!(round_log_consistency_problems(&rounds(&log)).is_empty());
+	}
+
+	#[test]
+	fn a_streak_spanning_multiple_artifacts_is_consistent() {
+		// `consecutive_clean` is one running counter across the increment's artifacts,
+		// so a streak that climbs 0 -> 1 -> 2 over three distinct artifacts is
+		// internally consistent. Per-(task, artifact) grouping would have recomputed
+		// the lone `cc2` verification record as implying 1 and false-flagged it.
+		let log = [
+			round_line("loop", "loop change", "new_valid", 0, "risky"),
+			round_line("loop", "loop fixes", "clean", 1, "risky"),
+			round_line("loop", "loop verification", "clean", 2, "risky"),
 		]
 		.join("\n");
 		assert!(round_log_consistency_problems(&rounds(&log)).is_empty());

@@ -227,7 +227,8 @@ fn require_severities(
 
 /// Check the `round` record's optional `reviewers` attribution: a JSON array
 /// whose every element is an object carrying a string `role` and `model` plus
-/// non-negative integer `raw_findings` and `valid_findings` counts. This is the
+/// non-negative integer `raw_findings` and `valid_findings` counts, and an
+/// optional string `harness` naming the CLI the reviewer ran on. This is the
 /// per-reviewer breakdown used to calibrate reviewer productivity and whether
 /// running multiple models earns its cost; the caller only invokes it when the
 /// field is present, since it is optional.
@@ -258,6 +259,12 @@ fn require_reviewers(
 		at(require_str(entry, "model").map(|_| ()))?;
 		at(require_count(entry, "raw_findings"))?;
 		at(require_count(entry, "valid_findings"))?;
+		// The reviewer's harness (the CLI it ran on, for example "claude-code")
+		// is optional, validated as a string only when present so an entry that
+		// records only the model still validates.
+		if entry.contains_key("harness") {
+			at(require_str(entry, "harness").map(|_| ()))?;
+		}
 	}
 	Ok(())
 }
@@ -627,6 +634,25 @@ mod tests {
 	}
 
 	#[test]
+	fn a_reviewers_element_with_a_valid_harness_is_accepted() {
+		// The optional `harness` string names the CLI a reviewer ran on; a reviewer
+		// entry carrying it validates.
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","harness":"claude-code","raw_findings":2,"valid_findings":0}]}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_reviewers_element_with_a_non_string_harness_is_reported() {
+		// When present, `harness` must be a string; a number is reported, and the
+		// error locates the offending array element.
+		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","harness":7,"raw_findings":2,"valid_findings":0}]}"#;
+		assert_eq!(
+			one_error(line),
+			"field `reviewers`[0]: field `harness` has wrong type (expected string)"
+		);
+	}
+
+	#[test]
 	fn an_optional_ts_of_wrong_type_is_reported() {
 		// `ts` is optional, but when present it must be a string.
 		let line = r#"{"type":"intake","task":"demo","classification":"trivial","replanned":false,"ts":123}"#;
@@ -676,6 +702,7 @@ mod tests {
 			"reviewers",
 			"role",
 			"model",
+			"harness",
 			"raw_findings",
 			"human_decision",
 			"result",

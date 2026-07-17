@@ -12,6 +12,6 @@ Target to review: [the whole codebase as it currently stands (the tree at `HEAD`
 
 Criteria to review against: [name a plan whose Success Criteria to check, and/or list specific constraints or conditions to check; leave blank for open-ended correctness and quality against `AGENTS.md` and the project principles].
 
-[Optional: depth and lenses, for example how many independent reviewers and which models, and whether to treat the target as risky (security-, data-, or money-sensitive) so the review is briefed accordingly.]
+[Optional: depth and lenses, for example how many independent reviewers and which models or harnesses, and whether to treat the target as risky (security-, data-, or money-sensitive) so the review is briefed accordingly.]
 
 Run the review entry mode as `AGENTS.md` defines it: resolve the target and criteria, run one reviewers-then-triager pass (the acceptance-review pass, keeping the high/critical dismissal re-check), and give me a committed findings report grouped by severity with evidence, plus which findings are worth turning into a kickoff task. Do not implement any fix.

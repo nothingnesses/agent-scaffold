@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `validate --workflow` cross-references a plan's Roadmap against the round log (`src/workflow.rs`): every Roadmap step marked `complete` must have converging round records, so a step marked done without its review loop, or one that never reached the clean-round streak its risk class requires, is reported. It requires `--plan` and reuses the same metrics log as the rest of `validate`.
 - Two Roadmap statuses, `trivial` and `grandfathered`, terminal complete-like statuses that declare a step's review history (a review deliberately skipped, or a step predating round-logging) so the workflow cross-reference does not flag it.
+- An optional `harness` field on each `reviewers[]` entry in the instrumentation `round` record, naming the CLI a reviewer ran on (for example `claude-code`, `codex`, or `gemini-cli`), so per-reviewer calibration can distinguish harnesses, not just models. It is optional and validated as a string only when present, so existing round records stay valid.
 
 ### Changed
 

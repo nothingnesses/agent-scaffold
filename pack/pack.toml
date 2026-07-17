@@ -10,7 +10,7 @@
 # With no module selected the output is byte-identical to the core.
 [[module]]
 name = "checks"
-description = "A user-configurable, tool-run deterministic verification gate (lint/format checks) over the workflow's code output, with a read-only checks-reviewer spawned in the work-review phase."
+description = "A user-configurable, tool-run deterministic verification gate (lint/format checks) over the workflow's code output, with a checks-reviewer spawned in the work-review phase that runs the checks and reports findings (authoring no fixes)."
 guidance = "checks-guidance.md"
 
 [[asset]]
@@ -134,7 +134,8 @@ dest = ".agents/checks/ast-grep/rules/no-dbg-macro.yml"
 ownership = "working"
 module = "checks"
 
-# The read-only checks-reviewer role prompt, a tool-owned reference asset.
+# The checks-reviewer role prompt (reports findings, authors no fixes), a
+# tool-owned reference asset.
 [[asset]]
 source = "prompts/checks-reviewer.md"
 dest = ".agents/prompts/checks-reviewer.md"

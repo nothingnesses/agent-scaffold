@@ -33,8 +33,10 @@
 #   threshold (optional, mutation only) the max surviving mutants tolerated
 #             before a finding is raised.
 #
-# Who runs what: the checks-reviewer (read-only, in the work-review phase) runs
-# the lint `command`s and the format `check`s. The implementer applies the format
+# Who runs what: in the work-review phase the checks-reviewer runs the lint
+# `command`s and the format `check`s and reports findings (it authors no fixes),
+# though a format `check` on an in-place formatter (see the `check` field above)
+# does mutate a discardable working copy. The implementer applies the format
 # `command`s over the files it changed during its verify step. Plug in any other
 # linter or formatter by adding a `[[check]]` row; nothing here is privileged.
 

@@ -1,0 +1,68 @@
+# Deterministic checks for this project (the checks module: `--module checks`).
+#
+# This file is YOURS to edit. It is created once (create-if-absent) and never
+# overwritten by re-running the scaffolder, so curate it freely. It is a pure
+# declaration of the commands that verify this project's code; it does not encode
+# WHEN a check runs or with what expected outcome. That is a workflow concern (the
+# implementer's verify step and the checks-reviewer), so a test that must "fail
+# first" is not a field here.
+#
+# Each entry is a flat `[[check]]` table. Keep values to single-line strings (the
+# schema is a flat array of tables: no inline tables, no multi-line strings), so a
+# simple reader can parse it. Fields:
+#   name      (required) a unique id, shown in findings.
+#   kind      (required) one of: lint | format | test | mutation.
+#   command   (required) the primary command. lint: detect (read-only).
+#             format: APPLY (rewrites files). test: run the suite. mutation: run
+#             the mutation tool.
+#   check     (optional) a NON-mutating secondary command whose meaning is by
+#             kind. format: the dry-run that exits non-zero when files are
+#             unformatted, so the checks-reviewer can verify formatting without
+#             applying it. test: the compile-only command (exit 0 means "it
+#             builds", which lets the workflow tell "compiles and fails" from
+#             "does not compile"). lint and mutation do not use it.
+#   paths     (optional) globs scoping the check.
+#   budget    (optional, mutation only) a wall-clock cap, for example "10m".
+#   threshold (optional, mutation only) the max surviving mutants tolerated
+#             before a finding is raised.
+#
+# Who runs what: the checks-reviewer (read-only, in the work-review phase) runs
+# the lint `command`s and the format `check`s. The implementer applies the format
+# `command`s over the files it changed during its verify step. Plug in any other
+# linter or formatter by adding a `[[check]]` row; nothing here is privileged.
+
+# -- First-party linter: ast-grep (structural, language-aware lint). ast-grep
+#    reads its own rules config (an `sgconfig.yml`), which this module does not
+#    ship: add your ast-grep rules, or replace this row with your language's
+#    linter (ruff / eslint / clippy / etc.) in the same shape. --
+[[check]]
+name = "ast-grep"
+kind = "lint"
+command = "ast-grep scan"
+
+# -- Formatter. The implementer runs `command` to APPLY formatting over its
+#    changed files; the checks-reviewer runs `check` (dry-run) to confirm the tree
+#    is formatted without touching it. `nix fmt` is this project's convention;
+#    swap in your own formatter and its check-mode flag. --
+[[check]]
+name = "format"
+kind = "format"
+command = "nix fmt"
+check = "nix fmt -- --check"
+
+# -- Reserved kinds. Inert in the checks module; the later test-driven and
+#    mutation modules tell you to uncomment and fill these. Shown here as schema
+#    documentation so the schema is defined once. --
+# [[check]]
+# name = "test"
+# kind = "test"
+# command = "cargo test --locked"
+# check = "cargo test --no-run --locked"
+# paths = ["tests/", "src/**/*.rs"]
+#
+# [[check]]
+# name = "mutation"
+# kind = "mutation"
+# command = "cargo mutants --in-diff HEAD~1"
+# budget = "10m"
+# threshold = 0

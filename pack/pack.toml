@@ -4,6 +4,15 @@
 # substitution) or copied verbatim. One source may map to several assets (the
 # guidance is dropped as both the working root file and the reference copy).
 
+# Optional modules the pack declares. A module is off by default; its assets and
+# variables (tagged `module = "<name>"`) drop only when `--module <name>` selects
+# it, and its `guidance` partial concatenates into the `{{modules}}` render slot.
+# With no module selected the output is byte-identical to the core.
+[[module]]
+name = "checks"
+description = "A user-configurable, tool-run deterministic verification gate (lint/format checks) over the workflow's code output, with a read-only checks-reviewer spawned in the work-review phase."
+guidance = "checks-guidance.md"
+
 [[asset]]
 source = "AGENTS.md"
 dest = "AGENTS.md"
@@ -97,3 +106,22 @@ ownership = "reference"
 source = "user-prompts/resume.md"
 dest = ".agents/user-prompts/resume.md"
 ownership = "reference"
+
+# The `checks` module (opt in with `--module checks`). Its assets are tagged
+# `module = "checks"`, so they drop only when the module is selected and the
+# module-free default scaffold stays byte-identical.
+
+# The user-owned checks config: a create-if-absent working file the user edits,
+# copied verbatim (no render). Its comments document the `[[check]]` schema.
+[[asset]]
+source = "checks.toml"
+dest = ".agents/checks.toml"
+ownership = "working"
+module = "checks"
+
+# The read-only checks-reviewer role prompt, a tool-owned reference asset.
+[[asset]]
+source = "prompts/checks-reviewer.md"
+dest = ".agents/prompts/checks-reviewer.md"
+ownership = "reference"
+module = "checks"

@@ -980,6 +980,48 @@ mod tests {
 	}
 
 	#[test]
+	fn checks_module_renders_its_guidance_and_drops_its_assets() {
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+
+		// No module: the checks guidance is absent from AGENTS.md and neither checks
+		// asset drops, so the module-free scaffold stays byte-identical.
+		let off = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&[],
+		)
+		.unwrap();
+		let agents_off = off.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(!agents_off.contents.contains("## Deterministic checks"));
+		assert!(!off.iter().any(|a| a.dest == ".agents/checks.toml"));
+		assert!(!off.iter().any(|a| a.dest == ".agents/prompts/checks-reviewer.md"));
+
+		// --module checks: the guidance partial is inlined into the `{{modules}}`
+		// slot and both checks assets drop.
+		let on = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&["checks".to_string()],
+		)
+		.unwrap();
+		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(agents_on.contents.contains("## Deterministic checks"));
+		assert!(agents_on.contents.contains(".agents/checks.toml"));
+		assert!(on.iter().any(|a| a.dest == ".agents/checks.toml"));
+		assert!(on.iter().any(|a| a.dest == ".agents/prompts/checks-reviewer.md"));
+		// The tail stays clean even with the slot filled: exactly one trailing newline.
+		assert!(agents_on.contents.ends_with('\n'));
+		assert!(!agents_on.contents.ends_with("\n\n"));
+	}
+
+	#[test]
 	fn rendered_agents_ends_with_a_single_trailing_newline() {
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();

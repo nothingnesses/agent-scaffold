@@ -618,6 +618,37 @@ mod tests {
 		assert!(!principles.contents.contains("SENTINEL-LIST"));
 	}
 
+	#[test]
+	fn builtin_checks_module_adds_its_two_assets() {
+		// The built-in `checks` module tags two assets. With no module selected they
+		// are filtered out (the default list stays byte-identical, pinned by
+		// `builtin_manifest_lists_the_expected_assets`).
+		let core = load(&builtin(), &HashMap::new(), &HashMap::new(), &[]).unwrap();
+		let core_dests: Vec<&str> = core.iter().map(|a| a.dest.as_str()).collect();
+		assert!(!core_dests.contains(&".agents/checks.toml"), "checks.toml stays out when off");
+		assert!(
+			!core_dests.contains(&".agents/prompts/checks-reviewer.md"),
+			"checks-reviewer stays out when off"
+		);
+
+		// `--module checks` drops exactly the two checks assets on top of the core
+		// set, each with its declared ownership.
+		let with_checks =
+			load(&builtin(), &HashMap::new(), &HashMap::new(), &["checks".to_string()]).unwrap();
+		let checks_toml = with_checks
+			.iter()
+			.find(|a| a.dest == ".agents/checks.toml")
+			.expect("checks.toml drops when the module is selected");
+		assert_eq!(checks_toml.ownership, Ownership::Working);
+		let reviewer = with_checks
+			.iter()
+			.find(|a| a.dest == ".agents/prompts/checks-reviewer.md")
+			.expect("checks-reviewer drops when the module is selected");
+		assert_eq!(reviewer.ownership, Ownership::Reference);
+		// Exactly the two module assets are added, nothing else.
+		assert_eq!(with_checks.len(), core.len() + 2);
+	}
+
 	/// Write a filesystem pack fixture (a `pack.toml` plus one source file) and
 	/// return its `Directory` source root.
 	fn fixture_pack(

@@ -118,54 +118,54 @@ Live queue:
 
 Steps in implementation order, with status. The Roadmap is the single source of truth for status; the slug in each row keys the matching detail block under "Step Details". `next` marks the prioritised next work; `optional` and `deferred` mark not-started work that is not on the critical path.
 
-| Step                     | Status      |
-| ------------------------ | ----------- |
-| `core-assets`            | complete    |
-| `file-dropper`           | complete    |
-| `idempotency-safety`     | complete    |
-| `selection-ui`           | complete    |
-| `mode-enum`              | complete    |
-| `tag-selection`          | complete    |
-| `available-filter`       | complete    |
-| `include-all-visible`    | skipped     |
-| `pack-manifest`          | complete    |
-| `external-packs`         | complete    |
-| `pack-owned-principles`  | complete    |
-| `init-vcs`               | complete    |
-| `convergence-accounting` | complete    |
-| `workflow-doc-fixes`     | complete    |
-| `pack-rebuild-tracking`  | complete    |
-| `triager-independence`   | complete    |
-| `file-safety-rules`      | complete    |
-| `agent-isolation`        | complete    |
-| `user-prompts-dir`       | complete    |
-| `human-onboarding`       | complete    |
-| `gate-prompt-clarity`    | complete    |
-| `compaction-prep`        | complete    |
-| `deliberation-mode`      | complete    |
-| `human-review-queue`     | complete    |
-| `no-wrap-convention`     | complete    |
-| `findings-files`         | complete    |
-| `ledger-template`        | complete    |
-| `state-schema`           | complete    |
-| `workflow-viz`           | deferred    |
-| `optional-modules`       | in progress |
-| `greenfield-flake`       | optional    |
-| `later-enhancements`     | optional    |
-| `git-url-fetch`          | deferred    |
-| `tui-authoring`          | optional    |
-| `workflow-calibration`   | deferred    |
-| `instrument-flag`        | complete    |
-| `exploration-mode`       | complete    |
-| `session-preflight`      | complete    |
-| `round-log-core`         | complete    |
-| `ledger-parse`           | skipped     |
-| `workflow-invariants`    | next        |
-| `state-queries`          | not started |
-| `reviewer-diversity`     | not started |
-| `review-mode`            | not started |
-| `test-driven`            | not started |
-| `mutation`               | not started |
+| Step                     | Status        |
+| ------------------------ | ------------- |
+| `core-assets`            | grandfathered |
+| `file-dropper`           | grandfathered |
+| `idempotency-safety`     | grandfathered |
+| `selection-ui`           | grandfathered |
+| `mode-enum`              | grandfathered |
+| `tag-selection`          | grandfathered |
+| `available-filter`       | grandfathered |
+| `include-all-visible`    | skipped       |
+| `pack-manifest`          | grandfathered |
+| `external-packs`         | grandfathered |
+| `pack-owned-principles`  | grandfathered |
+| `init-vcs`               | grandfathered |
+| `convergence-accounting` | grandfathered |
+| `workflow-doc-fixes`     | complete      |
+| `pack-rebuild-tracking`  | grandfathered |
+| `triager-independence`   | complete      |
+| `file-safety-rules`      | complete      |
+| `agent-isolation`        | complete      |
+| `user-prompts-dir`       | grandfathered |
+| `human-onboarding`       | complete      |
+| `gate-prompt-clarity`    | complete      |
+| `compaction-prep`        | complete      |
+| `deliberation-mode`      | complete      |
+| `human-review-queue`     | complete      |
+| `no-wrap-convention`     | complete      |
+| `findings-files`         | complete      |
+| `ledger-template`        | complete      |
+| `state-schema`           | complete      |
+| `workflow-viz`           | deferred      |
+| `optional-modules`       | in progress   |
+| `greenfield-flake`       | optional      |
+| `later-enhancements`     | optional      |
+| `git-url-fetch`          | deferred      |
+| `tui-authoring`          | optional      |
+| `workflow-calibration`   | deferred      |
+| `instrument-flag`        | complete      |
+| `exploration-mode`       | complete      |
+| `session-preflight`      | complete      |
+| `round-log-core`         | complete      |
+| `ledger-parse`           | skipped       |
+| `workflow-invariants`    | complete      |
+| `state-queries`          | not started   |
+| `reviewer-diversity`     | not started   |
+| `review-mode`            | not started   |
+| `test-driven`            | not started   |
+| `mutation`               | not started   |
 
 ## Step Details
 

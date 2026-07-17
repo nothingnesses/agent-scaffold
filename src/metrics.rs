@@ -56,11 +56,15 @@ macro_rules! enum_field {
 }
 
 enum_field! {
-	/// Which review phase a `round` record belongs to.
+	/// Which review phase a `round` record belongs to. `review` is a standalone
+	/// human-invoked review-entry-mode pass, kept distinct from an implement run's
+	/// internal `acceptance` gate so the two populations stay separable in
+	/// calibration data.
 	Phase {
 		PlanReview => "plan_review",
 		WorkReview => "work_review",
 		Acceptance => "acceptance",
+		Review => "review",
 	}
 }
 
@@ -528,8 +532,16 @@ mod tests {
 		let line = r#"{"type":"round","task":"demo","artifact":"a","phase":"midday","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":0}"#;
 		assert_eq!(
 			one_error(line),
-			"field `phase` value `midday` not one of [plan_review, work_review, acceptance]"
+			"field `phase` value `midday` not one of [plan_review, work_review, acceptance, review]"
 		);
+	}
+
+	#[test]
+	fn a_review_phase_round_is_accepted() {
+		// The `review` phase (a standalone review-entry-mode pass) is an accepted
+		// `phase` value, so a round record logging one validates.
+		let line = r#"{"type":"round","task":"review-demo","artifact":"src/","phase":"review","changed_since_prev":false,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","reviewers":[{"role":"reviewer","model":"opus","raw_findings":2,"valid_findings":0}]}"#;
+		assert_eq!(validate_log(line), Vec::new());
 	}
 
 	#[test]

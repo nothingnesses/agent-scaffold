@@ -445,6 +445,7 @@ mod tests {
 				".agents/LEDGER.template.md",
 				".agents/user-prompts/kickoff.md",
 				".agents/user-prompts/explore.md",
+				".agents/user-prompts/review.md",
 				".agents/user-prompts/pause.md",
 				".agents/user-prompts/compaction-prep.md",
 				".agents/user-prompts/resume.md",

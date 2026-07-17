@@ -230,7 +230,7 @@ fn require_severities(
 /// non-negative integer `raw_findings` and `valid_findings` counts, and an
 /// optional string `harness` naming the CLI the reviewer ran on. This is the
 /// per-reviewer breakdown used to calibrate reviewer productivity and whether
-/// running multiple models earns its cost; the caller only invokes it when the
+/// running multiple models or harnesses earns its cost; the caller only invokes it when the
 /// field is present, since it is optional.
 fn require_reviewers(
 	obj: &Map<String, Value>,
@@ -702,8 +702,8 @@ mod tests {
 			"reviewers",
 			"role",
 			"model",
-			"harness",
 			"raw_findings",
+			"harness",
 			"human_decision",
 			"result",
 			"classification",

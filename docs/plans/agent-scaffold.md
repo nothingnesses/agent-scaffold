@@ -163,7 +163,7 @@ Steps in implementation order, with status. The Roadmap is the single source of 
 | `workflow-invariants`    | complete      |
 | `state-queries`          | not started   |
 | `reviewer-diversity`     | not started   |
-| `review-mode`            | not started   |
+| `review-mode`            | complete      |
 | `test-driven`            | not started   |
 | `mutation`               | not started   |
 

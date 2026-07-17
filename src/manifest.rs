@@ -52,8 +52,9 @@ struct AssetSpec {
 	render: bool,
 	/// The optional module this asset belongs to. `None` (an absent field) is a
 	/// core asset, always dropped; `Some(name)` is dropped only when that module
-	/// is selected with `--module <name>`. The `name` must be declared in a
-	/// `[[module]]` section (validated in `load`).
+	/// is enabled (selected directly with `--module <name>`, or pulled in
+	/// transitively by another module's `requires`). The `name` must be declared in
+	/// a `[[module]]` section (validated in `load`).
 	#[serde(default)]
 	module: Option<String>,
 }
@@ -62,7 +63,9 @@ struct AssetSpec {
 /// section is the authoritative set of known module names, so both a `--module`
 /// selection and an asset's `module` tag validate against it (no dangling
 /// references). Membership itself is single-sourced on the assets' `module` tag;
-/// this section only names each module and describes it.
+/// this section names each module, describes it, and carries its `guidance`
+/// partial (a fragment filename governing what the module renders into
+/// `{{modules}}`) and its `requires` list (the modules it auto-enables).
 #[derive(Debug, Clone, Deserialize)]
 struct ModuleSpec {
 	/// The module name, referenced by `--module <name>` and by an asset's
@@ -72,14 +75,18 @@ struct ModuleSpec {
 	#[expect(dead_code, reason = "declared for the schema and TUI; not yet read by the loader")]
 	description: String,
 	/// The optional guidance partial this module contributes to the `{{modules}}`
-	/// render slot: a fragment filename in the pack (read via the pack source, like
-	/// `instrument.md`). When the module is enabled its partial is concatenated into
-	/// `{{modules}}`; `None` (an absent field) contributes nothing. Only enabled
-	/// modules contribute.
+	/// render slot: a fragment filename in the pack (read via the pack source). When
+	/// the module is enabled its partial is concatenated into `{{modules}}`; `None`
+	/// (an absent field) contributes nothing. Only enabled modules contribute.
+	/// Declaring `guidance = "file.md"` makes that file required: if an enabled
+	/// module names a partial the pack does not ship, the load fails. This is unlike
+	/// the tool-computed `instrument.md`, which is silently optional; a declared
+	/// guidance file is not.
 	#[serde(default)]
 	guidance: Option<String>,
 	/// The modules this module auto-enables (transitively) when it is selected. A
-	/// name here must be declared in a `[[module]]` section (validated in `load`);
+	/// name here must be declared in a `[[module]]` section (validated in
+	/// `expand_modules`);
 	/// selecting this module enables everything it `requires` as well, so a module
 	/// can depend on another without the user naming both. Defaults to empty (no
 	/// dependencies). A `requires` cycle is tolerated (the expansion is a fixed
@@ -100,7 +107,8 @@ struct VarSpec {
 	default: Option<String>,
 	/// The optional module this variable belongs to. `None` (an absent field) is a
 	/// core variable, always resolved; `Some(name)` participates only when that
-	/// module is selected with `--module <name>`, and is skipped entirely
+	/// module is enabled (selected directly with `--module <name>`, or pulled in
+	/// transitively by another module's `requires`), and is skipped entirely
 	/// otherwise (not required, not defaulted, absent from the substitution map).
 	/// The `name` must be declared in a `[[module]]` section (validated in `load`).
 	#[serde(default)]
@@ -324,10 +332,12 @@ pub fn render(
 /// pack-authoring error, a `selected` name the pack does not declare is a usage
 /// error, and a `requires` naming a module no `[[module]]` declares is a
 /// pack-authoring error. The expansion is a fixed point over a visited set, so a
-/// `requires` cycle terminates rather than looping forever. The returned set
-/// drives both asset/variable filtering in `load` and the guidance concatenation
-/// in `module_guidance`, so those two agree on which modules are on (one source
-/// of truth for the enabled set).
+/// `requires` cycle terminates rather than looping forever. Both asset/variable
+/// filtering in `load` and the guidance concatenation in `module_guidance` call
+/// this function, so the enable-and-validate logic lives in one place. It is the
+/// single source of the algorithm, not of a shared result: each caller computes
+/// its own set, but from this one implementation over the same inputs, so the
+/// two cannot disagree on which modules are on.
 fn expand_modules(
 	modules: &[ModuleSpec],
 	selected: &[String],
@@ -384,10 +394,11 @@ fn expand_modules(
 /// enabled module that declares a `guidance` partial contributes that partial
 /// (read from the pack source, like `instrument.md`); a module with no `guidance`
 /// contributes nothing, and with no module enabled the block is empty. Each
-/// partial is trimmed and separated by a blank line; the whole block is
-/// substituted into `{{modules}}` and the asset's `render` then normalises the
-/// trailing newline, so an empty block leaves the output byte-identical (the
-/// built-in pack declares no modules, so its `{{modules}}` is always empty).
+/// partial has its trailing whitespace trimmed and is separated by a blank line;
+/// the whole block is substituted into `{{modules}}` and the asset's `render`
+/// then normalises the trailing newline, so an empty block leaves the output
+/// byte-identical (the built-in pack declares no modules, so its `{{modules}}` is
+/// always empty).
 /// Validates the same module references `load` does, so a bad pack or `--module`
 /// fails here too.
 pub fn module_guidance(
@@ -400,7 +411,19 @@ pub fn module_guidance(
 	for module in &manifest.module {
 		if enabled.contains(module.name.as_str()) {
 			if let Some(guidance) = &module.guidance {
-				let partial = source.read(guidance)?;
+				// A declared guidance file is required: name the module and the
+				// missing file so a bare `No such file or directory` is not the only
+				// clue. This wraps only this call site; `PackSource::read` is
+				// unchanged for every other caller.
+				let partial = source.read(guidance).map_err(|error| {
+					LoadError::Io(io::Error::new(
+						error.kind(),
+						format!(
+							"module `{}` guidance file `{guidance}` could not be read: {error}",
+							module.name
+						),
+					))
+				})?;
 				block.push_str(partial.trim_end());
 				block.push_str("\n\n");
 			}
@@ -1128,6 +1151,41 @@ mod tests {
 		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
 			Err(LoadError::DuplicateModule(name)) => assert_eq!(name, "extras"),
 			other => panic!("expected DuplicateModule, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_missing_guidance_file_errors_when_its_module_is_enabled() {
+		// A `[[module]]` whose `guidance` names a partial the pack does not ship is a
+		// hard failure once that module is enabled: a declared guidance file is
+		// required, not silently skipped the way `instrument.md` is. This pins the
+		// hard-fail contract against a regression to a silent success.
+		let root = scratch("modules-guidance-missing");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"base\"\ndescription = \"base\"\nguidance = \"absent-guide.md\"\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		// `absent-guide.md` is deliberately not written.
+		let source = PackSource::Directory(root.clone());
+
+		// Enabling `base` must fail on the missing guidance file, not succeed silently.
+		match module_guidance(&source, &["base".to_string()]) {
+			Err(LoadError::Io(error)) => {
+				assert_eq!(error.kind(), io::ErrorKind::NotFound);
+				// The wrapped message names the module and the missing file.
+				let message = error.to_string();
+				assert!(message.contains("base"), "message should name the module: {message}");
+				assert!(
+					message.contains("absent-guide.md"),
+					"message should name the guidance file: {message}"
+				);
+			}
+			other => panic!("expected Io(NotFound), got {:?}", other.map(|_| ())),
 		}
 		fs::remove_dir_all(&root).unwrap();
 	}

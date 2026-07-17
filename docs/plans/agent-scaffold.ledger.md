@@ -102,7 +102,6 @@ Triager verdicts: all 8 valid; re-severitised to 1 high (H2) + 7 low (H1, M1, M2
 
 Planner revision returned and grep-verified clean: no "Decided:" gloss in the queue; `ledger-template` no longer frames Q-2/Q-3 as recommendations; `instrument-flag` now states "Decided design (Q-4/Q-5/Q-6)"; the two remaining "Open sub-questions" belong to `optional-modules` / `tui-authoring` (genuinely undecided); Principle citations use the plan's 1-7; the umbrella count and the F4/Q-7 double-statement reconciled. Plan-maintenance review CONVERGED (H2 + lows fixed). Committing the plan revision, then implementing `workflow-doc-fixes`.
 
-
 Round 1: two independent reviewers dispatched (R1 correctness/termination lens, opus; R2 cross-document-consistency/principles lens, sonnet). R1 returned (11 findings: 0 critical, 2 high, 6 medium, 3 low). R2 still running. Triager to be spawned on the combined, deduplicated findings once R2 returns.
 
 ### Round 1 reviewer findings, pre-triage (R1: correctness / termination)

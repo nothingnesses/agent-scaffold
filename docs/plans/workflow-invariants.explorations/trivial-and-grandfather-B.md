@@ -75,6 +75,7 @@ But only THREE of the six are actually `complete` Roadmap steps: `convergence-ac
 (b2) `complete` steps WITH records that never converge (3): `convergence-accounting` (1 record, `new_valid`, cc0, low_risk), `pack-rebuild-tracking` (1 record, cc0, low_risk), `user-prompts-dir` (1 record, cc0, low_risk). A naive "task in log -> require streak" flags these; the grandfather set must include them.
 
 Slug-vs-step mismatches under the leading-slug rule:
+
 - `state-schema` (complete) is logged as `state-schema-inc1/inc2/inc3`. If the `-inc<n>` strip treats `<n>` as digits, all three collapse to `state-schema`, all `low_risk` (consistent), and the collapsed set reaches `consecutive_clean:1` (inc3 and inc2 both do). PASS. No grandfathering needed for `state-schema`.
 - `round-log-core` (complete) is logged as `round-log-core-incA` and `round-log-core-incB`. The suffixes are ALPHA, not numeric. If the strip is digit-only (`-inc\d+`), neither collapses to `round-log-core`, so the step matches ZERO records and is FALSE-FLAGGED as an unreviewed completion despite being fully reviewed (incA converged to cc1, incB to cc2). If the strip is broadened to alnum, the two increments DO collapse but carry DIFFERENT `risk_class` (incA `low_risk`, incB `risky`), so W3's "risk_class must be consistent" sub-rule FALSE-FLAGS it instead. Either way `round-log-core` trips W3 today. This is the single most important data finding: it means `round-log-core` needs a grandfather entry (recommendation B covers it) AND signals a W3-core defect to settle when building (see interactions).
 

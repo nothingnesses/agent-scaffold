@@ -33,6 +33,7 @@ The base rule flags a `complete` step when it has no rounds (b1) or has rounds t
 | B5. Per-step `logged_from` marker on each governed step | Mark every step that must comply. | Explicit per step. | The exemption/obligation set grows forever: every future step needs the marker. This is the maintainability failure the prompt warns about. A forward boundary marks once and everything after inherits. | Against P2, P4-spirit |
 
 Recommendation: B1, a single forward epoch cutoff, boundary = `round-log-core` (inclusive). Express it as one durable marker in the plan (the parser reads a named boundary slug, e.g. a one-line "W3 enforces from `round-log-core` onward; earlier complete steps predate disciplined round-logging and are grandfathered" that `plan.rs` exposes, keyed to the Roadmap row index). W3 logic per `complete` step S:
+
 1. If S.status is `trivial` -> pass (Decision A).
 2. Else if S is before the boundary row -> pass (grandfathered: covers both b1 and b2).
 3. Else require matching rounds with a consistent `risk_class` and a per-artifact streak reaching the class count; fail otherwise (this is the `pause.md` catch and the future-skip catch).

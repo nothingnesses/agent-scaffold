@@ -122,6 +122,7 @@ Clean, because the report is self-contained. The report's "Recommended follow-up
 Almost entirely pack content; the real code change is two lines plus a test and a manifest-list update.
 
 Pure pack content:
+
 - New `pack/user-prompts/review.md` (the trigger above).
 - `pack/AGENTS.md`: add a "review is a fourth entry mode" paragraph in the entry-modes area (after the design-space exploration paragraph, mirroring how Socratic and exploration modes were added: reuses intake and the review roles, adds no new phase or role); a pointer in "Getting started, for the human" ("to ask for a review and a findings report, use `.agents/user-prompts/review.md`"); and a short "Review reports" artifact convention paragraph parallel to "Design explorations" and "Findings files" (single-pass, report kept at `docs/plans/<task>.reviews/report.md`, raw findings files under normal cleanup, ledger recorded like the acceptance pass).
 - `pack/prompts/orchestrator.md`: add the review entry-mode drive (resolve target and criteria from `review.md`, run one reviewers-then-triager pass with the dismissal recheck, synthesise the report, offer the kickoff handoff, no implement phase).
@@ -129,6 +130,7 @@ Pure pack content:
 - `pack/instrument.md`: add `review` to the `phase` enumeration in the `type: "round"` bullet.
 
 Actual Rust code:
+
 - `src/metrics.rs`: add `Review => "review"` to the `Phase` `enum_field!`, and update the one test that asserts the phase error message lists the accepted variants (around the `phase value not one of [...]` assertion). This is the only logic change.
 - `src/manifest.rs`: add `".agents/user-prompts/review.md"` to the expected asset list in the manifest test, and add the corresponding `[[asset]]` entry (source `user-prompts/review.md`, dest `.agents/user-prompts/review.md`) to `pack/pack.toml`. Mechanical, matching how `explore.md` is registered.
 

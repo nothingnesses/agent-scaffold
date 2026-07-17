@@ -241,7 +241,7 @@ default = "my-project"   # optional; omit `default` to make the variable require
 name = "author"          # required: must be supplied with --var author=...
 ```
 
-Rendering does minimal `{{name}}` substitution (there is no template engine). `{{principles}}` and `{{instrument}}` are built-in variables the tool computes itself; both are reserved, so a pack may neither declare them nor set them with `--var`. `{{principles}}` is computed from the selection. `{{instrument}}` is filled from the pack's optional `instrument.md` render fragment when `--instrument` is set (empty otherwise); like `principles.toml`, that fragment is read directly and inlined, not dropped as its own asset. Setting a variable the pack does not declare, or leaving a required variable unset, is an error and nothing is written.
+Rendering does minimal `{{name}}` substitution (there is no template engine). `{{principles}}`, `{{instrument}}`, and `{{modules}}` are built-in variables the tool computes itself; all three are reserved, so a pack may neither declare them nor set them with `--var`. `{{principles}}` is computed from the selection. `{{instrument}}` is filled from the pack's optional `instrument.md` render fragment when `--instrument` is set (empty otherwise); like `principles.toml`, that fragment is read directly and inlined, not dropped as its own asset. `{{modules}}` is the concatenated guidance of the enabled modules (see Optional modules below), empty when none is enabled. Setting a variable the pack does not declare, or leaving a required variable unset, is an error and nothing is written.
 
 ### Optional modules
 
@@ -253,6 +253,8 @@ A pack can group opt-in extras into named modules. Declare each module in a `[[m
 [[module]]
 name = "diagrams"
 description = "Adds a diagram template and the variable it renders."
+guidance = "diagrams-guidance.md"  # optional: a pack fragment concatenated into {{modules}} when this module is enabled
+requires = ["checks"]              # optional: modules this one auto-enables (transitively) when selected
 
 # An asset tagged with a module is dropped only when that module is selected.
 [[asset]]
@@ -270,7 +272,9 @@ module = "diagrams"      # required here, but only demanded when `diagrams` is s
 
 An entry with no `module` tag is core: it is always applied. A tagged entry is applied only when you select its module with the repeatable `--module <name>` flag (`agent-scaffold scaffold --module diagrams`). With no module selected, every tagged asset is dropped and every tagged variable is skipped entirely: its default does not apply, it is not required, and a `--var` naming it is rejected as undeclared, exactly as if the pack never declared it. A selected module's variables behave like core ones (a default applies, or the variable is required if it has none). Because core output does not depend on any module, scaffolding with no `--module` is byte-identical to a pack that declares no modules at all.
 
-Every module a tag references, and every `--module` you pass, must be declared in a `[[module]]` section, and each module name must be declared only once. An unknown `--module`, a tag naming a module no `[[module]]` declares, or a duplicated `[[module]]` name is an error, and nothing is written.
+A module may declare an optional `guidance` fragment: when the module is enabled, that fragment (read from the pack like `instrument.md`, not dropped as its own asset) is concatenated, in `[[module]]` declaration order, into the reserved `{{modules}}` render slot. A module may also declare `requires`, the modules it auto-enables when selected: selecting a module enables everything it requires, transitively, so a module can depend on another without you naming both. A `requires` cycle is tolerated (the expansion is a fixed point), so it neither loops nor errors.
+
+Every module a tag or a `requires` references, and every `--module` you pass, must be declared in a `[[module]]` section, and each module name must be declared only once. An unknown `--module`, a tag naming a module no `[[module]]` declares, a `requires` naming a module no `[[module]]` declares, or a duplicated `[[module]]` name is an error, and nothing is written.
 
 Principles are a property of the pack: if your pack ships its own `principles.toml`, `--template` selects and renders from that set rather than the built-in one. A pack that ships no `principles.toml` simply has no principles to select.
 

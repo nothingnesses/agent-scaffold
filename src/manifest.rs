@@ -71,6 +71,21 @@ struct ModuleSpec {
 	/// A human-readable description of what the module adds.
 	#[expect(dead_code, reason = "declared for the schema and TUI; not yet read by the loader")]
 	description: String,
+	/// The optional guidance partial this module contributes to the `{{modules}}`
+	/// render slot: a fragment filename in the pack (read via the pack source, like
+	/// `instrument.md`). When the module is enabled its partial is concatenated into
+	/// `{{modules}}`; `None` (an absent field) contributes nothing. Only enabled
+	/// modules contribute.
+	#[serde(default)]
+	guidance: Option<String>,
+	/// The modules this module auto-enables (transitively) when it is selected. A
+	/// name here must be declared in a `[[module]]` section (validated in `load`);
+	/// selecting this module enables everything it `requires` as well, so a module
+	/// can depend on another without the user naming both. Defaults to empty (no
+	/// dependencies). A `requires` cycle is tolerated (the expansion is a fixed
+	/// point, not a recursion), so a pack that declares one still loads.
+	#[serde(default)]
+	requires: Vec<String>,
 }
 
 /// One `[[var]]` entry: a variable a pack declares for `{{name}}` substitution.
@@ -109,7 +124,7 @@ struct Manifest {
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
 /// override them with `--var`.
-const RESERVED_VARS: &[&str] = &["principles", "instrument"];
+const RESERVED_VARS: &[&str] = &["principles", "instrument", "modules"];
 
 /// An error loading a pack: reading or parsing its files, or resolving the
 /// variables its assets substitute.
@@ -139,6 +154,16 @@ pub enum LoadError {
 		/// The undeclared module name the entry referenced.
 		module: String,
 	},
+	/// A `[[module]]`'s `requires` named a module the pack does not declare in any
+	/// `[[module]]` section (a pack-authoring error). Distinct from
+	/// `UndeclaredModuleTag` because the reference is between two modules, not from
+	/// a tagged asset or variable, so its message names the requiring module.
+	UndeclaredModuleRequire {
+		/// The module whose `requires` names the missing dependency.
+		module: String,
+		/// The undeclared module name it required.
+		requires: String,
+	},
 }
 
 impl std::fmt::Display for LoadError {
@@ -166,6 +191,10 @@ impl std::fmt::Display for LoadError {
 				f,
 				"{kind} `{entry}` is tagged with module `{module}`, which no [[module]] declares"
 			),
+			LoadError::UndeclaredModuleRequire {
+				module,
+				requires,
+			} => write!(f, "module `{module}` requires `{requires}`, which no [[module]] declares"),
 		}
 	}
 }
@@ -288,20 +317,115 @@ pub fn render(
 	format!("{}\n", out.trim_end())
 }
 
+/// Resolve the set of ENABLED modules from the pack's `[[module]]` declarations
+/// and the `selected` names (`--module`): the transitive closure of `selected`
+/// under each module's `requires`. Validates the module references shared by
+/// every module-aware path: a `[[module]]` name declared twice is a
+/// pack-authoring error, a `selected` name the pack does not declare is a usage
+/// error, and a `requires` naming a module no `[[module]]` declares is a
+/// pack-authoring error. The expansion is a fixed point over a visited set, so a
+/// `requires` cycle terminates rather than looping forever. The returned set
+/// drives both asset/variable filtering in `load` and the guidance concatenation
+/// in `module_guidance`, so those two agree on which modules are on (one source
+/// of truth for the enabled set).
+fn expand_modules(
+	modules: &[ModuleSpec],
+	selected: &[String],
+) -> Result<HashSet<String>, LoadError> {
+	// The authoritative set of declared module names. A name declared by two
+	// `[[module]]` sections is a pack-authoring error rather than a silent dedupe.
+	let mut declared: HashSet<&str> = HashSet::new();
+	for module in modules {
+		if !declared.insert(module.name.as_str()) {
+			return Err(LoadError::DuplicateModule(module.name.clone()));
+		}
+	}
+	// A `--module` naming a module the pack does not declare is a usage error.
+	for name in selected {
+		if !declared.contains(name.as_str()) {
+			return Err(LoadError::UnknownModule(name.clone()));
+		}
+	}
+	// A `requires` naming a module no `[[module]]` declares is a pack-authoring
+	// error, checked for every module regardless of selection.
+	for module in modules {
+		for req in &module.requires {
+			if !declared.contains(req.as_str()) {
+				return Err(LoadError::UndeclaredModuleRequire {
+					module: module.name.clone(),
+					requires: req.clone(),
+				});
+			}
+		}
+	}
+	// Transitive closure over `requires`, guarded by the visited set (`enabled`):
+	// each module is expanded once, so a `requires` cycle cannot loop forever.
+	let by_name: HashMap<&str, &ModuleSpec> =
+		modules.iter().map(|module| (module.name.as_str(), module)).collect();
+	let mut enabled: HashSet<String> = HashSet::new();
+	let mut pending: Vec<String> = selected.to_vec();
+	while let Some(name) = pending.pop() {
+		if enabled.insert(name.clone()) {
+			if let Some(module) = by_name.get(name.as_str()) {
+				for req in &module.requires {
+					if !enabled.contains(req) {
+						pending.push(req.clone());
+					}
+				}
+			}
+		}
+	}
+	Ok(enabled)
+}
+
+/// Compute the `{{modules}}` render block: the guidance partials of the ENABLED
+/// modules (the transitive closure of `selected` under `requires`, see
+/// `expand_modules`), concatenated in `[[module]]` declaration order. Each
+/// enabled module that declares a `guidance` partial contributes that partial
+/// (read from the pack source, like `instrument.md`); a module with no `guidance`
+/// contributes nothing, and with no module enabled the block is empty. Each
+/// partial is trimmed and separated by a blank line; the whole block is
+/// substituted into `{{modules}}` and the asset's `render` then normalises the
+/// trailing newline, so an empty block leaves the output byte-identical (the
+/// built-in pack declares no modules, so its `{{modules}}` is always empty).
+/// Validates the same module references `load` does, so a bad pack or `--module`
+/// fails here too.
+pub fn module_guidance(
+	source: &PackSource,
+	selected: &[String],
+) -> Result<String, LoadError> {
+	let manifest = source.manifest()?;
+	let enabled = expand_modules(&manifest.module, selected)?;
+	let mut block = String::new();
+	for module in &manifest.module {
+		if enabled.contains(module.name.as_str()) {
+			if let Some(guidance) = &module.guidance {
+				let partial = source.read(guidance)?;
+				block.push_str(partial.trim_end());
+				block.push_str("\n\n");
+			}
+		}
+	}
+	Ok(block)
+}
+
 /// Load a pack from `source`, producing the assets to drop in manifest order.
 /// The substitution map is resolved from the pack's declared variables, the
 /// tool-computed `builtin` variables (for example `{{principles}}`), and the
 /// `--var` `overrides`; each asset is then read from the pack and rendered with
 /// that map when the manifest marks it `render = true`.
 ///
-/// `selected_modules` are the module names passed with `--module`. A core asset
-/// or variable (no `module` tag) is always included; a tagged one participates
-/// only when its module is selected: an unselected module's assets are dropped
-/// and its variables are skipped entirely (not required, not defaulted, absent
-/// from the substitution map, so a `--var` naming one is an `UndeclaredVar` error
-/// just as for a variable the pack never declared). Both a selected module and an
-/// entry's tag must name a module the pack declares in a `[[module]]` section: an
-/// unknown `--module` is a usage error, a tag with no matching `[[module]]` is a
+/// `selected_modules` are the module names passed with `--module`; the enabled
+/// set is their transitive closure under each module's `requires` (a selected
+/// module auto-enables its dependencies, see `expand_modules`). A core asset or
+/// variable (no `module` tag) is always included; a tagged one participates only
+/// when its module is enabled: an unenabled module's assets are dropped and its
+/// variables are skipped entirely (not required, not defaulted, absent from the
+/// substitution map, so a `--var` naming one is an `UndeclaredVar` error just as
+/// for a variable the pack never declared). Both a selected module and an entry's
+/// tag must name a module the pack declares in a `[[module]]` section: an unknown
+/// `--module` is a usage error, a tag with no matching `[[module]]` is a
+/// pack-authoring error, a `requires` naming an undeclared module is a
 /// pack-authoring error, and a `[[module]]` name declared twice is a pack-authoring
 /// error; any of these fails the load so nothing is written (no dangling or
 /// ambiguous references).
@@ -312,21 +436,15 @@ pub fn load(
 	selected_modules: &[String],
 ) -> Result<Vec<Asset>, LoadError> {
 	let manifest = source.manifest()?;
-	// The authoritative set of module names the pack declares. A name declared by
-	// two `[[module]]` sections is a pack-authoring error rather than a silent
-	// dedupe, caught as the set is built.
-	let mut declared: HashSet<&str> = HashSet::new();
-	for module in &manifest.module {
-		if !declared.insert(module.name.as_str()) {
-			return Err(LoadError::DuplicateModule(module.name.clone()));
-		}
-	}
-	// A `--module` naming a module the pack does not declare is a usage error.
-	for name in selected_modules {
-		if !declared.contains(name.as_str()) {
-			return Err(LoadError::UnknownModule(name.clone()));
-		}
-	}
+	// The enabled module set: `--module` selections closed transitively under each
+	// module's `requires`. This also validates the duplicate/unknown/dangling-
+	// requires module references (see `expand_modules`), so those errors fire
+	// before any asset is read.
+	let enabled = expand_modules(&manifest.module, selected_modules)?;
+	// The declared module names, for the asset/variable tag checks below.
+	// `expand_modules` already rejected a duplicate declaration, so a plain set of
+	// names is enough here.
+	let declared: HashSet<&str> = manifest.module.iter().map(|m| m.name.as_str()).collect();
 	// An asset or variable tagged with a module the pack does not declare is a
 	// pack-authoring error, checked for every entry regardless of selection.
 	for spec in &manifest.asset {
@@ -351,16 +469,15 @@ pub fn load(
 			}
 		}
 	}
-	let selected: HashSet<&str> = selected_modules.iter().map(String::as_str).collect();
-	// Only core variables and those whose module is selected participate in
-	// resolution; a variable tagged with an unselected module is skipped entirely,
+	// Only core variables and those whose module is enabled participate in
+	// resolution; a variable tagged with an unenabled module is skipped entirely,
 	// so its requirement never fires and a stray `--var` for it is undeclared.
 	let active_vars: Vec<VarSpec> = manifest
 		.var
 		.iter()
 		.filter(|spec| match &spec.module {
 			None => true,
-			Some(module) => selected.contains(module.as_str()),
+			Some(module) => enabled.contains(module.as_str()),
 		})
 		.cloned()
 		.collect();
@@ -369,9 +486,9 @@ pub fn load(
 		.asset
 		.into_iter()
 		.filter(|spec| match &spec.module {
-			// Core assets always load; a module's assets only when it is selected.
+			// Core assets always load; a module's assets only when it is enabled.
 			None => true,
-			Some(module) => selected.contains(module.as_str()),
+			Some(module) => enabled.contains(module.as_str()),
 		})
 		.map(|spec| {
 			let raw = source.read(&spec.source)?;
@@ -837,6 +954,159 @@ mod tests {
 				assert_eq!(module, "ghost");
 			}
 			other => panic!("expected UndeclaredModuleTag, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	/// A filesystem pack fixture exercising the `{{modules}}` guidance slot and the
+	/// `requires` auto-enable. Two modules are declared in order: `base` (a guidance
+	/// partial plus one tagged asset) and `extra` (a guidance partial, one tagged
+	/// asset, and `requires = ["base"]`). Selecting `extra` must therefore pull in
+	/// `base` too, and the guidance concatenates in declaration order (`base` first).
+	fn module_guidance_fixture(name: &str) -> PathBuf {
+		let root = scratch(name);
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"base\"\ndescription = \"base\"\nguidance = \"base-guide.md\"\n\n\
+			 [[module]]\nname = \"extra\"\ndescription = \"extra\"\nguidance = \"extra-guide.md\"\nrequires = [\"base\"]\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n\n\
+			 [[asset]]\nsource = \"base-asset.md\"\ndest = \"base-asset.md\"\nownership = \"working\"\nmodule = \"base\"\n\n\
+			 [[asset]]\nsource = \"extra-asset.md\"\ndest = \"extra-asset.md\"\nownership = \"working\"\nmodule = \"extra\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		fs::write(root.join("base-asset.md"), "base asset\n").unwrap();
+		fs::write(root.join("extra-asset.md"), "extra asset\n").unwrap();
+		fs::write(root.join("base-guide.md"), "BASE GUIDANCE\n").unwrap();
+		fs::write(root.join("extra-guide.md"), "EXTRA GUIDANCE\n").unwrap();
+		root
+	}
+
+	#[test]
+	fn module_guidance_is_empty_with_nothing_enabled() {
+		// No module selected: the block is empty, so a `{{modules}}` slot renders to
+		// nothing and the output stays byte-identical to a module-free pack.
+		let root = module_guidance_fixture("modules-guidance-empty");
+		let source = PackSource::Directory(root.clone());
+		assert_eq!(module_guidance(&source, &[]).unwrap(), "");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn module_guidance_includes_an_enabled_modules_partial() {
+		let root = module_guidance_fixture("modules-guidance-one");
+		let source = PackSource::Directory(root.clone());
+		// `base` selected: only its partial appears, trimmed with a trailing blank
+		// line so a later render normalises the tail.
+		assert_eq!(module_guidance(&source, &["base".to_string()]).unwrap(), "BASE GUIDANCE\n\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn requires_auto_enables_a_dependencys_guidance_and_assets() {
+		let root = module_guidance_fixture("modules-guidance-requires");
+		let source = PackSource::Directory(root.clone());
+
+		// Selecting `extra` pulls in `base` (its `requires`): both partials appear,
+		// in `[[module]]` declaration order (`base` before `extra`).
+		assert_eq!(
+			module_guidance(&source, &["extra".to_string()]).unwrap(),
+			"BASE GUIDANCE\n\nEXTRA GUIDANCE\n\n"
+		);
+
+		// The auto-enable also reaches asset filtering: selecting only `extra` drops
+		// the core asset plus both the `base`- and `extra`-tagged assets.
+		let assets =
+			load(&source, &HashMap::new(), &HashMap::new(), &["extra".to_string()]).unwrap();
+		let dests: Vec<&str> = assets.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(dests, vec!["core.md", "base-asset.md", "extra-asset.md"]);
+
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_requires_naming_an_undeclared_module_errors() {
+		// A `[[module]]` whose `requires` names a module no `[[module]]` declares is
+		// a pack-authoring error, caught before anything is read.
+		let root = scratch("modules-requires-dangling");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"extra\"\ndescription = \"extra\"\nrequires = [\"ghost\"]\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		let source = PackSource::Directory(root.clone());
+		// Both the guidance path and the load path report it.
+		for result in [
+			module_guidance(&source, &["extra".to_string()]).map(|_| ()),
+			load(&source, &HashMap::new(), &HashMap::new(), &["extra".to_string()]).map(|_| ()),
+		] {
+			match result {
+				Err(LoadError::UndeclaredModuleRequire {
+					module,
+					requires,
+				}) => {
+					assert_eq!(module, "extra");
+					assert_eq!(requires, "ghost");
+				}
+				other => panic!("expected UndeclaredModuleRequire, got {other:?}"),
+			}
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_requires_cycle_terminates() {
+		// Two modules that require each other must not loop: the fixed-point
+		// expansion enables both and returns.
+		let root = scratch("modules-requires-cycle");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[module]]\nname = \"a\"\ndescription = \"a\"\nguidance = \"a.md\"\nrequires = [\"b\"]\n\n\
+			 [[module]]\nname = \"b\"\ndescription = \"b\"\nguidance = \"b.md\"\nrequires = [\"a\"]\n\n\
+			 [[asset]]\nsource = \"core.md\"\ndest = \"core.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("core.md"), "core\n").unwrap();
+		fs::write(root.join("a.md"), "A\n").unwrap();
+		fs::write(root.join("b.md"), "B\n").unwrap();
+		let source = PackSource::Directory(root.clone());
+		// Selecting either module enables both; guidance concatenates in declaration
+		// order (`a` before `b`) without looping.
+		assert_eq!(module_guidance(&source, &["a".to_string()]).unwrap(), "A\n\nB\n\n");
+		load(&source, &HashMap::new(), &HashMap::new(), &["b".to_string()]).unwrap();
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn reserved_modules_variable_is_rejected() {
+		// A pack may not declare the reserved `modules` variable.
+		let declared = fixture_pack(
+			"var-reserved-modules-declared",
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[var]]\nname = \"modules\"\ndefault = \"x\"\n",
+			"a.md",
+			"a\n",
+		);
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new(), &[])
+		{
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "modules"),
+			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&declared).unwrap();
+
+		// Nor may `--var` set it.
+		let root = var_fixture("var-reserved-modules-override");
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+		overrides.insert("modules".to_string(), "x".to_string());
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "modules"),
+			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
 		}
 		fs::remove_dir_all(&root).unwrap();
 	}

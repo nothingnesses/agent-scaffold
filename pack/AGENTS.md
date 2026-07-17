@@ -106,3 +106,5 @@ Follow these principles. They are numbered for reference, not priority.
 {{principles}}
 
 {{instrument}}
+
+{{modules}}

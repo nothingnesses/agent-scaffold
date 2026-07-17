@@ -199,8 +199,9 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 /// `instrument.md` fragment when `instrument` is set (empty otherwise, or when
 /// the pack ships no such fragment), `overrides` supplies the `--var` values for
 /// any variables the pack declares, and `modules` are the `--module` selections
-/// whose tagged assets are included (core assets always are). Building does not
-/// write.
+/// whose tagged assets are included (core assets always are) and whose guidance
+/// partials fill the reserved `{{modules}}` slot (empty when none is enabled).
+/// Building does not write.
 fn build_assets(
 	source: &manifest::PackSource,
 	selected: &[&pack::Principle],
@@ -216,6 +217,12 @@ fn build_assets(
 	let instrument_block =
 		if instrument { source.read("instrument.md").unwrap_or_default() } else { String::new() };
 	builtin.insert("instrument".to_string(), instrument_block);
+	// The `{{modules}}` block: the concatenated guidance partials of the enabled
+	// modules (the `--module` selections closed under `requires`). Empty when no
+	// module is enabled, so a pack with no modules (the built-in one) leaves the
+	// rendered output byte-identical.
+	let modules_block = manifest::module_guidance(source, modules)?;
+	builtin.insert("modules".to_string(), modules_block);
 	manifest::load(source, &builtin, overrides, modules)
 }
 
@@ -945,6 +952,31 @@ mod tests {
 		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_on.contents.contains("Instrumentation (metrics logging)"));
 		assert!(agents_on.contents.contains("docs/metrics/workflow.jsonl"));
+	}
+
+	#[test]
+	fn modules_slot_renders_empty_for_the_module_free_builtin() {
+		// The built-in pack declares no modules, so the reserved `{{modules}}` slot
+		// substitutes to empty: the placeholder is gone, no module guidance leaks in,
+		// and the tail stays byte-stable (one trailing newline, no blank-line run).
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let assets = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			false,
+			&[],
+		)
+		.unwrap();
+		let agents = assets.iter().find(|a| a.dest == "AGENTS.md").unwrap();
+		assert!(!agents.contents.contains("{{modules}}"), "the modules slot must be substituted");
+		assert!(agents.contents.ends_with('\n'));
+		assert!(
+			!agents.contents.ends_with("\n\n"),
+			"an empty modules slot leaves no blank-line tail"
+		);
 	}
 
 	#[test]

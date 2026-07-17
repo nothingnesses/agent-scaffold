@@ -32,10 +32,10 @@ pub struct LineError {
 /// truth). `VARIANTS` is the ordered list of accepted strings (used verbatim in
 /// error messages) and `parse` turns an accepted string into the typed variant.
 macro_rules! enum_field {
-	($(#[$meta:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+	($(#[$meta:meta])* $vis:vis $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
 		$(#[$meta])*
 		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-		enum $name {
+		$vis enum $name {
 			$($variant),+
 		}
 
@@ -45,7 +45,7 @@ macro_rules! enum_field {
 
 			/// Parse an accepted spelling into its variant, or `None` when the
 			/// string is not one of the accepted set.
-			fn parse(text: &str) -> Option<Self> {
+			$vis fn parse(text: &str) -> Option<Self> {
 				match text {
 					$($text => Some(Self::$variant),)+
 					_ => None,
@@ -65,8 +65,12 @@ enum_field! {
 }
 
 enum_field! {
-	/// The outcome of a review round.
-	RoundOutcome {
+	/// The outcome of a review round. `clean` advances the artifact's
+	/// consecutive-clean streak by one; `new_valid` (a round that produced a
+	/// valid finding) resets it to zero. The cross-reference in `workflow.rs`
+	/// reads this to check a step's convergence and the log's internal
+	/// consistency, so it is exposed to the crate.
+	pub(crate) RoundOutcome {
 		Clean => "clean",
 		NewValid => "new_valid",
 	}
@@ -100,10 +104,32 @@ enum_field! {
 	/// The convergence risk tier the orchestrator classified a review artifact
 	/// into at loop-open, which sets how many clean rounds it takes to converge.
 	/// Kept distinct from the intake `Classification` (`trivial`/`non_trivial`)
-	/// because it is a different judgement about a different thing.
-	RiskClass {
+	/// because it is a different judgement about a different thing. Exposed to
+	/// the crate because the `workflow.rs` cross-reference keys the required
+	/// convergence streak off it.
+	pub(crate) RiskClass {
 		LowRisk => "low_risk",
 		Risky => "risky",
+	}
+}
+
+impl RiskClass {
+	/// The consecutive-clean streak an artifact of this risk class must reach to
+	/// converge: one clean round for `low_risk`, two for `risky`. This is the
+	/// count `workflow.rs` checks a `complete` step's rounds against.
+	pub(crate) fn required_streak(self) -> u64 {
+		match self {
+			RiskClass::LowRisk => 1,
+			RiskClass::Risky => 2,
+		}
+	}
+
+	/// The on-disk spelling of this risk class, for problem messages.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			RiskClass::LowRisk => "low_risk",
+			RiskClass::Risky => "risky",
+		}
 	}
 }
 
@@ -299,6 +325,81 @@ fn check_record(value: &Value) -> Result<(), String> {
 /// definition of a record.
 pub fn count_records(contents: &str) -> usize {
 	contents.lines().filter(|line| !line.trim().is_empty()).count()
+}
+
+/// The workflow-relevant projection of one `round` record: the fields the
+/// `workflow.rs` cross-reference reads (the log's other record types and the
+/// round's calibration-only fields are irrelevant there). Parsed by
+/// `parse_rounds`, which reuses this module's schema knowledge rather than
+/// introducing a second parser (`workflow.rs` owns no JSON parsing).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Round {
+	/// 1-based line number of the record within the log, for problem messages.
+	pub(crate) line: usize,
+	/// The `task` value verbatim (the leading slug plus an optional `-inc<x>`
+	/// increment suffix); the increment grouping keys off it unstripped.
+	pub(crate) task: String,
+	/// The review artifact this round covers (its convergence streak is
+	/// per-artifact).
+	pub(crate) artifact: String,
+	/// Whether the round was clean or produced a new valid finding.
+	pub(crate) outcome: RoundOutcome,
+	/// The logged consecutive-clean streak after this round.
+	pub(crate) consecutive_clean: u64,
+	/// The artifact's risk class, which sets the required convergence streak.
+	pub(crate) risk_class: RiskClass,
+}
+
+/// Project every well-formed `round` record in `contents` into a `Round`,
+/// preserving file order. A line that is blank, not JSON, not a `round`, or a
+/// `round` missing one of the projected fields is skipped here: schema
+/// violations are the job of `validate_log`, which reports them, so this
+/// projection is a best-effort read for the cross-reference and does not
+/// re-report them. Non-`round` record types (`intake`, `escalation`,
+/// `dismissal_recheck`) carry no convergence data and are skipped.
+pub(crate) fn parse_rounds(contents: &str) -> Vec<Round> {
+	let mut rounds = Vec::new();
+	for (index, line) in contents.lines().enumerate() {
+		if line.trim().is_empty() {
+			continue;
+		}
+		let Ok(value) = serde_json::from_str::<Value>(line) else {
+			continue;
+		};
+		let Some(obj) = value.as_object() else {
+			continue;
+		};
+		if obj.get("type").and_then(Value::as_str) != Some("round") {
+			continue;
+		}
+		let (Some(task), Some(artifact)) =
+			(obj.get("task").and_then(Value::as_str), obj.get("artifact").and_then(Value::as_str))
+		else {
+			continue;
+		};
+		let Some(outcome) =
+			obj.get("outcome").and_then(Value::as_str).and_then(RoundOutcome::parse)
+		else {
+			continue;
+		};
+		let Some(consecutive_clean) = obj.get("consecutive_clean").and_then(Value::as_u64) else {
+			continue;
+		};
+		let Some(risk_class) =
+			obj.get("risk_class").and_then(Value::as_str).and_then(RiskClass::parse)
+		else {
+			continue;
+		};
+		rounds.push(Round {
+			line: index + 1,
+			task: task.to_string(),
+			artifact: artifact.to_string(),
+			outcome,
+			consecutive_clean,
+			risk_class,
+		});
+	}
+	rounds
 }
 
 /// Validate a JSONL metrics log, returning one `LineError` per malformed record.

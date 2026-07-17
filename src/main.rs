@@ -14,6 +14,7 @@ mod metrics;
 mod pack;
 mod plan;
 mod tui;
+mod workflow;
 
 use {
 	clap::{
@@ -275,7 +276,7 @@ struct Cli {
 enum Command {
 	/// Scaffold the agent workflow into a project. On a terminal the principle selector opens unless --write or --dry-run is given.
 	Scaffold(ScaffoldArgs),
-	/// Validate the workflow's metrics log against the record schema, and (with --plan) the plan's structured regions; exits non-zero on any violation.
+	/// Validate the workflow's metrics log against the record schema, (with --plan) the plan's structured regions, and (with --workflow) the plan status against the round log; exits non-zero on any violation.
 	Validate(ValidateArgs),
 	/// Project the workflow state: emit a derived summary of the plan's Roadmap steps and open questions plus a metrics-record count. Best-effort; a missing file yields a partial projection.
 	Status(StatusArgs),
@@ -333,6 +334,9 @@ struct ValidateArgs {
 	/// Path to a Markdown plan to validate (its Roadmap and Open Questions regions). When omitted, only the metrics log is validated.
 	#[arg(long)]
 	plan: Option<PathBuf>,
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Needs both the plan (via --plan) and the metrics log (via --metrics, which defaults). Requires --plan.
+	#[arg(long, requires = "plan")]
+	workflow: bool,
 }
 
 /// Arguments for the `status` subcommand.
@@ -398,14 +402,20 @@ fn main() -> io::Result<()> {
 /// is collected, prefixed with its file, and printed to stderr; if any exist the
 /// run exits with code 1 (a validation failure, distinct from the code 2 used for
 /// usage errors). Otherwise each present, valid file prints a one-line ok summary
-/// and the run exits 0. With no `--plan`, this is metrics-only, unchanged from the
-/// previous increment.
+/// and the run exits 0. With no `--plan` and no `--workflow`, this is metrics-only,
+/// unchanged from the previous increment. With `--workflow` (which requires
+/// `--plan`), the plan status is cross-referenced against the round log: every
+/// `complete` Roadmap step must have converged round records. The workflow check
+/// needs both files present; if either is absent it prints a note and is skipped,
+/// the same treatment a missing file gets elsewhere here.
 fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	let mut problems: Vec<String> = Vec::new();
 	let mut summaries: Vec<String> = Vec::new();
 
+	// Read each present file once and keep its contents, so the workflow check can
+	// reuse them rather than reading twice.
 	let metrics_path = &args.metrics;
-	if metrics_path.exists() {
+	let metrics_contents = if metrics_path.exists() {
 		let contents = fs::read_to_string(metrics_path)?;
 		let errors = metrics::validate_log(&contents);
 		if errors.is_empty() {
@@ -424,11 +434,13 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 				));
 			}
 		}
+		Some(contents)
 	} else {
 		eprintln!("no metrics log at {}; nothing to validate", metrics_path.display());
-	}
+		None
+	};
 
-	if let Some(plan_path) = &args.plan {
+	let plan_contents = if let Some(plan_path) = &args.plan {
 		if plan_path.exists() {
 			let contents = fs::read_to_string(plan_path)?;
 			let plan_problems = plan::validate_plan(&contents);
@@ -444,8 +456,47 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					problems.push(format!("{}: {}", plan_path.display(), problem));
 				}
 			}
+			Some(contents)
 		} else {
 			eprintln!("no plan at {}; nothing to validate", plan_path.display());
+			None
+		}
+	} else {
+		None
+	};
+
+	// The workflow cross-reference needs both artifacts; run it only when both are
+	// present (clap already requires --plan alongside --workflow). Problems are
+	// reported into the same list, prefixed with both paths since a violation is a
+	// disagreement between them.
+	if args.workflow {
+		match (&plan_contents, &metrics_contents) {
+			(Some(plan_text), Some(metrics_text)) => {
+				let plan_display = args
+					.plan
+					.as_ref()
+					.map_or_else(|| "plan".to_string(), |path| path.display().to_string());
+				let workflow_problems = workflow::check_workflow(plan_text, metrics_text);
+				if workflow_problems.is_empty() {
+					summaries.push(format!(
+						"{} vs {}: workflow invariants hold",
+						plan_display,
+						metrics_path.display()
+					));
+				} else {
+					for problem in &workflow_problems {
+						problems.push(format!(
+							"{} vs {}: {}",
+							plan_display,
+							metrics_path.display(),
+							problem
+						));
+					}
+				}
+			}
+			_ => eprintln!(
+				"--workflow needs both a plan and a metrics log present; skipping the workflow check"
+			),
 		}
 	}
 

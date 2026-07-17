@@ -25,7 +25,7 @@ fill each section in.>
 
 ## Roadmap
 
-<Steps in implementation order, with status. This table is the single source of truth for status and order; each slug keys a detail block below. Statuses: not started, in progress, complete, skipped, next, optional, deferred, blocked on <slug>.>
+<Steps in implementation order, with status. This table is the single source of truth for status and order; each slug keys a detail block below. Statuses: not started, in progress, complete, skipped, next, optional, deferred, trivial, grandfathered, blocked on <slug>. (`trivial` is a completion that deliberately skipped the review loop as low-stakes; `grandfathered` is a legacy step that predates disciplined round-logging. Both are terminal and are exempt from the `validate --workflow` round-record check that `complete` steps must pass.)>
 
 | Step   | Status      |
 | ------ | ----------- |

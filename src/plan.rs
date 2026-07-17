@@ -48,8 +48,25 @@ pub struct Question {
 /// the accepted set and the validator cannot drift (Principle 16). The
 /// plan-template drift guard iterates this set, so a status added or renamed here
 /// is checked against the template automatically.
-const ROADMAP_STATUSES: &[&str] =
-	&["not started", "in progress", "complete", "skipped", "next", "optional", "deferred"];
+///
+/// `trivial` and `grandfathered` are terminal, complete-like statuses that the
+/// `workflow-invariants` cross-reference (`validate --workflow`) treats as
+/// review-exempt: `trivial` is a declared review-skipped completion (a low-stakes
+/// change deliberately not run through the review loop), and `grandfathered` is a
+/// legacy step that predates disciplined round-logging. W3 requires round records
+/// only for `complete` steps, so both are exempt by being a distinct status
+/// rather than `complete`.
+const ROADMAP_STATUSES: &[&str] = &[
+	"not started",
+	"in progress",
+	"complete",
+	"skipped",
+	"next",
+	"optional",
+	"deferred",
+	"trivial",
+	"grandfathered",
+];
 
 /// The parametric Roadmap status prefix: `blocked on <slug>` names the blocking
 /// step. Kept as a named constant so the validator and the drift guard share one
@@ -501,6 +518,25 @@ mod tests {
 		// A bare `blocked on` with no trailing slug is not valid.
 		assert!(!roadmap_status_ok("blocked on "));
 		assert!(!roadmap_status_ok("blocked on"));
+	}
+
+	#[test]
+	fn the_review_exempt_terminal_statuses_are_accepted() {
+		// `trivial` and `grandfathered` are terminal statuses the workflow
+		// cross-reference treats as review-exempt; `validate --plan` must accept them.
+		assert!(roadmap_status_ok("trivial"));
+		assert!(roadmap_status_ok("grandfathered"));
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step    | Status        |\n",
+			"| ------- | ------------- |\n",
+			"| `alpha` | trivial       |\n",
+			"| `beta`  | grandfathered |\n",
+			"## Step Details\n",
+			"### `alpha`: a\n",
+			"### `beta`: b\n",
+		);
+		assert!(validate_plan(plan).is_empty(), "{:?}", validate_plan(plan));
 	}
 
 	#[test]

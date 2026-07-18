@@ -777,13 +777,51 @@ fn is_bare_repo(output_dir: &Path) -> bool {
 		})
 }
 
+/// Whether `output_dir` is the ROOT of its own git working tree, that is, its
+/// enclosing repository's top level IS `output_dir` and not an ancestor. This
+/// guards the hook install against escaping the named output directory: when
+/// scaffolding into a SUBDIRECTORY of an existing repository, `git rev-parse
+/// --git-path hooks` walks up to the ancestor's `.git/hooks`, so installing there
+/// would drop a hook OUTSIDE the output dir into the ancestor repo (and, since the
+/// delegate targets `<output_dir>/.agents/hooks/pre-commit`, a broken one). This
+/// mirrors the scaffold's own git-init policy, which does not initialise a repo for
+/// a subdir of an existing one, so such a subdir gets no hook of its own either.
+/// Returns `false` when the toplevel cannot be resolved or does not canonicalise to
+/// `output_dir` (paths are canonicalised so a relative `output_dir` or a symlinked
+/// path still compares correctly).
+fn is_repo_root(output_dir: &Path) -> bool {
+	let toplevel = std::process::Command::new("git")
+		.arg("-C")
+		.arg(output_dir)
+		.args(["rev-parse", "--show-toplevel"])
+		.output()
+		.ok()
+		.filter(|output| output.status.success())
+		.map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+		.filter(|path| !path.as_os_str().is_empty());
+	match (toplevel.and_then(|path| path.canonicalize().ok()), output_dir.canonicalize().ok()) {
+		(Some(top), Some(out)) => top == out,
+		_ => false,
+	}
+}
+
 /// Install the delegating pre-commit hook into `output_dir`'s `.git/hooks`,
 /// CREATE-IF-ABSENT: it writes `.git/hooks/pre-commit` only when no entry exists,
 /// never clobbering an existing hook (Principle 3). The written hook is made
 /// executable. Any problem is reported as `Skipped` rather than failing, since the
-/// scaffolded assets already landed: a non-repo or bare-repo output dir, or a
+/// scaffolded assets already landed: a non-repo output dir, a bare repo, an output
+/// dir that is not its own repo root (a subdirectory of an ancestor repo), or a
 /// filesystem error. This writes INTO `.git/`, so it is deliberately separate from
 /// the asset-drop path.
+///
+/// The repo-root guard matters: `git rev-parse --git-path hooks` walks UP to an
+/// ancestor repository's `.git`, so without the guard, scaffolding into a
+/// subdirectory of an existing repo would install a hook OUTSIDE `output_dir` into
+/// the ancestor's `.git/hooks/` (and a broken one, since the delegate targets
+/// `<output_dir>/.agents/hooks/pre-commit`, which is not the ancestor's). The guard
+/// installs only when `output_dir` is its own repo's top level, mirroring the
+/// scaffold's git-init policy (a subdir of an existing repo is not initialised as
+/// its own repo, so it gets no hook of its own).
 ///
 /// Presence is tested with `symlink_metadata` (lstat), which does NOT follow
 /// symlinks: a regular file, a valid symlink, AND a DANGLING symlink all count as
@@ -798,6 +836,15 @@ fn install_precommit_hook(output_dir: &Path) -> HookInstall {
 	if is_bare_repo(output_dir) {
 		return HookInstall::Skipped(format!(
 			"{} is a bare git repository (no working tree for the hook to check)",
+			output_dir.display()
+		));
+	}
+	// Only install into the output dir's OWN repo root; never escape up into an
+	// ancestor repo's hooks (see the doc comment above).
+	if !is_repo_root(output_dir) {
+		return HookInstall::Skipped(format!(
+			"{} is not its own git repository root (a subdirectory of an existing repo); the hook \
+			 was not installed into the ancestor repository",
 			output_dir.display()
 		));
 	}
@@ -956,9 +1003,20 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
 	}
 	// The pre-commit hook install is not a normal asset (it writes into `.git/`), so
-	// it is previewed on its own line, create-if-absent.
+	// it is previewed on its own line. The preview reflects the intent without
+	// asserting a fixed path: the real hooks path can differ (a custom
+	// `core.hooksPath`), the repo may not exist yet at preview time (it is created
+	// during write for `InitPlan::Init`), and the install is skipped unless the
+	// output dir is its own repo root. The post-write report prints the actual
+	// resolved path or the skip reason. The install happens only when the output dir
+	// will be its own repo root: a fresh repo this run creates, or an existing repo
+	// whose top level is exactly the output dir.
 	if args.with_precommit_hook {
-		println!("{:>16}  .git/hooks/pre-commit (create-if-absent)", "install");
+		if matches!(repo, InitPlan::Init) || is_repo_root(&args.output_dir) {
+			println!("{:>16}  pre-commit hook (create-if-absent)", "install");
+		} else {
+			println!("{:>16}  pre-commit hook (output dir is not its own git repo root)", "skip");
+		}
 	}
 
 	if write {
@@ -1542,6 +1600,52 @@ mod tests {
 		}
 		// No pre-commit hook was written into the bare repo's hooks dir.
 		assert!(!root.join("hooks").join("pre-commit").exists(), "no hook written in a bare repo");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn install_precommit_hook_does_not_escape_into_an_ancestor_repo() {
+		// H1 (high, write-escape): scaffolding into a SUBDIRECTORY of an existing repo
+		// must NOT install a hook into the ancestor's `.git/hooks/`. `git rev-parse
+		// --git-path hooks` walks up to the ancestor's `.git`, so without the repo-root
+		// guard this would drop a (broken) hook outside the output dir and block every
+		// commit in the ancestor. The install is skipped and the ancestor's hook dir is
+		// left untouched.
+		let ancestor = scratch("hook-install-ancestor");
+		init_git_repo(&ancestor);
+		let sub = ancestor.join("nested").join("project");
+		fs::create_dir_all(&sub).unwrap();
+
+		match install_precommit_hook(&sub) {
+			HookInstall::Skipped(reason) => assert!(
+				reason.contains("not its own git repository root"),
+				"reason explains the escape guard: {reason}"
+			),
+			other => panic!("expected Skipped for a subdir of an ancestor repo, got {other:?}"),
+		}
+		// The ancestor repo's pre-commit hook was never created.
+		assert!(
+			!ancestor.join(".git").join("hooks").join("pre-commit").exists(),
+			"nothing was written into the ancestor repo's hooks dir"
+		);
+		fs::remove_dir_all(&ancestor).unwrap();
+	}
+
+	#[test]
+	fn install_precommit_hook_installs_at_the_repo_root() {
+		// The complement of the ancestor-escape guard: when the output dir IS its own
+		// repo root, the create-if-absent install still works.
+		let root = scratch("hook-install-root");
+		init_git_repo(&root);
+		match install_precommit_hook(&root) {
+			HookInstall::Installed(path) => {
+				assert!(
+					path.starts_with(root.canonicalize().unwrap()),
+					"installed inside the repo"
+				);
+			}
+			other => panic!("expected Installed at the repo root, got {other:?}"),
+		}
 		fs::remove_dir_all(&root).unwrap();
 	}
 }

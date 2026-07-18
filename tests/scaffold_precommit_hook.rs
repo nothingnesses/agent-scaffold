@@ -83,3 +83,42 @@ fn scaffold_with_precommit_hook_installs_it_create_if_absent() {
 
 	fs::remove_dir_all(&out).unwrap();
 }
+
+#[test]
+fn scaffold_preview_for_a_fresh_repo_does_not_over_promise_the_hook() {
+	// R4-1: for a fresh repo the hooks dir cannot be resolved at preview time (the
+	// repo does not exist yet), and a fresh repo can inherit an external
+	// `core.hooksPath` that lands outside the output dir, in which case the action
+	// skips. The Init-case preview must therefore be CONDITIONAL, not a definite
+	// "(create-if-absent)" that the action could contradict. A dry run into a fresh,
+	// non-repo dir exercises the `InitPlan::Init` preview without writing.
+	let out = scratch("preview-init");
+	let result = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+		.args([
+			"scaffold",
+			"--module",
+			"checks",
+			"--with-precommit-hook",
+			"--dry-run",
+			"--principles",
+			"default",
+			"--output-dir",
+		])
+		.arg(&out)
+		.output()
+		.unwrap();
+	assert!(result.status.success(), "the dry run succeeds");
+	let stdout = String::from_utf8_lossy(&result.stdout);
+	let hook_line = stdout
+		.lines()
+		.find(|line| line.contains("pre-commit hook"))
+		.unwrap_or_else(|| panic!("a pre-commit hook preview line is present: {stdout}"));
+	// The label is the conditional form, so it does not assert a definite install.
+	assert!(
+		hook_line.contains("if the new repo's hooks dir is inside the project"),
+		"the Init-case hook preview is conditional: {hook_line}"
+	);
+	// A dry run writes nothing (no repo is initialised).
+	assert!(!out.join(".git").exists(), "the dry run initialises no repository");
+	let _ = fs::remove_dir_all(&out);
+}

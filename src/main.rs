@@ -1038,23 +1038,32 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
 	}
 	// The pre-commit hook install is not a normal asset (it writes into the git dir),
-	// so it is previewed on its own line, driven by the SAME `resolve_hook_target`
-	// predicate the install uses, so preview and action always agree. The preview
-	// reflects the intent without asserting a fixed path: the real hooks path can
-	// differ (a custom `core.hooksPath`), and the repo may not exist yet at preview
-	// time (it is created during write for `InitPlan::Init`, after which the hooks
-	// dir resolves inside the output dir). The post-write report prints the actual
-	// resolved path or the skip reason.
+	// so it is previewed on its own line, without asserting a fixed path (the real
+	// hooks path can differ under a custom `core.hooksPath`). For an EXISTING repo the
+	// preview is driven by the SAME `resolve_hook_target` predicate the install uses,
+	// so preview and action agree exactly. For `InitPlan::Init` the repo does not
+	// exist yet, so its hooks dir cannot be resolved here: a fresh repo uses
+	// `.git/hooks` inside the output dir UNLESS it inherits an external
+	// `core.hooksPath` (global or system) that resolves outside, in which case the
+	// action correctly skips. The Init label is therefore CONDITIONAL so it never
+	// promises a definite install the action might then skip. The post-write report
+	// prints the actual resolved path or the skip reason.
 	if args.with_precommit_hook {
-		let will_install = matches!(repo, InitPlan::Init)
-			|| matches!(resolve_hook_target(&args.output_dir), HookTarget::Inside(_));
-		if will_install {
-			println!("{:>16}  pre-commit hook (create-if-absent)", "install");
-		} else {
-			println!(
-				"{:>16}  pre-commit hook (resolved hooks dir is outside the output dir)",
-				"skip"
-			);
+		match repo {
+			InitPlan::Init => println!(
+				"{:>16}  pre-commit hook (create-if-absent, if the new repo's hooks dir is inside \
+				 the project)",
+				"install"
+			),
+			InitPlan::SkipExists | InitPlan::None =>
+				if matches!(resolve_hook_target(&args.output_dir), HookTarget::Inside(_)) {
+					println!("{:>16}  pre-commit hook (create-if-absent)", "install");
+				} else {
+					println!(
+						"{:>16}  pre-commit hook (resolved hooks dir is outside the output dir)",
+						"skip"
+					);
+				},
 		}
 	}
 

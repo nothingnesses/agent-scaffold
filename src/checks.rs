@@ -352,23 +352,48 @@ fn git(
 	})
 }
 
+/// Whether process `pid` is currently alive, tested by the existence of its
+/// `/proc/{pid}` entry. This is the dependency-free liveness check on this
+/// project's Linux target (no libc crate is pulled in just for a `kill(pid, 0)`);
+/// on a non-Linux platform without `/proc` it conservatively reports "alive", so
+/// the prune skips reclamation rather than risk deleting a live run's worktree.
+fn pid_is_alive(pid: u32) -> bool {
+	// On Linux `/proc/{pid}` exists iff the process (or a thread group leader) is
+	// live. Where `/proc` is absent, `exists()` is false, so we OR in the platform
+	// guard to stay conservative (treat unknown as alive).
+	Path::new(&format!("/proc/{pid}")).exists() || !Path::new("/proc").exists()
+}
+
+/// Parse the owning pid out of a runner worktree directory name of the form
+/// `agent-scaffold-checks-run-{pid}-{nanos}`. Returns `None` when the name does not
+/// carry a parseable pid, so the caller can skip reclamation conservatively.
+fn owning_pid(dir_name: &str) -> Option<u32> {
+	dir_name.strip_prefix(RUNNER_PREFIX)?.split('-').next()?.parse().ok()
+}
+
 /// Reclaim runner worktrees orphaned by a prior hard-killed run (SIGKILL, which
 /// `Drop` cannot catch), called at startup before creating a fresh worktree.
 ///
-/// Reclamation is REPO-SCOPED: it lists the worktrees registered to THIS `repo`
-/// (`git worktree list --porcelain`) and removes only those whose path is a runner
-/// temp directory (under the system temp dir, `RUNNER_PREFIX` naming),
-/// unregistering each (`git worktree remove --force`), deleting it
-/// (`remove_dir_all`), then pruning any admin entries whose directory is already
-/// gone. Scoping to the registering repository is deliberate over a blanket
-/// filesystem sweep of the shared temp dir: a real orphan from a killed run is
-/// registered in that repo's `.git/worktrees/`, so listing the repo finds it,
-/// while never touching another repository's (or a concurrent run's) worktree
-/// (Principle 18, least authority). This also makes the runner safe under
-/// concurrency, including parallel tests: each run reclaims only its own repo's
-/// orphans, and its own about-to-be-created worktree is not listed yet (the prune
-/// runs first). Entirely best-effort: every step ignores errors, since a failure
-/// to reclaim an orphan must not fail the run.
+/// Reclamation is REPO-SCOPED and gated on the owning process being DEAD. It lists
+/// the worktrees registered to THIS `repo` (`git worktree list --porcelain`) and,
+/// for each whose path is a runner temp directory (under the system temp dir,
+/// `RUNNER_PREFIX` naming), parses the owning pid embedded in that name and only
+/// reclaims it when that pid is not alive (see `pid_is_alive`): unregistering it
+/// (`git worktree remove --force`), deleting it (`remove_dir_all`), then pruning
+/// admin entries whose directory is already gone.
+///
+/// The two gates together make this safe under concurrency, including two
+/// overlapping `checks` runs on the SAME repository: run B lists run A's live
+/// worktree, but A's pid is alive, so B skips it (a bare repo-scope filter would
+/// have deleted A's worktree out from under it). A genuine orphan's owner is a
+/// dead pid, so it is reclaimed. Repo-scoping additionally means another
+/// repository's worktree is never touched (Principle 18, least authority), and the
+/// current run's own worktree is not yet listed (the prune runs before it is
+/// created). Pid reuse is a benign edge: if a new process happens to reuse a dead
+/// owner's pid, its orphan is merely skipped and reclaimed by a later run, never a
+/// live-tree or safety issue. An unparseable pid is treated as "skip", the same
+/// conservative default. Entirely best-effort: every step ignores errors, since a
+/// failure to reclaim an orphan must not fail the run.
 fn prune_orphan_worktrees(repo: &Path) {
 	let temp = std::env::temp_dir();
 	if let Ok(listed) = git(repo, &["worktree", "list", "--porcelain"]) {
@@ -379,14 +404,21 @@ fn prune_orphan_worktrees(repo: &Path) {
 					continue;
 				};
 				let path = Path::new(path);
-				let is_runner = path.starts_with(&temp)
-					&& path
-						.file_name()
-						.and_then(|name| name.to_str())
-						.is_some_and(|name| name.starts_with(RUNNER_PREFIX));
-				if is_runner {
-					let _ = git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
-					let _ = fs::remove_dir_all(path);
+				if !path.starts_with(&temp) {
+					continue;
+				}
+				let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+					continue;
+				};
+				// Reclaim only a runner worktree whose owning process is dead; a live
+				// owner is a concurrent run and must be left alone.
+				match owning_pid(name) {
+					Some(pid) if !pid_is_alive(pid) => {
+						let _ =
+							git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
+						let _ = fs::remove_dir_all(path);
+					}
+					_ => {}
 				}
 			}
 		}
@@ -1163,13 +1195,22 @@ mod tests {
 		fs::remove_dir_all(&dir).unwrap();
 	}
 
+	/// A pid that is not alive, for the dead-owner orphan cases. `u32::MAX` is far
+	/// above any real pid, so `/proc/{pid}` does not exist; asserted here so the
+	/// test fails loudly rather than silently if that ever stops holding.
+	fn dead_pid() -> u32 {
+		let pid = u32::MAX;
+		assert!(!pid_is_alive(pid), "expected pid {pid} to be dead");
+		pid
+	}
+
 	#[test]
 	fn a_startup_prune_reclaims_an_orphaned_runner_worktree() {
 		// Invariant B's self-heal: an orphan left by a prior hard-killed run (a
-		// runner-prefixed temp worktree still registered to this repo, as a killed
-		// run would leave) is reclaimed on the next run, leaving `git worktree list`
-		// with only the main worktree. The reclamation is repo-scoped, so this holds
-		// even under parallel tests: only this repo's orphan is touched.
+		// runner-prefixed temp worktree still registered to this repo, owned by a now
+		// dead pid) is reclaimed on the next run, leaving `git worktree list` with
+		// only the main worktree. The reclamation is repo-scoped, so this holds even
+		// under parallel tests: only this repo's orphan is touched.
 		let dir = scratch("prune-orphan");
 		init_repo(&dir);
 		fs::write(dir.join("file.txt"), "x\n").unwrap();
@@ -1177,10 +1218,11 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		// Plant the orphan: a registered worktree under a runner-prefixed temp path,
-		// exactly the shape a SIGKILLed run leaves behind (registered but never
-		// removed by its `Drop`).
-		let orphan = std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-orphan", nanos()));
+		// Plant the orphan: a registered worktree under a runner-prefixed temp path
+		// owned by a DEAD pid, exactly the shape a SIGKILLed run leaves behind
+		// (registered but never removed by its `Drop`).
+		let orphan =
+			std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", dead_pid(), nanos()));
 		git_ok(&dir, &["worktree", "add", "--detach", &orphan.to_string_lossy(), "HEAD"]);
 		assert!(orphan.exists());
 		// Two worktrees now: main plus the planted orphan.
@@ -1191,6 +1233,38 @@ mod tests {
 		// The orphan directory is gone and only the main worktree remains.
 		assert!(!orphan.exists(), "the registered orphan worktree was reclaimed");
 		assert_eq!(worktree_paths(&dir).len(), 1, "git worktree list is clean after the prune");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_startup_prune_skips_a_live_owner_and_reclaims_a_dead_one() {
+		// The liveness gate: a runner worktree owned by a LIVE process (a concurrent
+		// run, modelled here by this test process's own pid) is left untouched, while
+		// one owned by a DEAD pid is reclaimed. This is what stops two overlapping
+		// same-repo runs from deleting each other's worktree.
+		let dir = scratch("prune-liveness");
+		init_repo(&dir);
+		fs::write(dir.join("file.txt"), "x\n").unwrap();
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		// A live-owner worktree (current pid) and a dead-owner worktree, both
+		// registered to this repo and both matching the runner-prefix filter.
+		let live =
+			std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", std::process::id(), nanos()));
+		let dead = std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", dead_pid(), nanos()));
+		git_ok(&dir, &["worktree", "add", "--detach", &live.to_string_lossy(), "HEAD"]);
+		git_ok(&dir, &["worktree", "add", "--detach", &dead.to_string_lossy(), "HEAD"]);
+		assert!(live.exists() && dead.exists());
+
+		prune_orphan_worktrees(&dir);
+
+		// The live owner survives; the dead owner is reclaimed.
+		assert!(live.exists(), "a live owner's worktree must not be reclaimed");
+		assert!(!dead.exists(), "a dead owner's worktree is reclaimed");
+
+		// Clean up the deliberately-left live worktree.
+		git_ok(&dir, &["worktree", "remove", "--force", &live.to_string_lossy()]);
 		fs::remove_dir_all(&dir).unwrap();
 	}
 }

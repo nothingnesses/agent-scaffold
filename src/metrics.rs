@@ -1314,6 +1314,14 @@ mod tests {
 	}
 
 	#[test]
+	fn an_escalation_with_an_empty_task_is_reported() {
+		// The `task` a record-backed waiver's `evidence` joins to must be non-empty,
+		// so an escalation with `task:""` can never satisfy the W5 join and is rejected.
+		let line = r#"{"type":"escalation","task":"","artifact":"a","human_decision":"decision"}"#;
+		assert_eq!(one_error(line), "field `task` is empty");
+	}
+
+	#[test]
 	fn a_step_waiver_with_an_increment_is_reported() {
 		// The `increment` field is forbidden on a step-unit waiver.
 		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"s","increment":"s-inc1","reason":"predates-logging","evidence_tier":"self-declared"}"#;

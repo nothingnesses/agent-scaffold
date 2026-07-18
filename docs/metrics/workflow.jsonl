@@ -111,3 +111,4 @@
 {"type":"escalation","task":"waiver-model","artifact":"waiver-model","human_decision":"decision","ts":"2026-07-18"}
 {"type":"waiver","task":"waiver-model","unit":"increment","step":"waiver-model","increment":"waiver-model","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"waiver-model","ts":"2026-07-18"}
 {"type":"decision","task":"structured-skeleton","q_id":"Q-45","options":["A-incremental","C-event-sourced","B-clean-slate"],"recommendation":"C-event-sourced","chosen":"B-clean-slate","ts":"2026-07-18"}
+{"type":"decision","task":"structured-skeleton","q_id":"Q-46","options":["keep-waivers-in-jsonl","move-waivers-to-toml"],"recommendation":"keep-waivers-in-jsonl","chosen":"move-waivers-to-toml","ts":"2026-07-18"}

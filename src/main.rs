@@ -725,12 +725,15 @@ fn precommit_coherent(
 enum HookInstall {
 	/// The hook was written (no prior hook existed); carries its path.
 	Installed(PathBuf),
-	/// A pre-commit hook already existed; it was left untouched (never clobbered).
-	/// Carries the existing hook's path.
+	/// A pre-commit hook entry already existed; it was left untouched (never
+	/// clobbered). Carries the existing entry's path.
 	Exists(PathBuf),
-	/// The output directory is not a git repository (no resolvable hooks dir), so
-	/// the install was skipped rather than erroring the whole scaffold.
-	NotARepo,
+	/// The install was skipped rather than erroring the whole scaffold; carries a
+	/// human-readable reason. Covers a non-repo output dir, a bare repository (whose
+	/// delegating hook would be inert), and a filesystem error creating the hooks
+	/// directory or writing the hook. The scaffolded assets already landed, so a
+	/// hook-install problem must not fail the scaffold.
+	Skipped(String),
 }
 
 /// Resolve the git hooks directory for `output_dir` via `git rev-parse --git-path
@@ -758,33 +761,74 @@ fn hooks_dir(output_dir: &Path) -> Option<PathBuf> {
 	Some(if path.is_absolute() { path } else { output_dir.join(path) })
 }
 
+/// Whether `output_dir` is a bare git repository (no working tree). A bare repo has
+/// a hooks directory, but the delegating hook resolves `git rev-parse
+/// --show-toplevel`, which has no answer there, so an installed hook would be inert;
+/// the caller skips it rather than installing a broken hook. A `git` failure is
+/// treated as "not bare" (the caller's other guards still apply).
+fn is_bare_repo(output_dir: &Path) -> bool {
+	std::process::Command::new("git")
+		.arg("-C")
+		.arg(output_dir)
+		.args(["rev-parse", "--is-bare-repository"])
+		.output()
+		.is_ok_and(|output| {
+			output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+		})
+}
+
 /// Install the delegating pre-commit hook into `output_dir`'s `.git/hooks`,
-/// CREATE-IF-ABSENT: it writes `.git/hooks/pre-commit` only when none exists, never
-/// clobbering an existing hook (Principle 3). The written hook is made executable.
-/// When `output_dir` is not a git repository the install is skipped (returns
-/// `NotARepo`) rather than failing, since the scaffolded assets already landed.
-/// This writes INTO `.git/`, so it is deliberately separate from the asset-drop
-/// path.
-fn install_precommit_hook(output_dir: &Path) -> io::Result<HookInstall> {
+/// CREATE-IF-ABSENT: it writes `.git/hooks/pre-commit` only when no entry exists,
+/// never clobbering an existing hook (Principle 3). The written hook is made
+/// executable. Any problem is reported as `Skipped` rather than failing, since the
+/// scaffolded assets already landed: a non-repo or bare-repo output dir, or a
+/// filesystem error. This writes INTO `.git/`, so it is deliberately separate from
+/// the asset-drop path.
+///
+/// Presence is tested with `symlink_metadata` (lstat), which does NOT follow
+/// symlinks: a regular file, a valid symlink, AND a DANGLING symlink all count as
+/// present and are left untouched. `Path::exists` follows links, so a dangling
+/// symlink would read as absent and `fs::write` would then write the delegate
+/// content THROUGH the symlink to a path outside `.git/hooks/`, both clobbering the
+/// user's intent and escaping the hooks directory. lstat closes that hole.
+fn install_precommit_hook(output_dir: &Path) -> HookInstall {
 	let Some(hooks) = hooks_dir(output_dir) else {
-		return Ok(HookInstall::NotARepo);
+		return HookInstall::Skipped(format!("{} is not a git repository", output_dir.display()));
 	};
-	fs::create_dir_all(&hooks)?;
-	let hook = hooks.join("pre-commit");
-	if hook.exists() {
-		return Ok(HookInstall::Exists(hook));
+	if is_bare_repo(output_dir) {
+		return HookInstall::Skipped(format!(
+			"{} is a bare git repository (no working tree for the hook to check)",
+			output_dir.display()
+		));
 	}
-	fs::write(&hook, PRECOMMIT_DELEGATE)?;
-	make_executable(&hook)?;
-	Ok(HookInstall::Installed(hook))
+	if let Err(error) = fs::create_dir_all(&hooks) {
+		return HookInstall::Skipped(format!("could not create {}: {error}", hooks.display()));
+	}
+	let hook = hooks.join("pre-commit");
+	// lstat, not `exists()`: leave ANY existing entry untouched, including a dangling
+	// symlink (see the doc comment above for why `exists()` would be unsafe here).
+	if hook.symlink_metadata().is_ok() {
+		return HookInstall::Exists(hook);
+	}
+	if let Err(error) = fs::write(&hook, PRECOMMIT_DELEGATE) {
+		return HookInstall::Skipped(format!("could not write {}: {error}", hook.display()));
+	}
+	if let Err(error) = make_executable(&hook) {
+		return HookInstall::Skipped(format!(
+			"could not set the executable bit on {}: {error}",
+			hook.display()
+		));
+	}
+	HookInstall::Installed(hook)
 }
 
 /// Print the manual activation one-liner for the scaffolded hook, used when an
-/// existing hook is left in place or the repo is not yet initialised.
+/// existing hook is left in place or the install was skipped. The "check for an
+/// existing hook first" caveat lives in the checks guidance, not here: it is
+/// redundant in the already-exists path (we just reported one exists).
 fn print_manual_hook_instructions() {
 	eprintln!("To activate the scaffolded checks hook manually, from the repo root:");
 	eprintln!("  ln -s ../../.agents/hooks/pre-commit .git/hooks/pre-commit");
-	eprintln!("(check for an existing .git/hooks/pre-commit first).");
 }
 
 fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
@@ -932,10 +976,10 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 		);
 		// Install the pre-commit hook last, after the assets (including the delegated-to
 		// `.agents/hooks/pre-commit`) have landed. Create-if-absent: an existing hook is
-		// never clobbered, and a non-repo output dir is skipped with a note, neither
-		// failing the scaffold that already succeeded.
+		// never clobbered. Any install problem (non-repo, bare repo, filesystem error)
+		// is reported and skipped, never failing the scaffold that already succeeded.
 		if args.with_precommit_hook {
-			match install_precommit_hook(&args.output_dir)? {
+			match install_precommit_hook(&args.output_dir) {
 				HookInstall::Installed(path) =>
 					println!("Installed the pre-commit hook at {}.", path.display()),
 				HookInstall::Exists(path) => {
@@ -945,11 +989,10 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 					);
 					print_manual_hook_instructions();
 				}
-				HookInstall::NotARepo => {
+				HookInstall::Skipped(reason) => {
 					eprintln!(
-						"--with-precommit-hook: {} is not a git repository; skipping the hook \
-						 install.",
-						args.output_dir.display()
+						"--with-precommit-hook: skipping the hook install ({reason}); the assets \
+						 landed but the hook was not installed."
 					);
 					print_manual_hook_instructions();
 				}
@@ -1372,7 +1415,7 @@ mod tests {
 		// written, made executable, and delegates to the tracked asset.
 		let root = scratch("hook-install-absent");
 		init_git_repo(&root);
-		let result = install_precommit_hook(&root).unwrap();
+		let result = install_precommit_hook(&root);
 		let path = match result {
 			HookInstall::Installed(path) => path,
 			other => panic!("expected Installed, got {other:?}"),
@@ -1399,7 +1442,7 @@ mod tests {
 		let existing = hooks.join("pre-commit");
 		fs::write(&existing, "#!/bin/sh\necho pre-existing\n").unwrap();
 
-		let result = install_precommit_hook(&root).unwrap();
+		let result = install_precommit_hook(&root);
 		match result {
 			HookInstall::Exists(path) => assert_eq!(path, existing),
 			other => panic!("expected Exists, got {other:?}"),
@@ -1410,15 +1453,95 @@ mod tests {
 	}
 
 	#[test]
+	#[cfg(unix)]
+	fn install_precommit_hook_never_clobbers_a_valid_symlink() {
+		// A pre-commit entry that is a VALID symlink (the documented `ln -s` activation)
+		// is an existing entry: it is reported `Exists` and left untouched, and nothing
+		// is written through it. Presence is tested with lstat, not `exists()`.
+		use std::os::unix::fs::symlink;
+		let root = scratch("hook-install-valid-symlink");
+		init_git_repo(&root);
+		let hooks = root.join(".git").join("hooks");
+		fs::create_dir_all(&hooks).unwrap();
+		// A real target the symlink points at, with sentinel content.
+		let target = root.join("real-hook");
+		fs::write(&target, "#!/bin/sh\necho symlink-target\n").unwrap();
+		let link = hooks.join("pre-commit");
+		symlink(&target, &link).unwrap();
+
+		match install_precommit_hook(&root) {
+			HookInstall::Exists(path) => assert_eq!(path, link),
+			other => panic!("expected Exists for a valid symlink, got {other:?}"),
+		}
+		// The entry is still the symlink (not replaced by a regular file), and the
+		// target is byte-untouched: nothing was written through it.
+		assert!(link.symlink_metadata().unwrap().file_type().is_symlink(), "still a symlink");
+		assert_eq!(fs::read_to_string(&target).unwrap(), "#!/bin/sh\necho symlink-target\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	#[cfg(unix)]
+	fn install_precommit_hook_never_writes_through_a_dangling_symlink() {
+		// The headline safety case: a DANGLING pre-commit symlink (its target is
+		// missing) reads as absent under `exists()`, so the old code would write the
+		// delegate content THROUGH the link to a path OUTSIDE `.git/hooks/`. lstat sees
+		// the link itself, so it is reported `Exists`, left untouched, and the missing
+		// target is NOT created.
+		use std::os::unix::fs::symlink;
+		let root = scratch("hook-install-dangling-symlink");
+		init_git_repo(&root);
+		let hooks = root.join(".git").join("hooks");
+		fs::create_dir_all(&hooks).unwrap();
+		// The link's target is deliberately outside .git/hooks and does not exist.
+		let missing_target = root.join("escaped-target");
+		let link = hooks.join("pre-commit");
+		symlink(&missing_target, &link).unwrap();
+		assert!(!link.exists(), "a dangling symlink reads as absent under exists()");
+
+		match install_precommit_hook(&root) {
+			HookInstall::Exists(path) => assert_eq!(path, link),
+			other => panic!("expected Exists for a dangling symlink, got {other:?}"),
+		}
+		// The link is still a dangling symlink (not overwritten), and no file was
+		// written through it to the escaped target.
+		assert!(link.symlink_metadata().unwrap().file_type().is_symlink(), "still a symlink");
+		assert!(!missing_target.exists(), "nothing was written through the dangling symlink");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
 	fn install_precommit_hook_skips_a_non_repo() {
-		// A directory that is not a git repository yields `NotARepo`, so the caller
-		// skips the install with a note rather than failing the scaffold.
+		// A directory that is not a git repository is skipped with a reason, so the
+		// caller notes it rather than failing the scaffold.
 		let root = scratch("hook-install-non-repo");
 		fs::create_dir_all(&root).unwrap();
-		match install_precommit_hook(&root).unwrap() {
-			HookInstall::NotARepo => {}
-			other => panic!("expected NotARepo, got {other:?}"),
+		match install_precommit_hook(&root) {
+			HookInstall::Skipped(reason) => assert!(reason.contains("not a git repository")),
+			other => panic!("expected Skipped, got {other:?}"),
 		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn install_precommit_hook_skips_a_bare_repo() {
+		// A bare repository (no working tree) is skipped: the delegating hook resolves
+		// `git rev-parse --show-toplevel`, which has no answer there, so installing one
+		// would be inert. Reported `Skipped`, not `Installed` (F6).
+		let root = scratch("hook-install-bare");
+		fs::create_dir_all(&root).unwrap();
+		let out = std::process::Command::new("git")
+			.args(["init", "-q", "--bare"])
+			.arg(&root)
+			.output()
+			.unwrap();
+		assert!(out.status.success(), "git init --bare failed");
+		match install_precommit_hook(&root) {
+			HookInstall::Skipped(reason) => assert!(reason.contains("bare")),
+			other => panic!("expected Skipped for a bare repo, got {other:?}"),
+		}
+		// No pre-commit hook was written into the bare repo's hooks dir.
+		assert!(!root.join("hooks").join("pre-commit").exists(), "no hook written in a bare repo");
 		fs::remove_dir_all(&root).unwrap();
 	}
 }

@@ -1178,6 +1178,48 @@ mod tests {
 	}
 
 	#[test]
+	fn staged_isolation_works_before_the_first_commit() {
+		// The primary hook scenario for a new repository: files are staged but there is
+		// no HEAD yet (the initial commit). `write-tree` still writes the index tree and
+		// `commit-tree` makes a parentless root commit, so a staged run works with no
+		// prior commit: it passes on clean staged content and fails on a staged
+		// violation. Unlike working-tree mode, which rejects a no-commits repo.
+		let dir = scratch("staged-initial-commit");
+		init_repo(&dir);
+		fs::write(dir.join("value.txt"), "clean\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"no-nope\"\nkind = \"lint\"\n\
+			 command = \"! grep -q NOPE value.txt\"\n",
+		);
+		// Stage everything, but make NO commit: the repository has no HEAD.
+		git_ok(&dir, &["add", "."]);
+		let head = Command::new("git")
+			.arg("-C")
+			.arg(&dir)
+			.args(["rev-parse", "--verify", "HEAD"])
+			.output()
+			.unwrap();
+		assert!(!head.status.success(), "the repository must have no HEAD for this test");
+
+		// Clean staged content passes.
+		let report = run(&dir, Isolation::Staged).unwrap();
+		assert!(
+			report.success(),
+			"staged mode works before the first commit (clean content passes)"
+		);
+		assert_eq!(worktree_paths(&dir).len(), 1, "the worktree is cleaned up");
+
+		// A staged violation fails, still before any commit.
+		fs::write(dir.join("value.txt"), "NOPE\n").unwrap();
+		git_ok(&dir, &["add", "value.txt"]);
+		let report = run(&dir, Isolation::Staged).unwrap();
+		assert!(!report.success(), "a staged violation fails before the first commit too");
+		assert_eq!(worktree_paths(&dir).len(), 1);
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
 	fn a_clean_tree_isolates_head() {
 		// With a clean tree, stash create is empty and the run isolates HEAD.
 		let dir = scratch("clean-tree");

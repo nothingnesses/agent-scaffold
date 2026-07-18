@@ -232,6 +232,12 @@ source = "principles.toml"
 dest = ".agents/principles.toml"
 ownership = "reference"
 
+[[asset]]
+source = "hooks/pre-commit"
+dest = ".agents/hooks/pre-commit"
+ownership = "reference"
+executable = true        # drop with the executable bit set (e.g. a hook script); omit or false otherwise
+
 # Variables the pack's rendered assets can reference as {{name}}.
 [[var]]
 name = "project"

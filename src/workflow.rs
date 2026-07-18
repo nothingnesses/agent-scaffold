@@ -35,6 +35,7 @@ use {
 	crate::{
 		metrics::{
 			self,
+			question_id_index,
 			Baseline,
 			Decision,
 			Escalation,
@@ -45,13 +46,12 @@ use {
 			Waiver,
 			WaiverReason,
 			WaiverUnit,
-			question_id_index,
 		},
 		plan::{
 			self,
-			QUEUE_FOLD_PREFIX,
 			Question,
 			Step,
+			QUEUE_FOLD_PREFIX,
 		},
 	},
 	std::collections::{
@@ -79,9 +79,11 @@ const INCREMENT_MARKER: &str = "-inc";
 /// pair `increment` / `increment-tracker`) would be mis-stripped to its prefix and
 /// its rounds misrouted to the wrong step. No current slug hits this, and the
 /// alphanumeric run is genuinely needed (`round-log-core` uses `-incA` / `-incB`).
-/// Hardening would gate the strip on the remainder matching a known Roadmap slug
-/// (an allowlist), removing the ambiguity at the cost of passing the step slugs in;
-/// deferred while no live slug is affected.
+/// Inc 2 retires this risk for NEW data: a `round`/`escalation` record may carry a
+/// structured `step`/`increment` id, and `round_step_slug`/`escalation_step_slug`
+/// (and their increment counterparts) prefer it, so a record with the field joins
+/// without ever reaching this lexical strip. This shim remains only for
+/// pre-migration records that omit the structured id.
 fn leading_slug(task: &str) -> &str {
 	if let Some(marker) = task.rfind(INCREMENT_MARKER) {
 		let suffix = &task[marker + INCREMENT_MARKER.len() ..];
@@ -90,6 +92,38 @@ fn leading_slug(task: &str) -> &str {
 		}
 	}
 	task
+}
+
+/// The Roadmap step slug a round joins to: its STRUCTURED `step` id when the
+/// record carries one (records written from Inc 2 onward), else `leading_slug`
+/// of its `task` (the pre-migration shim). Preferring the structured id retires
+/// the SE-10/B6 lexical over-strip risk (T3) for new data: a record whose slug
+/// itself ends `-inc<alnum>` joins correctly on its declared `step` instead of
+/// being mis-stripped to its prefix.
+fn round_step_slug(round: &Round) -> &str {
+	round.step.as_deref().unwrap_or_else(|| leading_slug(&round.task))
+}
+
+/// The increment id a round belongs to: its STRUCTURED `increment` id when the
+/// record carries one, else its `task` verbatim (the pre-migration shim). This
+/// is the identity the convergence streak is counted per, and Inc 4 will join it
+/// to the TOML `[[step.increment]].id`.
+fn round_increment_id(round: &Round) -> &str {
+	round.increment.as_deref().unwrap_or(&round.task)
+}
+
+/// The Roadmap step slug an escalation joins to, mirroring `round_step_slug`:
+/// the structured `step` id when present, else `leading_slug(task)`. W5's
+/// step-unit scope check keys off this.
+fn escalation_step_slug(escalation: &Escalation) -> &str {
+	escalation.step.as_deref().unwrap_or_else(|| leading_slug(&escalation.task))
+}
+
+/// The increment id an escalation belongs to, mirroring `round_increment_id`:
+/// the structured `increment` id when present, else `task` verbatim. W5's
+/// increment-unit scope check keys off this.
+fn escalation_increment_id(escalation: &Escalation) -> &str {
+	escalation.increment.as_deref().unwrap_or(&escalation.task)
 }
 
 /// Cross-reference the plan against the round log, returning one human-readable
@@ -173,8 +207,9 @@ fn w4_problems(
 	problems
 }
 
-/// The round log's internal-consistency check: group records by increment
-/// (`task`) alone, then walk each group in file order recomputing the streak the
+/// The round log's internal-consistency check: group records by increment (the
+/// structured `increment` id when a record carries one, else its `task` via
+/// `round_increment_id`) alone, then walk each group in file order recomputing the streak the
 /// outcome sequence implies (a `clean` adds one, a `new_valid` resets to zero) and
 /// report any record whose logged `consecutive_clean` disagrees. The streak spans
 /// the different artifacts one increment's rounds name, so it is recomputed per
@@ -182,21 +217,23 @@ fn w4_problems(
 /// the logged values, so one wrong record yields exactly one problem rather than
 /// cascading into the rest of its group.
 fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
-	// Group by increment (`task`) only: `consecutive_clean` is a per-loop running
-	// streak that spans the different `artifact` values named across one increment's
-	// rounds (a change round, then fixes, then verification), so those records share
-	// a single streak. Each increment (each full `-inc<x>` task string) is its own
-	// review loop, so records for different increments do not share a streak. The
-	// counter resets at increment boundaries, which is correct because each is a
-	// distinct task string. BTreeMap keeps the report deterministic; each group's
-	// Vec stays in file order because the records are pushed in file order.
+	// Group by increment only (the structured `increment` id, or the `task` when a
+	// record omits it): `consecutive_clean` is a per-loop running streak that spans
+	// the different `artifact` values named across one increment's rounds (a change
+	// round, then fixes, then verification), so those records share a single streak.
+	// Each increment (each structured id, or each full `-inc<x>` task string on a
+	// pre-migration record) is its own review loop, so records for different
+	// increments do not share a streak. The counter resets at increment boundaries,
+	// which is correct because each is a distinct increment id. BTreeMap keeps the
+	// report deterministic; each group's Vec stays in file order because the records
+	// are pushed in file order.
 	let mut groups: BTreeMap<&str, Vec<&Round>> = BTreeMap::new();
 	for round in rounds {
-		groups.entry(round.task.as_str()).or_default().push(round);
+		groups.entry(round_increment_id(round)).or_default().push(round);
 	}
 
 	let mut problems = Vec::new();
-	for (task, records) in &groups {
+	for (increment, records) in &groups {
 		// Recompute the implied streak across the increment's whole record history
 		// in file order. Latent limitation (T4): there is no re-opened-loop boundary,
 		// so an increment that legitimately re-opens with a bare `clean` (rather than
@@ -211,8 +248,8 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 			}
 			if round.consecutive_clean != implied {
 				problems.push(format!(
-					"round log line {}: task `{}` records consecutive_clean {} but its outcome sequence implies {}",
-					round.line, task, round.consecutive_clean, implied
+					"round log line {}: increment `{}` records consecutive_clean {} but its outcome sequence implies {}",
+					round.line, increment, round.consecutive_clean, implied
 				));
 			}
 		}
@@ -225,11 +262,14 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 /// Steps with any other status are skipped, so `skipped` and the in-flight statuses
 /// are not checked. For a `complete` step:
 ///
-/// - Filter round records whose leading slug equals the step slug. No matching
-///   records is a violation (the `pause.md` catch: marked complete without review),
-///   UNLESS a STEP-level waiver covers the step (`unit == step`, `step == slug`),
-///   which exempts it (a step that predates logging or whose review was skipped).
-/// - Group the matching records by increment (the full `task`). Within each
+/// - Filter round records whose step slug equals the step slug, via
+///   `round_step_slug` (the record's structured `step` id from Inc 2 when present,
+///   else `leading_slug(task)`). No matching records is a violation (the `pause.md`
+///   catch: marked complete without review), UNLESS a STEP-level waiver covers the
+///   step (`unit == step`, `step == slug`), which exempts it (a step that predates
+///   logging or whose review was skipped).
+/// - Group the matching records by increment (`round_increment_id`: the structured
+///   `increment` id when present, else the full `task`). Within each
 ///   increment the `risk_class` must be consistent, and the increment's peak
 ///   consecutive-clean streak (over all its records, spanning the artifacts its
 ///   rounds name) must reach the class's required count (`low_risk` 1, `risky` 2),
@@ -254,7 +294,7 @@ fn w3_problems(
 			continue;
 		}
 		let matching: Vec<&Round> =
-			rounds.iter().filter(|round| leading_slug(&round.task) == step.slug).collect();
+			rounds.iter().filter(|round| round_step_slug(round) == step.slug).collect();
 		if matching.is_empty() {
 			// Exempt iff a step-level waiver covers this step. W3 asks only about the
 			// unit and identity; W5 judges whether the waiver is well-evidenced.
@@ -274,7 +314,7 @@ fn w3_problems(
 		// increment's convergence is judged on its own terms.
 		let mut increments: BTreeMap<&str, Vec<&Round>> = BTreeMap::new();
 		for round in &matching {
-			increments.entry(round.task.as_str()).or_default().push(round);
+			increments.entry(round_increment_id(round)).or_default().push(round);
 		}
 		for (increment, records) in &increments {
 			// The `risk_class` must be consistent within the increment; without a
@@ -339,9 +379,10 @@ fn w3_problems(
 /// - A `record-backed` waiver's `evidence` must join to an existing
 ///   `type:"escalation"` record whose `human_decision` is `decision`, whose `task`
 ///   equals the evidence pointer, AND that is scoped to the waived unit (the
-///   escalation's `task` equals the waived `increment`, or its leading slug equals
-///   the waived `step`), so a self-declaration cannot cite an unrelated escalation
-///   to earn the strong tier.
+///   escalation's increment id equals the waived `increment`, or its step slug
+///   equals the waived `step`, each preferring the escalation's structured Inc 2
+///   id and falling back to the `leading_slug`/`task` shim), so a self-declaration
+///   cannot cite an unrelated escalation to earn the strong tier.
 /// - The `reason` <-> `evidence_tier` pairing must be consistent so a
 ///   self-declaration cannot claim the strong tier: `predates-logging` and
 ///   `review-skipped` MUST be `self-declared`; `accepted-at-escalation` MUST be
@@ -397,11 +438,13 @@ fn w5_problems(
 					{
 						return false;
 					}
-					// Tie the joined escalation to the unit the waiver exempts.
+					// Tie the joined escalation to the unit the waiver exempts, preferring
+					// the escalation's structured ids (Inc 2) over the `leading_slug`/`task`
+					// shim when it carries them.
 					match waiver.unit {
 						WaiverUnit::Increment =>
-							waiver.increment.as_deref() == Some(escalation.task.as_str()),
-						WaiverUnit::Step => leading_slug(&escalation.task) == waiver.step,
+							waiver.increment.as_deref() == Some(escalation_increment_id(escalation)),
+						WaiverUnit::Step => escalation_step_slug(escalation) == waiver.step,
 					}
 				});
 				if !backed {
@@ -534,6 +577,22 @@ mod tests {
 	) -> String {
 		format!(
 			r#"{{"type":"round","task":"{task}","artifact":"{artifact}","outcome":"{outcome}","consecutive_clean":{consecutive_clean},"risk_class":"{risk_class}"}}"#
+		)
+	}
+
+	/// Build a `round` log line carrying the Inc 2 structured `step`/`increment`
+	/// ids, so the join tests can exercise the structured path (a record that joins
+	/// without the lexical `leading_slug` strip).
+	fn structured_round_line(
+		task: &str,
+		step: &str,
+		increment: &str,
+		outcome: &str,
+		consecutive_clean: u64,
+		risk_class: &str,
+	) -> String {
+		format!(
+			r#"{{"type":"round","task":"{task}","artifact":"a","outcome":"{outcome}","consecutive_clean":{consecutive_clean},"risk_class":"{risk_class}","step":"{step}","increment":"{increment}"}}"#
 		)
 	}
 
@@ -1180,5 +1239,80 @@ mod tests {
 		let problems =
 			w3_problems(&steps(&one_step_plan("bare-step", "complete")), &rounds(&log), &waivers);
 		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w3_a_round_carrying_a_structured_step_joins_without_the_lexical_strip() {
+		// Inc 2 acceptance (structured path): `foo-incidental` ends `-inc<alnum>`, so
+		// `leading_slug` over-strips it to `foo` (the T3 risk). A round carrying the
+		// structured `step`/`increment` ids joins to the `complete` `foo-incidental`
+		// step on the declared slug directly, so the step converges with no problem.
+		assert_eq!(leading_slug("foo-incidental"), "foo", "the shim would misroute this task");
+		let log = structured_round_line(
+			"foo-incidental",
+			"foo-incidental",
+			"foo-incidental",
+			"clean",
+			1,
+			"low_risk",
+		);
+		let problems =
+			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(&log), &[]);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w3_the_same_task_without_the_structured_step_over_strips_and_is_missed() {
+		// The companion showing the structured id, not a change to the shim, is what
+		// fixes the join: the SAME `foo-incidental` task WITHOUT the field falls back to
+		// `leading_slug`, which strips it to `foo`, so the `complete` `foo-incidental`
+		// step sees no matching rounds and is caught by the pause.md catch.
+		let log = round_line("foo-incidental", "a", "clean", 1, "low_risk");
+		let problems =
+			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(&log), &[]);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("has no round records and no covering waiver"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w3_a_pre_migration_round_still_joins_its_step_via_leading_slug() {
+		// Inc 2 acceptance (fallback path preserved): a pre-migration round (no
+		// structured ids) for `state-schema-inc1` still joins to the `complete`
+		// `state-schema` step via the `leading_slug` shim and converges.
+		let log = round_line("state-schema-inc1", "a", "clean", 1, "low_risk");
+		let problems =
+			w3_problems(&steps(&one_step_plan("state-schema", "complete")), &rounds(&log), &[]);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_a_record_backed_waiver_joins_via_the_escalations_structured_step() {
+		// Inc 2 acceptance for escalation (structured path): a step-unit
+		// `accepted-at-escalation` waiver for `foo-incidental` (a slug `leading_slug`
+		// over-strips to `foo`). Its escalation carries the structured `step` id, so
+		// W5's step-unit scope join matches the declared slug directly and passes.
+		let steps = steps(&one_step_plan("foo-incidental", "complete"));
+		let waiver = r#"{"type":"waiver","task":"t","unit":"step","step":"foo-incidental","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"foo-incidental"}"#;
+		let escalation = r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision","step":"foo-incidental","increment":"foo-incidental"}"#;
+		let problems = w5_problems(&waivers(waiver), &steps, &escalations(escalation));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_without_the_structured_step_the_escalation_over_strips_and_is_missed() {
+		// The escalation companion: the same escalation WITHOUT the structured `step`
+		// falls back to `leading_slug("foo-incidental") == "foo"`, which does not equal
+		// the waived step `foo-incidental`, so the record-backed join is not satisfied
+		// and W5 flags the waiver as unscoped.
+		let steps = steps(&one_step_plan("foo-incidental", "complete"));
+		let waiver = r#"{"type":"waiver","task":"t","unit":"step","step":"foo-incidental","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"foo-incidental"}"#;
+		let escalation = r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision"}"#;
+		let problems = w5_problems(&waivers(waiver), &steps, &escalations(escalation));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("is scoped to this waiver's unit"), "{}", problems[0]);
 	}
 }

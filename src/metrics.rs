@@ -333,6 +333,20 @@ fn require_reviewers(
 	Ok(())
 }
 
+/// Check a `round`/`escalation` record's OPTIONAL structured ids (Inc 2): the
+/// `step` slug and `increment` id that let W3/W5 join without the lexical
+/// `leading_slug` strip. Each is optional (a pre-migration record omits both and
+/// falls back to the shim), but when present it must be a non-empty string, so a
+/// blank id can never masquerade as a real join key. Absent fields are fine.
+fn require_structured_ids(obj: &Map<String, Value>) -> Result<(), String> {
+	for name in ["step", "increment"] {
+		if obj.contains_key(name) && require_str(obj, name)?.is_empty() {
+			return Err(format!("field `{name}` is empty"));
+		}
+	}
+	Ok(())
+}
+
 /// Check the `decision` record's `options`: a required NON-EMPTY array whose
 /// every element is a string. Modelled on `require_severities` minus the enum
 /// step (an option label is any string, not a member of a fixed set). Returns the
@@ -410,6 +424,11 @@ fn check_record(value: &Value) -> Result<(), String> {
 			if obj.contains_key("reviewers") {
 				require_reviewers(obj, "reviewers")?;
 			}
+			// The structured step slug and increment id (Inc 2) are optional: a
+			// pre-migration round omits them and joins via `leading_slug`. When
+			// present each must be a non-empty string, so a blank id can never
+			// masquerade as a real join key.
+			require_structured_ids(obj)?;
 		}
 		"escalation" => {
 			// The `task` a record-backed waiver's `evidence` joins to must be non-empty,
@@ -421,6 +440,9 @@ fn check_record(value: &Value) -> Result<(), String> {
 			require_enum(obj, "human_decision", HumanDecision::VARIANTS, |text| {
 				HumanDecision::parse(text).is_some()
 			})?;
+			// The same optional structured ids as `round` (Inc 2); non-empty when
+			// present so W5's unit-scope join never keys off a blank id.
+			require_structured_ids(obj)?;
 		}
 		"dismissal_recheck" => {
 			require_str(obj, "artifact")?;
@@ -557,11 +579,14 @@ pub(crate) struct Round {
 	/// 1-based line number of the record within the log, for problem messages.
 	pub(crate) line: usize,
 	/// The `task` value verbatim (the leading slug plus an optional `-inc<x>`
-	/// increment suffix); the increment grouping keys off it unstripped.
+	/// increment suffix); when the structured `step`/`increment` ids below are
+	/// absent, the join and the increment grouping key off it (the latter
+	/// unstripped) via the `leading_slug` shim.
 	pub(crate) task: String,
 	/// The review artifact this round covers. The convergence streak spans the
 	/// different artifacts one increment's rounds name, so it is counted per
-	/// increment (the `task`), not per artifact.
+	/// increment (the structured `increment` id, or the `task` when it is
+	/// absent), not per artifact.
 	pub(crate) artifact: String,
 	/// Whether the round was clean or produced a new valid finding.
 	pub(crate) outcome: RoundOutcome,
@@ -569,6 +594,18 @@ pub(crate) struct Round {
 	pub(crate) consecutive_clean: u64,
 	/// The artifact's risk class, which sets the required convergence streak.
 	pub(crate) risk_class: RiskClass,
+	/// The structured Roadmap step slug this round's increment belongs to, when
+	/// the record carries it (records written from Inc 2 onward). When present,
+	/// `workflow.rs`'s W3 joins the round to its step on this slug DIRECTLY,
+	/// instead of lexically stripping `task` via `leading_slug`, retiring the
+	/// SE-10/B6 over-strip risk (T3) for new data. Absent (`None`) on
+	/// pre-migration records, which fall back to `leading_slug(task)`.
+	pub(crate) step: Option<String>,
+	/// The structured increment id this round covers, when the record carries it.
+	/// When present, W3 groups the round into its increment on this id instead of
+	/// the raw `task` string; absent (`None`) on pre-migration records, which fall
+	/// back to `task`. Inc 4 joins this to the TOML `[[step.increment]].id`.
+	pub(crate) increment: Option<String>,
 }
 
 /// Project every well-formed `round` record in `contents` into a `Round`,
@@ -611,6 +648,12 @@ pub(crate) fn parse_rounds(contents: &str) -> Vec<Round> {
 		else {
 			continue;
 		};
+		// The structured step slug and increment id are optional (present only on
+		// records written from Inc 2 onward); an empty string is treated as absent
+		// so a blank field falls back to the `leading_slug`/`task` shim rather than
+		// joining to an empty slug.
+		let step = obj.get("step").and_then(Value::as_str).filter(|s| !s.is_empty());
+		let increment = obj.get("increment").and_then(Value::as_str).filter(|s| !s.is_empty());
 		rounds.push(Round {
 			line: index + 1,
 			task: task.to_string(),
@@ -618,6 +661,8 @@ pub(crate) fn parse_rounds(contents: &str) -> Vec<Round> {
 			outcome,
 			consecutive_clean,
 			risk_class,
+			step: step.map(str::to_string),
+			increment: increment.map(str::to_string),
 		});
 	}
 	rounds
@@ -828,10 +873,23 @@ pub(crate) fn parse_waivers(contents: &str) -> Vec<Waiver> {
 pub(crate) struct Escalation {
 	/// 1-based line number of the record within the log, for problem messages.
 	pub(crate) line: usize,
-	/// The `task` value verbatim; a record-backed waiver's `evidence` joins to it.
+	/// The `task` value verbatim; a record-backed waiver's `evidence` joins to it,
+	/// and, when the structured ids below are absent, W5's unit-scope check keys
+	/// off it via the `leading_slug` shim.
 	pub(crate) task: String,
 	/// What the human did at the escalation; W5 requires a `decision`.
 	pub(crate) human_decision: HumanDecision,
+	/// The structured Roadmap step slug this escalation belongs to, when the
+	/// record carries it (records written from Inc 2 onward). When present, W5's
+	/// step-unit scope check joins on this slug DIRECTLY instead of stripping
+	/// `task` via `leading_slug`; absent (`None`) on pre-migration records, which
+	/// fall back to `leading_slug(task)`.
+	pub(crate) step: Option<String>,
+	/// The structured increment id this escalation belongs to, when the record
+	/// carries it. When present, W5's increment-unit scope check joins on this id
+	/// instead of the raw `task`; absent (`None`) on pre-migration records, which
+	/// fall back to `task`. Inc 4 joins this to the TOML `[[step.increment]].id`.
+	pub(crate) increment: Option<String>,
 }
 
 /// Project every well-formed `escalation` record in `contents` into an
@@ -861,10 +919,17 @@ pub(crate) fn parse_escalations(contents: &str) -> Vec<Escalation> {
 		else {
 			continue;
 		};
+		// The structured step slug and increment id are optional (present only on
+		// records written from Inc 2 onward); an empty string is treated as absent
+		// so a blank field falls back to the `leading_slug`/`task` shim.
+		let step = obj.get("step").and_then(Value::as_str).filter(|s| !s.is_empty());
+		let increment = obj.get("increment").and_then(Value::as_str).filter(|s| !s.is_empty());
 		escalations.push(Escalation {
 			line: index + 1,
 			task: task.to_string(),
 			human_decision,
+			step: step.map(str::to_string),
+			increment: increment.map(str::to_string),
 		});
 	}
 	escalations
@@ -1413,8 +1478,74 @@ mod tests {
 				line: 1,
 				task: "optional-modules-inc2cii".to_string(),
 				human_decision: HumanDecision::Decision,
+				step: None,
+				increment: None,
 			}]
 		);
+	}
+
+	#[test]
+	fn a_round_with_structured_step_and_increment_ids_is_accepted() {
+		// The Inc 2 structured ids are optional: a round carrying both `step` and
+		// `increment` (records written from Inc 2 onward) validates.
+		let line = r#"{"type":"round","task":"foo-incidental","artifact":"a","phase":"work_review","changed_since_prev":false,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","step":"foo-incidental","increment":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_round_with_an_empty_structured_step_is_reported() {
+		// Present but blank is rejected, so a blank id can never masquerade as a real
+		// join key (the field is optional, but not optionally-empty).
+		let line = r#"{"type":"round","task":"a","artifact":"a","phase":"work_review","changed_since_prev":false,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","step":""}"#;
+		assert_eq!(one_error(line), "field `step` is empty");
+	}
+
+	#[test]
+	fn an_escalation_with_structured_ids_is_accepted() {
+		let line = r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision","step":"foo-incidental","increment":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn an_escalation_with_an_empty_structured_increment_is_reported() {
+		let line = r#"{"type":"escalation","task":"t","artifact":"a","human_decision":"decision","increment":""}"#;
+		assert_eq!(one_error(line), "field `increment` is empty");
+	}
+
+	#[test]
+	fn parse_rounds_projects_optional_structured_ids() {
+		// A round carrying the structured `step`/`increment` ids projects them; a round
+		// omitting them projects `None`, the pre-migration fallback the join shim reads.
+		let log = concat!(
+			r#"{"type":"round","task":"foo-incidental","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk","step":"foo-incidental","increment":"foo-incidental"}"#,
+			"\n",
+			r#"{"type":"round","task":"bar-inc1","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk"}"#,
+			"\n",
+		);
+		let rounds = parse_rounds(log);
+		assert_eq!(rounds.len(), 2);
+		assert_eq!(rounds[0].step.as_deref(), Some("foo-incidental"));
+		assert_eq!(rounds[0].increment.as_deref(), Some("foo-incidental"));
+		assert_eq!(rounds[1].step, None);
+		assert_eq!(rounds[1].increment, None);
+	}
+
+	#[test]
+	fn parse_escalations_projects_optional_structured_ids() {
+		// The escalation projection mirrors `parse_rounds`: present ids are carried, an
+		// absent one is `None` (the `leading_slug`/`task` fallback W5 reads).
+		let log = concat!(
+			r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision","step":"foo-incidental","increment":"foo-incidental"}"#,
+			"\n",
+			r#"{"type":"escalation","task":"bar-inc1","artifact":"a","human_decision":"decision"}"#,
+			"\n",
+		);
+		let escalations = parse_escalations(log);
+		assert_eq!(escalations.len(), 2);
+		assert_eq!(escalations[0].step.as_deref(), Some("foo-incidental"));
+		assert_eq!(escalations[0].increment.as_deref(), Some("foo-incidental"));
+		assert_eq!(escalations[1].step, None);
+		assert_eq!(escalations[1].increment, None);
 	}
 
 	#[test]

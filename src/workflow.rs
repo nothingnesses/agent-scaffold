@@ -1067,6 +1067,38 @@ mod tests {
 	}
 
 	#[test]
+	fn w5_passes_a_step_unit_record_backed_waiver_joined_by_leading_slug() {
+		// The step-unit join branch: a `step`-unit `accepted-at-escalation`/`record-backed`
+		// waiver whose `evidence` names a `decision` escalation whose `leading_slug(task)`
+		// equals the waived `step` satisfies the record-backed join and passes W5. (The
+		// migration only exercises the increment-unit branch, so pin the step-unit one here.)
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waiver = r#"{"type":"waiver","task":"t","unit":"step","step":"optional-modules","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"optional-modules-inc1"}"#;
+		let escalations = escalations(&escalation_line("optional-modules-inc1"));
+		let problems = w5_problems(&waivers(waiver), &steps, &escalations);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_flags_a_step_unit_record_backed_waiver_whose_escalation_names_a_different_step() {
+		// The step-unit join is unit-scoped: a `decision` escalation whose `leading_slug(task)`
+		// names a DIFFERENT step does not back a `step`-unit waiver, so the waiver is flagged
+		// even though the escalation is a real human decision. This mirrors the increment-unit
+		// unrelated-escalation test for the step-unit branch.
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waiver = r#"{"type":"waiver","task":"t","unit":"step","step":"optional-modules","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"other-step-inc1"}"#;
+		let escalations = escalations(&escalation_line("other-step-inc1"));
+		let problems = w5_problems(&waivers(waiver), &steps, &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("cites evidence `other-step-inc1`")
+				&& problems[0].contains("is scoped to this waiver's unit"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
 	fn w5_flags_a_record_backed_waiver_citing_an_unrelated_escalation() {
 		// Group A (O1): the joined escalation must be scoped to the waived unit. A
 		// record-backed increment waiver whose `evidence` names an escalation for a

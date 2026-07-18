@@ -1,6 +1,7 @@
 //! The `checks` subcommand: read a project's `.agents/checks.toml`, run its lint
 //! and format checks, and report results, executing entirely inside a SEPARATE,
-//! TEMPORARY git worktree so the user's live working tree is never touched.
+//! TEMPORARY git worktree so that a check running a relative-path linter or
+//! formatter cannot mutate the live working tree.
 //!
 //! This is the runner half of the deterministic-checks module (`--module checks`
 //! ships the config schema and the reviewer role; this reads that same schema).
@@ -11,18 +12,41 @@
 //! the current tracked working-tree state, which is removed when the run ends,
 //! including on failure or error.
 //!
+//! Scope of the guarantee (stated honestly for a risky increment). The isolation
+//! makes a well-behaved check that operates on RELATIVE paths safe: it runs in the
+//! throwaway worktree, so its writes land there and are discarded. It is NOT a
+//! security sandbox. A check command that writes an ABSOLUTE path, escapes the
+//! temp dir with `../`, or mutates shared git metadata (`git tag`, `git config
+//! --local`, `git worktree` state) can still reach outside the worktree; that is
+//! trusted-config self-harm and out of contract, since `.agents/checks.toml` is
+//! user-authored (Principle 21 draws the trust boundary at external input, and the
+//! config is not external). Two more known limitations: there is no per-check
+//! timeout yet (a possible future addition; not built here), and a check must not
+//! spawn a backgrounded or daemon process that outlives it while holding the
+//! captured output pipe, which would make the run hang waiting on that pipe.
+//!
+//! Commands run at the repository TOP LEVEL (checks are repo-scoped), even when
+//! `--dir` points at a subdirectory: a subdirectory-relative command or `paths`
+//! glob still sees the repository root, matching how a repo-wide lint or format
+//! gate is meant to work.
+//!
 //! Invariants this module pins (see the tests):
 //! - A. A run never mutates the user's live working tree, even when a format check
 //!   reformats files (the reformatting happens in the discardable worktree copy).
-//! - B. The temporary worktree is always removed when the run ends, including on a
-//!   failing check or an internal error, via a `Drop` cleanup guard.
+//!   This holds for the relative-path case the guarantee is bounded to above.
+//! - B. The temporary worktree is removed when the run ends normally or on an
+//!   internal error, via a `Drop` cleanup guard. A hard kill (SIGKILL) cannot run
+//!   `Drop`, so it can orphan a worktree and its temp directory; the next run
+//!   reclaims such orphans with a startup prune (see `prune_orphan_worktrees`), so
+//!   "always removed" holds across runs rather than unconditionally within one.
 //! - C. The isolated content reflects the current tracked WORKING-TREE state
 //!   (committed plus unstaged tracked modifications), captured with `git stash
 //!   create` (or `HEAD` when the tree is clean). Untracked files are not included;
 //!   an empty repository with no commits is rejected with a clear error.
 //! - D. The run succeeds (exit 0) iff every check that ran passed; a failing check
 //!   makes it exit 1. Usage and environment errors (not a git repo, git missing,
-//!   worktree setup failing) exit 2; a malformed config exits 1.
+//!   worktree setup failing, an unreadable config) exit 2; a malformed config
+//!   exits 1.
 
 use {
 	serde::Deserialize,
@@ -34,9 +58,20 @@ use {
 			Path,
 			PathBuf,
 		},
-		process::Command,
+		process::{
+			Command,
+			Stdio,
+		},
 	},
 };
+
+/// The file-name prefix of a runner's temporary worktree directory under the
+/// system temp dir: `agent-scaffold-checks-run-{pid}-{nanos}`. The startup prune
+/// (see `prune_orphan_worktrees`) matches this prefix among a repo's registered
+/// worktrees to identify a reclaimable runner orphan; the `-run-` segment keeps it
+/// distinct from the test fixtures' `agent-scaffold-checks-test-` prefix so the
+/// two never collide.
+const RUNNER_PREFIX: &str = "agent-scaffold-checks-run-";
 
 /// The kind of a check: a closed enum (parse-don't-validate), so a `kind` value
 /// outside this set is rejected at the config boundary rather than mishandled
@@ -218,8 +253,26 @@ pub enum RunError {
 	GitUnavailable,
 	/// A git operation setting up the worktree failed; carries a message (exit 2).
 	WorktreeSetup(String),
-	/// An underlying IO error (exit 2).
+	/// An underlying IO error, for example an unreadable config (exit 2).
 	Io(io::Error),
+}
+
+impl RunError {
+	/// The process exit code this error maps to, single-sourced here so the CLI and
+	/// the tests agree: a malformed config is a problem with the project (exit 1,
+	/// the same code a failing check yields), and every other variant is an
+	/// environment or usage error (exit 2), including an unreadable config (`Io`),
+	/// which must NOT propagate as the default `io::Result` exit 1 (Invariant D).
+	pub fn exit_code(&self) -> i32 {
+		match self {
+			RunError::Parse(_) => 1,
+			RunError::NotARepo(_)
+			| RunError::NoCommits
+			| RunError::GitUnavailable
+			| RunError::WorktreeSetup(_)
+			| RunError::Io(_) => 2,
+		}
+	}
 }
 
 impl fmt::Display for RunError {
@@ -255,11 +308,13 @@ impl From<io::Error> for RunError {
 	}
 }
 
-/// A temporary git worktree whose `Drop` removes it, so the worktree is always
-/// cleaned up when a run ends, including on a failing check or an early return via
-/// `?` (Invariant B). Cleanup is best-effort and belt-and-suspenders: it asks git
-/// to remove the worktree, removes the directory if it survives, then prunes the
-/// stale admin entry.
+/// A temporary git worktree whose `Drop` removes it, so the worktree is cleaned
+/// up when a run ends normally, on a failing check, or on an early return via `?`
+/// (Invariant B). Cleanup is best-effort and belt-and-suspenders: it asks git to
+/// remove the worktree, removes the directory if it survives, then prunes the
+/// stale admin entry. `Drop` cannot run on a hard kill (SIGKILL), which is why the
+/// runner also does a startup prune (see `prune_orphan_worktrees`) to reclaim a
+/// worktree orphaned by a prior killed run.
 struct WorktreeGuard {
 	/// The main repository's top level (the `-C` target for git worktree ops).
 	repo: PathBuf,
@@ -297,6 +352,49 @@ fn git(
 	})
 }
 
+/// Reclaim runner worktrees orphaned by a prior hard-killed run (SIGKILL, which
+/// `Drop` cannot catch), called at startup before creating a fresh worktree.
+///
+/// Reclamation is REPO-SCOPED: it lists the worktrees registered to THIS `repo`
+/// (`git worktree list --porcelain`) and removes only those whose path is a runner
+/// temp directory (under the system temp dir, `RUNNER_PREFIX` naming),
+/// unregistering each (`git worktree remove --force`), deleting it
+/// (`remove_dir_all`), then pruning any admin entries whose directory is already
+/// gone. Scoping to the registering repository is deliberate over a blanket
+/// filesystem sweep of the shared temp dir: a real orphan from a killed run is
+/// registered in that repo's `.git/worktrees/`, so listing the repo finds it,
+/// while never touching another repository's (or a concurrent run's) worktree
+/// (Principle 18, least authority). This also makes the runner safe under
+/// concurrency, including parallel tests: each run reclaims only its own repo's
+/// orphans, and its own about-to-be-created worktree is not listed yet (the prune
+/// runs first). Entirely best-effort: every step ignores errors, since a failure
+/// to reclaim an orphan must not fail the run.
+fn prune_orphan_worktrees(repo: &Path) {
+	let temp = std::env::temp_dir();
+	if let Ok(listed) = git(repo, &["worktree", "list", "--porcelain"]) {
+		if listed.status.success() {
+			let text = String::from_utf8_lossy(&listed.stdout);
+			for line in text.lines() {
+				let Some(path) = line.strip_prefix("worktree ") else {
+					continue;
+				};
+				let path = Path::new(path);
+				let is_runner = path.starts_with(&temp)
+					&& path
+						.file_name()
+						.and_then(|name| name.to_str())
+						.is_some_and(|name| name.starts_with(RUNNER_PREFIX));
+				if is_runner {
+					let _ = git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
+					let _ = fs::remove_dir_all(path);
+				}
+			}
+		}
+	}
+	// Prune admin entries for worktrees whose directories are already gone.
+	let _ = git(repo, &["worktree", "prune"]);
+}
+
 /// The commit whose tree the isolation worktree checks out: the current tracked
 /// WORKING-TREE state (committed plus unstaged tracked modifications) via `git
 /// stash create`, or `HEAD` when the tree is clean (stash create prints nothing).
@@ -329,16 +427,19 @@ fn isolation_commit(repo: &Path) -> Result<String, RunError> {
 }
 
 /// Match `path` (a forward-slash relative path from `git ls-files`) against a
-/// single glob `pattern`. A pattern ending in `/` is a directory prefix (`src/`
-/// matches any path under `src/`). Otherwise `**` matches any run including `/`
-/// (and `**/` matches zero or more leading directories), `*` matches any run not
-/// crossing `/`, `?` matches one non-`/` character, and every other byte is
+/// single glob `pattern`. Patterns are repository-root-relative; a leading `./` is
+/// normalised away first (`git ls-files` never emits one, so `./src/` would
+/// otherwise silently never match). A pattern ending in `/` is a directory prefix
+/// (`src/` matches any path under `src/`). Otherwise `**` matches any run including
+/// `/` (and `**/` matches zero or more leading directories), `*` matches any run
+/// not crossing `/`, `?` matches one non-`/` character, and every other byte is
 /// literal. Deliberately small: enough for the documented `paths` examples
 /// (`**/*.py`, `src/**/*.rs`, `tests/`), not a full gitignore engine.
 fn glob_match(
 	pattern: &str,
 	path: &str,
 ) -> bool {
+	let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
 	if let Some(prefix) = pattern.strip_suffix('/') {
 		return path == prefix || path.starts_with(&format!("{prefix}/"));
 	}
@@ -391,8 +492,9 @@ fn glob_rec(
 
 /// Whether at least one tracked file in the worktree matches one of `patterns`.
 /// Reads the worktree's tracked files with `git ls-files`, so it reflects exactly
-/// the isolated content. An empty `patterns` never reaches here (the caller only
-/// calls this when the check declares `paths`).
+/// the isolated content. An empty `patterns` never reaches here: the caller only
+/// calls this for a check whose `paths` is present AND non-empty (an empty `paths`
+/// is treated as no path restriction, so the check runs unscoped).
 fn any_tracked_matches(
 	worktree: &Path,
 	patterns: &[String],
@@ -444,13 +546,22 @@ fn runnable_for(check: &Check) -> Runnable<'_> {
 /// Run one shell command string in `worktree`, returning its outcome. The command
 /// is interpreted by `sh -c`, matching how the config's commands are written (they
 /// use shell features such as pipes and `!`); its stdout and stderr are captured
-/// and combined for the failure report.
+/// and combined for the failure report. Its stdin is `/dev/null`, so a command
+/// that reads stdin gets EOF immediately rather than blocking the run forever on
+/// the inherited terminal. There is deliberately no per-check timeout yet: a check
+/// that hangs (or backgrounds a process holding the captured output pipe) hangs
+/// the run; a timeout is a possible future addition, called out in the module doc.
 fn run_command(
 	worktree: &Path,
 	command: &str,
 ) -> Result<CheckStatus, RunError> {
-	let output = Command::new("sh").arg("-c").arg(command).current_dir(worktree).output().map_err(
-		|error| {
+	let output = Command::new("sh")
+		.arg("-c")
+		.arg(command)
+		.current_dir(worktree)
+		.stdin(Stdio::null())
+		.output()
+		.map_err(|error| {
 			if error.kind() == io::ErrorKind::NotFound {
 				RunError::WorktreeSetup(
 					"the `sh` shell was not found to run check commands".to_string(),
@@ -458,8 +569,7 @@ fn run_command(
 			} else {
 				RunError::Io(error)
 			}
-		},
-	)?;
+		})?;
 	if output.status.success() {
 		Ok(CheckStatus::Passed)
 	} else {
@@ -488,7 +598,8 @@ fn run_command(
 /// absent config is not a failure (returns a `Report` with `config_present:
 /// false`). Only `lint` and `format` kinds run in this increment; `test` and
 /// `mutation` are skipped. The worktree is created only when at least one check is
-/// actually runnable, and is always removed on return via the `Drop` guard.
+/// actually runnable, and is removed on every return via the `Drop` guard (a hard
+/// kill is the one gap, reclaimed by the startup prune on the next run).
 pub fn run(dir: &Path) -> Result<Report, RunError> {
 	let config_path = dir.join(".agents").join("checks.toml");
 	if !config_path.exists() {
@@ -525,21 +636,25 @@ pub fn run(dir: &Path) -> Result<Report, RunError> {
 	}
 
 	// Resolve the repository top level; this also rejects a non-repository target.
+	// All commands then run at this top level, so checks are repo-scoped even when
+	// `--dir` pointed at a subdirectory.
 	let toplevel_out = git(dir, &["rev-parse", "--show-toplevel"])?;
 	if !toplevel_out.status.success() {
 		return Err(RunError::NotARepo(dir.to_path_buf()));
 	}
 	let repo = PathBuf::from(String::from_utf8_lossy(&toplevel_out.stdout).trim());
 
+	// Reclaim any worktree orphaned by a prior hard-killed run before creating a new
+	// one, so a SIGKILL leak self-heals on the next run (Invariant B's caveat).
+	prune_orphan_worktrees(&repo);
+
 	// The commit capturing the current tracked working-tree state (or HEAD when clean).
 	let commit = isolation_commit(&repo)?;
 
-	// A unique temp path OUTSIDE the repository; git worktree add creates it.
-	let worktree_path = std::env::temp_dir().join(format!(
-		"agent-scaffold-checks-{}-{}",
-		std::process::id(),
-		nanos()
-	));
+	// A unique temp path OUTSIDE the repository; git worktree add creates it. The
+	// `RUNNER_PREFIX` (with the embedded pid) is what the startup prune recognises.
+	let worktree_path =
+		std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", std::process::id(), nanos()));
 	let added =
 		git(&repo, &["worktree", "add", "--detach", &worktree_path.to_string_lossy(), &commit])?;
 	if !added.status.success() {
@@ -561,18 +676,20 @@ pub fn run(dir: &Path) -> Result<Report, RunError> {
 			Runnable::Run(command) => {
 				// Honour `paths`: run only when a tracked file in the isolated tree matches
 				// a glob, else skip as not-applicable. We do not pass files to the command;
-				// it uses its own config and arguments.
-				if let Some(patterns) = &check.paths {
-					if !any_tracked_matches(&worktree_path, patterns)? {
-						CheckStatus::Skipped(format!(
-							"no tracked file matched paths {}",
-							patterns.join(", ")
-						))
-					} else {
-						run_command(&worktree_path, command)?
-					}
-				} else {
-					run_command(&worktree_path, command)?
+				// it uses its own config and arguments. A present-but-empty `paths` is
+				// treated as no restriction (run unscoped), so an empty array is not a
+				// perpetual skip and `any_tracked_matches` only ever sees a non-empty set.
+				match check.paths.as_deref().filter(|patterns| !patterns.is_empty()) {
+					Some(patterns) =>
+						if any_tracked_matches(&worktree_path, patterns)? {
+							run_command(&worktree_path, command)?
+						} else {
+							CheckStatus::Skipped(format!(
+								"no tracked file matched paths {}",
+								patterns.join(", ")
+							))
+						},
+					None => run_command(&worktree_path, command)?,
 				}
 			}
 		};
@@ -933,6 +1050,147 @@ mod tests {
 			Err(RunError::NoCommits) => {}
 			other => panic!("expected NoCommits, got {other:?}"),
 		}
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn malformed_config_toml_syntax_error_is_a_parse_error() {
+		// A TOML syntax error (not just an out-of-set enum) is rejected as a parse
+		// error, so the boundary covers a genuinely unparseable file, not only a
+		// schema-shaped one.
+		match parse("this is = = not valid toml [[[") {
+			Err(ParseError::Toml(_)) => {}
+			other => panic!("expected Toml parse error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn run_error_exit_codes_split_config_from_environment() {
+		// The exit-code mapping is single-sourced on `RunError::exit_code`: a
+		// malformed config is exit 1 (a project problem, like a failing check), and
+		// every environment/usage error, INCLUDING an unreadable config (`Io`), is
+		// exit 2 rather than the default `io::Result` exit 1.
+		let toml_err = toml::from_str::<ChecksFile>("x = =").unwrap_err();
+		assert_eq!(RunError::Parse(ParseError::Toml(toml_err)).exit_code(), 1);
+		assert_eq!(RunError::NotARepo(PathBuf::from(".")).exit_code(), 2);
+		assert_eq!(RunError::NoCommits.exit_code(), 2);
+		assert_eq!(RunError::GitUnavailable.exit_code(), 2);
+		assert_eq!(RunError::WorktreeSetup("x".to_string()).exit_code(), 2);
+		assert_eq!(RunError::Io(io::Error::other("boom")).exit_code(), 2);
+	}
+
+	#[test]
+	fn an_unreadable_config_is_an_environment_error_not_a_check_failure() {
+		// A config path that exists but cannot be read as a file (here it is a
+		// directory) is an `Io` error -> exit 2, distinct from a failing check
+		// (exit 1). This pins that the unreadable-config path takes the
+		// environment-error branch rather than propagating as the default exit 1.
+		let dir = scratch("unreadable-config");
+		init_repo(&dir);
+		// Make `.agents/checks.toml` a directory, so `read_to_string` errors.
+		fs::create_dir_all(dir.join(".agents").join("checks.toml")).unwrap();
+		match run(&dir) {
+			Err(error @ RunError::Io(_)) => assert_eq!(error.exit_code(), 2),
+			other => panic!("expected Io error with exit code 2, got {other:?}"),
+		}
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_paths_glob_false_negative_skips_a_root_only_pattern() {
+		// A root-level `*.py` does not cross a directory separator, so a repo whose
+		// only Python file is nested (`src/module.py`) matches nothing and the check
+		// is skipped. The command is `false`, so a mistaken run would fail the run.
+		let dir = scratch("paths-false-negative");
+		init_repo(&dir);
+		fs::create_dir_all(dir.join("src")).unwrap();
+		fs::write(dir.join("src").join("module.py"), "x = 1\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"py\"\nkind = \"lint\"\ncommand = \"false\"\npaths = [\"*.py\"]\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		let report = run(&dir).unwrap();
+		assert!(report.success(), "a nested .py must not match a root-only *.py");
+		match &report.results[0].status {
+			CheckStatus::Skipped(reason) => assert!(reason.contains("no tracked file")),
+			other => panic!("expected Skipped, got {other:?}"),
+		}
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn an_empty_paths_array_runs_unscoped() {
+		// A present-but-empty `paths` is treated as no restriction, so the check runs
+		// (and here fails), never producing the trailing-space "no tracked file
+		// matched paths " skip that the empty array used to yield.
+		let dir = scratch("empty-paths");
+		init_repo(&dir);
+		fs::write(dir.join("file.txt"), "x\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"e\"\nkind = \"lint\"\ncommand = \"false\"\npaths = []\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		let report = run(&dir).unwrap();
+		assert!(!report.success(), "an empty paths array runs the check unscoped");
+		assert!(matches!(report.results[0].status, CheckStatus::Failed(_)));
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_stdin_reading_check_does_not_hang() {
+		// A check that reads stdin gets EOF from /dev/null instead of blocking on an
+		// inherited terminal. `cat` copies stdin to stdout and exits 0 on EOF; if
+		// stdin were inherited and empty in a non-tty test, this would still return,
+		// but the null redirection is what guarantees EOF in every environment.
+		let dir = scratch("stdin-null");
+		init_repo(&dir);
+		fs::write(dir.join("file.txt"), "x\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"reads-stdin\"\nkind = \"lint\"\ncommand = \"cat\"\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		let report = run(&dir).unwrap();
+		assert!(report.success(), "a stdin-reading check gets EOF and exits cleanly");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_startup_prune_reclaims_an_orphaned_runner_worktree() {
+		// Invariant B's self-heal: an orphan left by a prior hard-killed run (a
+		// runner-prefixed temp worktree still registered to this repo, as a killed
+		// run would leave) is reclaimed on the next run, leaving `git worktree list`
+		// with only the main worktree. The reclamation is repo-scoped, so this holds
+		// even under parallel tests: only this repo's orphan is touched.
+		let dir = scratch("prune-orphan");
+		init_repo(&dir);
+		fs::write(dir.join("file.txt"), "x\n").unwrap();
+		write_config(&dir, "[[check]]\nname = \"ok\"\nkind = \"lint\"\ncommand = \"true\"\n");
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		// Plant the orphan: a registered worktree under a runner-prefixed temp path,
+		// exactly the shape a SIGKILLed run leaves behind (registered but never
+		// removed by its `Drop`).
+		let orphan = std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-orphan", nanos()));
+		git_ok(&dir, &["worktree", "add", "--detach", &orphan.to_string_lossy(), "HEAD"]);
+		assert!(orphan.exists());
+		// Two worktrees now: main plus the planted orphan.
+		assert_eq!(worktree_paths(&dir).len(), 2);
+
+		let report = run(&dir).unwrap();
+		assert!(report.success());
+		// The orphan directory is gone and only the main worktree remains.
+		assert!(!orphan.exists(), "the registered orphan worktree was reclaimed");
+		assert_eq!(worktree_paths(&dir).len(), 1, "git worktree list is clean after the prune");
 		fs::remove_dir_all(&dir).unwrap();
 	}
 }

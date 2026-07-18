@@ -288,7 +288,7 @@ enum Command {
 	Validate(ValidateArgs),
 	/// Project the workflow state: emit a derived summary of the plan's Roadmap steps and open questions plus a metrics-record count. Best-effort; a missing file yields a partial projection.
 	Status(StatusArgs),
-	/// Run the project's `.agents/checks.toml` lint and format checks in a temporary, isolated git worktree of the current tracked working-tree state, so the live tree is never touched; exits 0 iff every check that ran passed.
+	/// Run the project's `.agents/checks.toml` lint and format checks in a temporary, isolated git worktree of the current tracked working-tree state, so a relative-path check cannot mutate the live tree (this is isolation, not a security sandbox: a check that writes an absolute path or mutates git metadata is trusted-config self-harm and out of contract). Exits 0 iff every check that ran passed.
 	Checks(ChecksArgs),
 }
 
@@ -415,28 +415,29 @@ fn main() -> io::Result<()> {
 /// worktree, and report per-check results. Exit codes follow the `validate`
 /// family: 0 when every check that ran passed (or there was nothing to run), 1
 /// when a check failed or the config was malformed, and 2 for an environment or
-/// usage error (not a git repository, git or `sh` missing, the worktree setup
-/// failing). An absent `.agents/checks.toml` is a clear note and exit 0, matching
-/// how `validate` treats an absent metrics log.
+/// usage error (not a git repository, git or `sh` missing, an unreadable config,
+/// the worktree setup failing). An absent `.agents/checks.toml` is a clear note
+/// and exit 0, matching how `validate` treats an absent metrics log. The
+/// isolation bounds mutation for a relative-path check; it is not a security
+/// sandbox (see `checks` module docs).
 fn run_checks(args: ChecksArgs) -> io::Result<()> {
 	let report = match checks::run(&args.dir) {
 		Ok(report) => report,
-		Err(checks::RunError::Io(error)) => return Err(error),
-		Err(error @ checks::RunError::Parse(_)) => {
-			// A malformed config is a problem with the project, not a usage error: exit 1.
-			eprintln!("error: {error}");
-			std::process::exit(1);
-		}
 		Err(error) => {
-			// Environment/usage errors (not a repo, no commits, git/sh missing, worktree
-			// setup): exit 2, the same code the other subcommands use for usage errors.
+			// The exit code is single-sourced on `RunError::exit_code`: a malformed
+			// config is a project problem (exit 1), and every environment/usage error,
+			// including an unreadable config (`Io`), is exit 2. The `Io` case must NOT
+			// propagate through `io::Result` (that would exit 1 with a capital "Error:"),
+			// so it goes through this branch like the others.
 			eprintln!("error: {error}");
-			std::process::exit(2);
+			std::process::exit(error.exit_code());
 		}
 	};
 
 	if !report.config_present {
-		println!(
+		// Written to stderr for parity with `validate`, whose absent-file notes are
+		// stderr too (the stdout is reserved for the report proper).
+		eprintln!(
 			"no checks config at {}; nothing to run",
 			args.dir.join(".agents").join("checks.toml").display()
 		);

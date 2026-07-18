@@ -85,7 +85,11 @@ fn outcome_of(
 			},
 		Ownership::Working =>
 			if exists {
-				if force { Outcome::Overwritten } else { Outcome::SkippedExisting }
+				if force {
+					Outcome::Overwritten
+				} else {
+					Outcome::SkippedExisting
+				}
 			} else {
 				Outcome::Created
 			},
@@ -371,6 +375,9 @@ struct ValidateArgs {
 	/// Path to a Markdown plan to validate (its Roadmap and Open Questions regions). When omitted, only the metrics log is validated.
 	#[arg(long)]
 	plan: Option<PathBuf>,
+	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated.
+	#[arg(long)]
+	source: Option<PathBuf>,
 	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Needs both the plan (via --plan) and the metrics log (via --metrics, which defaults). Requires --plan.
 	#[arg(long, requires = "plan")]
 	workflow: bool,
@@ -585,6 +592,38 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	} else {
 		None
 	};
+
+	// The `<task>.plan.toml` structured source, validated on request (like --plan).
+	// An absent --source path prints a note and is skipped, the same treatment the
+	// metrics log and the plan get. This is additive: the source is not yet consulted
+	// by the workflow checks, so its problems only affect the source's own summary and
+	// the overall exit code.
+	if let Some(source_path) = &args.source {
+		if source_path.exists() {
+			let contents = fs::read_to_string(source_path)?;
+			let source_problems = plan::validate_source(&contents);
+			if source_problems.is_empty() {
+				// A clean validate implies a clean parse, so the count is a re-parse of a
+				// known-good source; fall back to a bare "valid" if that somehow disagrees.
+				let summary = match plan::parse_toml(&contents) {
+					Ok(parsed) => format!(
+						"{}: {} steps, {} questions, valid",
+						source_path.display(),
+						parsed.steps.len(),
+						parsed.questions.len()
+					),
+					Err(_) => format!("{}: valid", source_path.display()),
+				};
+				summaries.push(summary);
+			} else {
+				for problem in &source_problems {
+					problems.push(format!("{}: {}", source_path.display(), problem));
+				}
+			}
+		} else {
+			eprintln!("no source plan at {}; nothing to validate", source_path.display());
+		}
+	}
 
 	// The workflow cross-reference needs both artifacts; run it only when both are
 	// present (clap already requires --plan alongside --workflow). Problems are

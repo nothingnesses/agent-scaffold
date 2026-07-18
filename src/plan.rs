@@ -19,6 +19,18 @@ use {
 	std::collections::BTreeSet,
 };
 
+/// The `<task>.plan.toml` structured-source schema (design B, Q-45/Q-46): the
+/// typed skeleton parser and its `validate --source` cross-reference checks. A pure
+/// addition for now; nothing in the live pipeline reads it yet (see the module
+/// docs). Re-exported so the schema entry points are reached as `plan::parse_toml`
+/// and `plan::validate_source`, beside the Markdown-plan functions here.
+pub(crate) mod source;
+
+pub(crate) use source::{
+	parse_toml,
+	validate_source,
+};
+
 /// One Roadmap step: a stable slug and its status string, one per data row of the
 /// Roadmap pipe-table. The status is kept verbatim so the projection reports
 /// exactly what the plan says; schema-checking of it is done in `validate_plan`.

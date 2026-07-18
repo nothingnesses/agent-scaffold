@@ -34,9 +34,9 @@ pub struct LineError {
 macro_rules! enum_field {
 	($(#[$meta:meta])* $vis:vis $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
 		$(#[$meta])*
-		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+		#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 		$vis enum $name {
-			$($variant),+
+			$(#[serde(rename = $text)] $variant),+
 		}
 
 		impl $name {
@@ -197,6 +197,20 @@ impl WaiverReason {
 			WaiverReason::PredatesLogging => "predates-logging",
 			WaiverReason::ReviewSkipped => "review-skipped",
 			WaiverReason::AcceptedAtEscalation => "accepted-at-escalation",
+		}
+	}
+
+	/// The evidence tier this reason's integrity requires: `predates-logging` and
+	/// `review-skipped` are self-declared (the author's word); `accepted-at-escalation`
+	/// is record-backed (an independent escalation record). This is the single source
+	/// of the `reason` <-> `evidence_tier` pairing rule that both W5 (the round-log
+	/// waiver-integrity check) and `plan::source::validate_source` (the TOML waiver
+	/// check) enforce, so the two cannot drift (Principle 16).
+	pub(crate) fn required_tier(self) -> EvidenceTier {
+		match self {
+			WaiverReason::PredatesLogging | WaiverReason::ReviewSkipped =>
+				EvidenceTier::SelfDeclared,
+			WaiverReason::AcceptedAtEscalation => EvidenceTier::RecordBacked,
 		}
 	}
 }

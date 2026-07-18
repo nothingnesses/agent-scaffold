@@ -1,0 +1,93 @@
+# Fixture <task>.plan.toml skeleton for the parse_toml round-trip and
+# validate --source tests. This is NOT a live plan; it exercises every schema
+# region (meta, steps with nested increments and waivers, questions, and
+# principles) and is expected to validate clean.
+
+[meta]
+title = "Fixture plan"
+w4_baseline = "Q-44"
+primary = "toml"
+orphan_tasks = ["ledger-parse", "round-log-core-incA"]
+render_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[meta.sidecars]
+front = ["intro.md", "motivations.md", "repo-layout.md"]
+tail = "success-criteria.md"
+
+[[step]]
+slug = "alpha"
+title = "The first step"
+status = "complete"
+order = 1
+blocked_by = []
+folds = []
+
+[[step.increment]]
+id = "alpha-inc1"
+risk_class = "low_risk"
+
+[[step.waiver]]
+id = "alpha-w1"
+unit = "increment"
+increment = "alpha-inc1"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "alpha-inc1"
+note = "Accepted below its streak at a human escalation."
+
+[[step]]
+slug = "beta"
+title = "The second step"
+status = "in-progress"
+order = 2
+blocked_by = ["alpha"]
+folds = []
+
+[[step.waiver]]
+id = "beta-w1"
+unit = "step"
+reason = "predates-logging"
+evidence_tier = "self-declared"
+
+[[step]]
+slug = "gamma"
+title = "The third step"
+status = "next"
+order = 3
+blocked_by = ["beta"]
+folds = ["alpha"]
+
+[[question]]
+id = "Q-1"
+status = "open"
+ask = "An open ask still awaiting a decision."
+
+[[question]]
+id = "Q-2"
+status = "decided"
+ask = "A decided ask folded into alpha."
+folded_into = "alpha"
+receipt = "Q-2"
+
+[[question]]
+id = "Q-3"
+status = "superseded"
+ask = "A superseded ask, replaced by a later item."
+superseded_by = "Q-1"
+
+[[question]]
+id = "Q-44"
+status = "decided"
+ask = "The baseline-cutoff decision."
+folded_into = "beta"
+receipt = "Q-44"
+
+[[principle]]
+n = 1
+name = "Ask clarifying questions before forging ahead"
+text = "Confirm intent before writing code, and give recommendations with reasoning."
+
+[[principle]]
+n = 8
+name = "No silent scope expansion"
+text = "Do what was asked and flag anything else rather than quietly doing it."

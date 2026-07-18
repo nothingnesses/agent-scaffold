@@ -35,6 +35,7 @@ use {
 	crate::{
 		metrics::{
 			self,
+			question_id_index,
 			Baseline,
 			Decision,
 			Escalation,
@@ -43,15 +44,13 @@ use {
 			Round,
 			RoundOutcome,
 			Waiver,
-			WaiverReason,
 			WaiverUnit,
-			question_id_index,
 		},
 		plan::{
 			self,
-			QUEUE_FOLD_PREFIX,
 			Question,
 			Step,
+			QUEUE_FOLD_PREFIX,
 		},
 	},
 	std::collections::{
@@ -470,13 +469,10 @@ fn w5_problems(
 				}
 			}
 		}
-		// The reason must be paired with the tier its integrity requires.
-		let pairing_ok = match waiver.reason {
-			WaiverReason::PredatesLogging | WaiverReason::ReviewSkipped =>
-				waiver.evidence_tier == EvidenceTier::SelfDeclared,
-			WaiverReason::AcceptedAtEscalation =>
-				waiver.evidence_tier == EvidenceTier::RecordBacked,
-		};
+		// The reason must be paired with the tier its integrity requires. The pairing
+		// rule is single-sourced on `WaiverReason::required_tier`, shared with the TOML
+		// waiver check in `plan::source`, so the two cannot drift (Principle 16).
+		let pairing_ok = waiver.reason.required_tier() == waiver.evidence_tier;
 		if !pairing_ok {
 			problems.push(format!(
 				"round log line {}: waiver reason `{}` must not carry evidence tier `{}`",

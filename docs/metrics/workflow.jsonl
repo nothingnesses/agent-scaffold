@@ -110,3 +110,4 @@
 {"type":"round","task":"waiver-model","artifact":"waiver-model","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"risky","reviewers":[{"role":"reviewer","model":"opus","harness":"claude-code","raw_findings":0,"valid_findings":0},{"role":"reviewer","model":"sonnet","harness":"claude-code","raw_findings":0,"valid_findings":0}],"ts":"2026-07-18"}
 {"type":"escalation","task":"waiver-model","artifact":"waiver-model","human_decision":"decision","ts":"2026-07-18"}
 {"type":"waiver","task":"waiver-model","unit":"increment","step":"waiver-model","increment":"waiver-model","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"waiver-model","ts":"2026-07-18"}
+{"type":"decision","task":"structured-skeleton","q_id":"Q-45","options":["A-incremental","C-event-sourced","B-clean-slate"],"recommendation":"C-event-sourced","chosen":"B-clean-slate","ts":"2026-07-18"}

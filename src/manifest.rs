@@ -671,6 +671,39 @@ mod tests {
 		assert_eq!(with_checks.len(), core.len() + 5);
 	}
 
+	#[test]
+	fn builtin_isolation_module_renders_its_guidance_only_when_selected() {
+		// The built-in `isolation` module is guidance-only: it drops zero assets, so
+		// the asset list is byte-identical whether or not it is selected (the same
+		// list `builtin_manifest_lists_the_expected_assets` pins).
+		let core = load(&builtin(), &HashMap::new(), &HashMap::new(), &[]).unwrap();
+		let with_isolation =
+			load(&builtin(), &HashMap::new(), &HashMap::new(), &["isolation".to_string()]).unwrap();
+		let core_dests: Vec<&str> = core.iter().map(|a| a.dest.as_str()).collect();
+		let isolation_dests: Vec<&str> = with_isolation.iter().map(|a| a.dest.as_str()).collect();
+		assert_eq!(isolation_dests, core_dests, "the isolation module drops no assets");
+
+		// With no module selected the `{{modules}}` block is empty, so the scaffold
+		// stays byte-identical to core.
+		assert_eq!(module_guidance(&builtin(), &[]).unwrap(), "");
+
+		// Selecting `isolation` renders its guidance partial into the `{{modules}}`
+		// block: its heading and the agent-box/agent-images pointers appear.
+		let guidance = module_guidance(&builtin(), &["isolation".to_string()]).unwrap();
+		assert!(
+			guidance.contains("## Writer isolation via agent-box and agent-images"),
+			"the isolation guidance heading should render"
+		);
+		assert!(
+			guidance.contains("github.com/0xferrous/agent-box"),
+			"the agent-box pointer should render"
+		);
+		assert!(
+			guidance.contains("github.com/nothingnesses/agent-images"),
+			"the agent-images pointer should render"
+		);
+	}
+
 	/// Write a filesystem pack fixture (a `pack.toml` plus one source file) and
 	/// return its `Directory` source root.
 	fn fixture_pack(

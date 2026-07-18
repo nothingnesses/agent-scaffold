@@ -13,6 +13,17 @@ name = "checks"
 description = "A user-configurable, tool-run deterministic verification gate (lint/format checks) over the workflow's code output, with a checks-reviewer spawned in the work-review phase that runs the checks and reports findings (authoring no fixes)."
 guidance = "checks-guidance.md"
 
+# The `isolation` module (opt in with `--module isolation`). Pointer setup wiring a
+# project to the external agent-box and agent-images projects for container/worktree
+# writer-agent isolation. It is guidance-only: it drops zero files into the project
+# tree (no module-tagged `[[asset]]` or `[[var]]` rows), takes no runtime dependency
+# on those projects, and reimplements no isolation. It is orthogonal to `checks`, so
+# it declares no `requires`.
+[[module]]
+name = "isolation"
+description = "Pointer setup wiring a project to the external agent-box and agent-images projects for container/worktree writer-agent isolation. Scaffolds guidance only (the concrete form of the container tier the Writer isolation rule names); it takes no runtime dependency on those projects and reimplements no isolation."
+guidance = "isolation-guidance.md"
+
 [[asset]]
 source = "AGENTS.md"
 dest = "AGENTS.md"

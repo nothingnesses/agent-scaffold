@@ -27,25 +27,20 @@ use {
 	crate::{
 		metrics::{
 			self,
+			Baseline,
 			Decision,
 			Round,
 			RoundOutcome,
 		},
 		plan::{
 			self,
+			QUEUE_FOLD_PREFIX,
 			Question,
 			Step,
 		},
 	},
 	std::collections::BTreeMap,
 };
-
-/// The Open-Questions status prefix marking a decided item folded into a step
-/// (`decided -> folded into <slug>`). Held as a local constant here rather than
-/// imported from `plan.rs` because `plan.rs` stays byte-identical for this step
-/// (it keeps the prefix private); the two spellings must match, and the plan
-/// drift guard pins the template's copy.
-const QUEUE_FOLD_PREFIX: &str = "decided -> folded into ";
 
 /// The increment suffix marker: a `task` value is a leading step slug optionally
 /// followed by `-inc<x>` naming one increment of that step (for example
@@ -91,39 +86,51 @@ pub(crate) fn check_workflow(
 	let questions = plan::parse_questions(plan_markdown);
 	let rounds = metrics::parse_rounds(log_contents);
 	let decisions = metrics::parse_decisions(log_contents);
+	let baselines = metrics::parse_baseline(log_contents);
 	let mut problems = round_log_consistency_problems(&rounds);
 	problems.extend(w3_problems(&steps, &rounds));
-	problems.extend(w4_problems(&questions, &decisions));
+	problems.extend(w4_problems(&questions, &decisions, &baselines));
 	problems
 }
 
 /// The numeric index of an Open-Questions id (`Q-<n>` -> `n`), or `None` when the
-/// id is not the live `Q-<n>` shape. W4 uses this to order ids for its derived
-/// boundary; the historical `OQ-<letter>` provenance markers do not parse and are
-/// ignored, matching `plan.rs`'s own `is_question_id` treatment.
+/// id is not the live `Q-<n>` shape. W4 uses this to place a decided item relative
+/// to the declared baseline cutoff; the historical `OQ-<letter>` provenance markers
+/// do not parse and are left unchecked, matching `plan.rs`'s own `is_question_id`
+/// treatment.
 fn question_index(id: &str) -> Option<u64> {
 	id.strip_prefix("Q-").and_then(|digits| digits.parse::<u64>().ok())
 }
 
-/// The W4 check: every decided Open-Questions item at or after the derived
-/// boundary must have a matching `type:"decision"` receipt in the round log.
+/// The W4 check: every decided Open-Questions item strictly after the DECLARED
+/// baseline cutoff must have a matching `type:"decision"` receipt in the round log.
 ///
-/// W4 is FORWARD-LOOKING and its boundary is DERIVED, not a hardcoded cutoff: it
-/// requires a receipt only for a decided item whose `q_id` index is at or above
-/// the MINIMUM index among the decision records that actually exist in the log, so
-/// the first receipt ever written establishes the boundary and the ~40 historical
-/// decided items that predate the mechanism (a lower index than any recorded
-/// receipt) are never flagged. With no decision records the boundary is undefined
-/// and W4 requires nothing (the current plan stays green until the first receipt
-/// lands). The general `baseline` marker planned in `waiver-model` can later
-/// subsume this self-contained boundary.
+/// W4 is FORWARD-LOOKING and its boundary is an INDEPENDENT DECLARED cutoff, NOT
+/// derived from the receipt set. A receipt-derived boundary (the earlier min-index
+/// design) is circular: the quantity W4 checks (is a receipt missing?) is the same
+/// quantity that would set the boundary, so a forgotten receipt could move its own
+/// exemption boundary and slip through silently. The boundary is therefore read
+/// from a separate `type:"baseline"` record's `questions_through` cutoff (projected
+/// by `metrics::parse_baseline`), which no missing receipt can move.
+///
+/// Semantics:
+///
+/// - A baseline IS declared: a decided item is exempt iff its `q_id` index is at or
+///   below the cutoff (it predates the mechanism); an item strictly after the
+///   cutoff REQUIRES a receipt. Multiple baselines resolve last-one-wins.
+/// - NO baseline is declared: every decided item REQUIRES a receipt. The exemption
+///   must be DECLARED and visible (the pause.md-catch ethos), never silently
+///   inferred, so a fresh project (no pre-existing decided items) needs no baseline
+///   and every decision it makes under the mechanism is correctly checked; only a
+///   repo migrating with pre-existing decisions declares a baseline to exempt them.
 fn w4_problems(
 	questions: &[Question],
 	decisions: &[Decision],
+	baselines: &[Baseline],
 ) -> Vec<String> {
-	let Some(boundary) = decisions.iter().filter_map(|d| question_index(&d.q_id)).min() else {
-		return Vec::new();
-	};
+	// Last-one-wins: a later baseline declaration in file order supersedes an
+	// earlier one. `None` means no baseline is declared, so nothing is exempt.
+	let cutoff = baselines.last().map(|baseline| baseline.questions_through);
 	let mut problems = Vec::new();
 	for question in questions {
 		// Only decided-and-folded items are in scope; open/exploring/superseded
@@ -132,13 +139,17 @@ fn w4_problems(
 			continue;
 		}
 		// An id that does not parse to an index cannot be placed relative to the
-		// boundary, so it is left unchecked (there are none in the live plan).
+		// cutoff, so it is left unchecked (there are none in the live plan).
 		let Some(index) = question_index(&question.id) else {
 			continue;
 		};
-		// Before the boundary: predates the mechanism, exempt.
-		if index < boundary {
-			continue;
+		// At or below the declared cutoff: predates the mechanism, exempt. With no
+		// baseline (`cutoff` is `None`) nothing is exempt, so every decided item is
+		// required to carry a receipt.
+		if let Some(cutoff) = cutoff {
+			if index <= cutoff {
+				continue;
+			}
 		}
 		if !decisions.iter().any(|d| d.q_id == question.id) {
 			problems.push(format!(
@@ -293,6 +304,16 @@ mod tests {
 	/// Parse a JSONL fixture into decision receipts via the metrics projection.
 	fn decisions(jsonl: &str) -> Vec<Decision> {
 		metrics::parse_decisions(jsonl)
+	}
+
+	/// Parse a JSONL fixture into baseline cutoffs via the metrics projection.
+	fn baselines(jsonl: &str) -> Vec<Baseline> {
+		metrics::parse_baseline(jsonl)
+	}
+
+	/// One minimal `baseline` log line declaring a decided-question cutoff.
+	fn baseline_line(questions_through: &str) -> String {
+		format!(r#"{{"type":"baseline","task":"t","questions_through":"{questions_through}"}}"#)
 	}
 
 	/// Parse an Open-Questions-only plan fixture into questions.
@@ -549,32 +570,25 @@ mod tests {
 	}
 
 	#[test]
-	fn w4_with_no_decision_records_flags_nothing() {
-		// The forward-looking no-op: with zero decision records the boundary is
-		// undefined, so no decided item is required to have a receipt (the whole
-		// current plan stays green until the first receipt is written).
+	fn w4_does_not_flag_a_decided_item_at_or_below_the_baseline_cutoff() {
+		// The historical exemption: with a declared baseline cutoff of Q-44, the
+		// pre-mechanism decided items at (Q-44) and below (Q-1, Q-40) with no receipt
+		// are NOT flagged, because the cutoff is at or above their index.
 		let plan = decided_questions_plan(&["Q-1", "Q-40", "Q-44"]);
-		let problems = w4_problems(&questions(&plan), &decisions(""));
+		let log = baseline_line("Q-44");
+		let problems = w4_problems(&questions(&plan), &decisions(&log), &baselines(&log));
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
 	#[test]
-	fn w4_passes_a_decided_item_with_a_matching_receipt() {
-		// A decided item that has its `type:"decision"` receipt (same q_id) passes.
-		let plan = decided_questions_plan(&["Q-44"]);
-		let log = decision_line("Q-44");
-		let problems = w4_problems(&questions(&plan), &decisions(&log));
-		assert!(problems.is_empty(), "{problems:?}");
-	}
-
-	#[test]
-	fn w4_flags_a_decided_item_at_the_boundary_without_a_receipt() {
-		// Two decided items, Q-44 and Q-45; the only receipt is for Q-44, which sets
-		// the boundary at index 44. Q-45 is at/after the boundary and has no receipt,
-		// so it is flagged; Q-44 (which has its receipt) is not.
+	fn w4_flags_a_decided_item_strictly_above_the_cutoff_without_a_receipt() {
+		// Two decided items, Q-44 and Q-45, with a baseline cutoff of Q-44. Q-45 is
+		// STRICTLY after the cutoff and has no receipt, so it is flagged; Q-44 (at the
+		// cutoff) is exempt. This is the case the derived-min boundary silently missed:
+		// no receipt exists for Q-45, yet the missing receipt cannot move the cutoff.
 		let plan = decided_questions_plan(&["Q-44", "Q-45"]);
-		let log = decision_line("Q-44");
-		let problems = w4_problems(&questions(&plan), &decisions(&log));
+		let log = baseline_line("Q-44");
+		let problems = w4_problems(&questions(&plan), &decisions(&log), &baselines(&log));
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("`Q-45` is decided")
@@ -585,27 +599,52 @@ mod tests {
 	}
 
 	#[test]
-	fn w4_does_not_flag_a_decided_item_before_the_boundary() {
-		// The historical exemption: the earliest receipt is for Q-44, so the boundary
-		// is index 44 and the ~40 pre-mechanism decided items (Q-1..Q-43) with no
-		// receipt are NOT flagged; only Q-44 (which has its receipt) is in scope and
-		// passes.
-		let plan = decided_questions_plan(&["Q-1", "Q-40", "Q-43", "Q-44"]);
-		let log = decision_line("Q-44");
-		let problems = w4_problems(&questions(&plan), &decisions(&log));
+	fn w4_passes_a_decided_item_above_the_cutoff_with_a_receipt() {
+		// Q-45 is strictly after the Q-44 cutoff, so it is in scope, and it has its
+		// matching `type:"decision"` receipt, so it passes.
+		let plan = decided_questions_plan(&["Q-45"]);
+		let log = [baseline_line("Q-44"), decision_line("Q-45")].join("\n");
+		let problems = w4_problems(&questions(&plan), &decisions(&log), &baselines(&log));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w4_with_no_baseline_requires_a_receipt_for_every_decided_item() {
+		// No baseline record: the exemption must be DECLARED, so with none every
+		// decided item requires a receipt. Q-1 carries its receipt and passes; Q-44
+		// has none and is flagged (the derived-min design would have exempted it).
+		let plan = decided_questions_plan(&["Q-1", "Q-44"]);
+		let log = decision_line("Q-1");
+		let problems = w4_problems(&questions(&plan), &decisions(&log), &baselines(&log));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("`Q-44` is decided")
+				&& problems[0].contains("has no matching `type:\"decision\"` receipt"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w4_with_no_baseline_passes_a_decided_item_that_has_a_receipt() {
+		// The companion to the no-baseline case: a decided item with its receipt
+		// passes even when no baseline is declared (the receipt satisfies the check).
+		let plan = decided_questions_plan(&["Q-1"]);
+		let log = decision_line("Q-1");
+		let problems = w4_problems(&questions(&plan), &decisions(&log), &baselines(&log));
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
 	#[test]
 	fn w4_ignores_non_decided_queue_items() {
-		// Only `decided -> folded into <slug>` items are in scope; an open item at or
-		// after the boundary carries no decision and is never flagged.
+		// Only `decided -> folded into <slug>` items are in scope; an open item after
+		// the cutoff carries no decision and is never flagged.
 		let plan = concat!(
 			"## Open Questions, Decisions, Issues and Blockers\n",
 			"- `Q-50` (open) an undecided ask.\n",
 		);
-		let log = decision_line("Q-44");
-		let problems = w4_problems(&questions(plan), &decisions(&log));
+		let log = baseline_line("Q-44");
+		let problems = w4_problems(&questions(plan), &decisions(&log), &baselines(&log));
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 

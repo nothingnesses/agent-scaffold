@@ -297,6 +297,15 @@ fn require_options<'a>(
 	Ok(options)
 }
 
+/// The numeric index of an Open-Questions id (`Q-<n>` -> `n`), or `None` when the
+/// id is not the `Q-<n>` shape. Shared by the `baseline` schema check and the
+/// `parse_baseline` projection so both agree on what a cutoff id looks like (the
+/// historical `OQ-<letter>` provenance markers do not parse and are rejected as a
+/// cutoff).
+fn question_id_index(id: &str) -> Option<u64> {
+	id.strip_prefix("Q-").and_then(|digits| digits.parse::<u64>().ok())
+}
+
 /// Check one already-parsed record against the schema, returning the first
 /// schema violation as a reason string, or `Ok(())` when the record is valid.
 /// Unknown extra fields are permitted (forward-compatible); only a missing
@@ -369,6 +378,27 @@ fn check_record(value: &Value) -> Result<(), String> {
 				return Err(format!(
 					"field `chosen` value `{chosen}` is not one of the presented `options` [{}]",
 					options.join(", ")
+				));
+			}
+		}
+		"baseline" => {
+			// A declared historical-exemption cutoff, written once when a repo with
+			// pre-existing decisions adopts the mechanism. `questions_through` names the
+			// highest decided Open-Questions item that predates the decision-receipt
+			// mechanism, so W4 exempts every decided item at or below it and requires a
+			// receipt only for items strictly after it. Enforcing the `Q-<n>` shape here
+			// (strict validation) keeps the best-effort `parse_baseline` projection and
+			// this check agreeing on what a cutoff id is.
+			//
+			// The record is deliberately open to more cutoff fields: a future
+			// `waiver-model` step adds a steps/rounds cutoff for W3's historical
+			// exemption to this same `baseline` type. Only the field this step consumes
+			// is constrained here, and unknown extra fields stay permitted (see the
+			// doc comment above), so that extension needs no change to this arm.
+			let cutoff = require_str(obj, "questions_through")?;
+			if question_id_index(cutoff).is_none() {
+				return Err(format!(
+					"field `questions_through` value `{cutoff}` is not a `Q-<n>` id"
 				));
 			}
 		}
@@ -503,6 +533,61 @@ pub(crate) fn parse_decisions(contents: &str) -> Vec<Decision> {
 		});
 	}
 	decisions
+}
+
+/// The workflow-relevant projection of one `baseline` record: the declared
+/// decided-question cutoff W4 consults for its historical exemption. A `baseline`
+/// record may carry more (a future `waiver-model` W3 cutoff on the same type), but
+/// W4 only needs the cutoff index, so the projection is deliberately narrow,
+/// parallel to `Decision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Baseline {
+	/// 1-based line number of the record within the log, for problem messages.
+	pub(crate) line: usize,
+	/// The decided-question cutoff index (`Q-<n>` -> `n`): every decided item at or
+	/// below it predates the mechanism and is exempt from W4.
+	pub(crate) questions_through: u64,
+}
+
+/// Project every well-formed `baseline` record in `contents` into a `Baseline`,
+/// preserving file order. A line that is blank, not JSON, not a `baseline`, or a
+/// `baseline` whose `questions_through` is missing or not a `Q-<n>` id is skipped
+/// here: schema violations are `validate_log`'s job, so this is a best-effort read
+/// for the W4 cross-reference (parallel to `parse_decisions`). A malformed cutoff
+/// is therefore treated as NO declared exemption rather than a silent pass, the
+/// safe direction (W4 then requires receipts, so a broken baseline cannot silently
+/// exempt anything).
+///
+/// Multiple `baseline` records resolve LAST-ONE-WINS: the caller takes the last
+/// element (`.last()`), so a later declaration in file order supersedes an earlier
+/// one. This is deterministic and lets a repo re-declare its cutoff by appending a
+/// new record rather than editing a past line (the log is append-only).
+pub(crate) fn parse_baseline(contents: &str) -> Vec<Baseline> {
+	let mut baselines = Vec::new();
+	for (index, line) in contents.lines().enumerate() {
+		if line.trim().is_empty() {
+			continue;
+		}
+		let Ok(value) = serde_json::from_str::<Value>(line) else {
+			continue;
+		};
+		let Some(obj) = value.as_object() else {
+			continue;
+		};
+		if obj.get("type").and_then(Value::as_str) != Some("baseline") {
+			continue;
+		}
+		let Some(questions_through) =
+			obj.get("questions_through").and_then(Value::as_str).and_then(question_id_index)
+		else {
+			continue;
+		};
+		baselines.push(Baseline {
+			line: index + 1,
+			questions_through,
+		});
+	}
+	baselines
 }
 
 /// Validate a JSONL metrics log, returning one `LineError` per malformed record.
@@ -802,6 +887,74 @@ mod tests {
 	}
 
 	#[test]
+	fn a_decision_with_a_non_array_options_is_reported() {
+		// `options` must be a JSON array; a bare string (a non-array value) is a
+		// wrong-type error, mirroring the sibling `reviewers` wrong-type test.
+		let line = r#"{"type":"decision","task":"t","q_id":"Q-1","options":"A,B","recommendation":"A","chosen":"A"}"#;
+		assert_eq!(one_error(line), "field `options` has wrong type (expected array)");
+	}
+
+	#[test]
+	fn a_valid_baseline_record_passes() {
+		// A well-formed baseline: a `questions_through` cutoff naming a `Q-<n>` id.
+		let line = r#"{"type":"baseline","task":"decision-receipt","questions_through":"Q-44","ts":"2026-07-18"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_baseline_missing_questions_through_is_reported() {
+		let line = r#"{"type":"baseline","task":"decision-receipt"}"#;
+		assert_eq!(one_error(line), "missing field `questions_through`");
+	}
+
+	#[test]
+	fn a_baseline_with_a_wrong_typed_questions_through_is_reported() {
+		// The cutoff must be a JSON string, not a number.
+		let line = r#"{"type":"baseline","task":"decision-receipt","questions_through":44}"#;
+		assert_eq!(one_error(line), "field `questions_through` has wrong type (expected string)");
+	}
+
+	#[test]
+	fn a_baseline_with_a_non_question_id_cutoff_is_reported() {
+		// Present and a string, but not the `Q-<n>` shape the cutoff must take.
+		let line = r#"{"type":"baseline","task":"decision-receipt","questions_through":"OQ-a"}"#;
+		assert_eq!(one_error(line), "field `questions_through` value `OQ-a` is not a `Q-<n>` id");
+	}
+
+	#[test]
+	fn parse_baseline_projects_valid_records_and_resolves_last_one_wins() {
+		// Best-effort projection: a well-formed baseline is projected to (line,
+		// cutoff index); a baseline with a non-`Q-<n>` cutoff and a non-baseline
+		// record are skipped silently. Two valid baselines are both projected in file
+		// order, so the caller's `.last()` (Q-50) supersedes the earlier one (Q-44).
+		let log = concat!(
+			r#"{"type":"baseline","task":"t","questions_through":"Q-44"}"#,
+			"\n",
+			r#"{"type":"decision","task":"t","q_id":"Q-45","options":["A"],"recommendation":"A","chosen":"A"}"#,
+			"\n",
+			r#"{"type":"baseline","task":"t","questions_through":"nope"}"#,
+			"\n",
+			r#"{"type":"baseline","task":"t","questions_through":"Q-50"}"#,
+			"\n",
+		);
+		let baselines = parse_baseline(log);
+		assert_eq!(
+			baselines,
+			vec![
+				Baseline {
+					line: 1,
+					questions_through: 44,
+				},
+				Baseline {
+					line: 4,
+					questions_through: 50,
+				},
+			]
+		);
+		assert_eq!(baselines.last().map(|b| b.questions_through), Some(50));
+	}
+
+	#[test]
 	fn parse_decisions_projects_well_formed_records_and_skips_malformed_ones() {
 		// Best-effort projection: a well-formed decision is projected to (q_id, line);
 		// a decision missing `q_id`, a non-decision record, and a malformed line are
@@ -860,7 +1013,9 @@ mod tests {
 		// Anchor on the quoted form the prose uses (`type: "round"`), not a bare
 		// substring: `round`/`escalation` also occur as plain words elsewhere, so an
 		// unanchored match would not catch the deletion of a type's documentation.
-		for record_type in ["round", "escalation", "dismissal_recheck", "intake", "decision"] {
+		for record_type in
+			["round", "escalation", "dismissal_recheck", "intake", "decision", "baseline"]
+		{
 			assert!(
 				prose.contains(&format!("\"{record_type}\"")),
 				"record type `{record_type}` accepted by the validator is not documented in pack/instrument.md"
@@ -894,6 +1049,7 @@ mod tests {
 			"options",
 			"recommendation",
 			"chosen",
+			"questions_through",
 		] {
 			// Anchor with backticks: the prose writes every field as `field`, so a
 			// backtick-wrapped match avoids a false positive from a short name

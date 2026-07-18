@@ -84,7 +84,10 @@ const QUEUE_EXACT_STATUSES: &[&str] = &["open", "exploring", "superseded"];
 /// The parametric Open Questions status prefix: `decided -> folded into <slug>`
 /// names the step the decision was folded into. The trailing space is significant:
 /// the backticked target slug follows it, and `validate_plan` cross-references it.
-const QUEUE_FOLD_PREFIX: &str = "decided -> folded into ";
+/// Exposed to the crate so `workflow.rs`'s W4 check reuses this one definition
+/// rather than carrying a second byte-identical copy that could drift out of sync
+/// and silently disable W4.
+pub(crate) const QUEUE_FOLD_PREFIX: &str = "decided -> folded into ";
 
 /// Return the backticked value between the first pair of backticks in `text`, or
 /// `None` when there is not a complete pair. Used to read a slug from a table cell

@@ -94,6 +94,21 @@ fn leading_slug(task: &str) -> &str {
 	task
 }
 
+// The four join accessors below resolve the STEP axis and the INCREMENT axis
+// INDEPENDENTLY. Per the Inc 2 contract the two ids are separately optional ("when
+// either is present it must be a non-empty string"), so a record may carry exactly
+// one of them; each accessor therefore falls back on its OWN field alone, with no
+// coupling to the other. The consequence is a chosen, pinned outcome, not an
+// accident: an `increment`-only record still resolves its STEP join through the
+// `leading_slug(task)` shim, so if its `task` ends `-inc<alnum>` the residual T3
+// over-strip persists on the UNFILLED step axis (pinned by
+// `w3_an_increment_only_round_falls_back_to_the_shim_on_the_unfilled_step_axis`);
+// symmetrically a `step`-only record groups by its raw `task` on the increment
+// axis. We deliberately do NOT force the two to co-occur: that would contradict
+// the contract's independent optionality. Principle 19: doc and code agree that a
+// partial record falls back per axis rather than being rejected or specially
+// cased.
+
 /// The Roadmap step slug a round joins to: its STRUCTURED `step` id when the
 /// record carries one (records written from Inc 2 onward), else `leading_slug`
 /// of its `task` (the pre-migration shim). Preferring the structured id retires
@@ -1286,6 +1301,44 @@ mod tests {
 		let log = round_line("state-schema-inc1", "a", "clean", 1, "low_risk");
 		let problems =
 			w3_problems(&steps(&one_step_plan("state-schema", "complete")), &rounds(&log), &[]);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w3_an_increment_only_round_falls_back_to_the_shim_on_the_unfilled_step_axis() {
+		// O1 (single-field join, unfilled STEP axis): the `step`/`increment` ids are
+		// independently optional, so a round may carry `increment` WITHOUT `step`. On
+		// the unfilled step axis `round_step_slug` falls back to the `leading_slug`
+		// shim, which over-strips `foo-incidental` to `foo` (T3). Pin this as the
+		// CHOSEN outcome, not a bug: the `complete` `foo-incidental` step sees no
+		// matching rounds (the round joined to `foo`) and is caught by the pause.md
+		// catch, exactly as a fieldless record would be. The present `increment` id
+		// does nothing for the step axis; the axes fall back independently.
+		assert_eq!(leading_slug("foo-incidental"), "foo", "the shim over-strips this task");
+		let log = r#"{"type":"round","task":"foo-incidental","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk","increment":"foo-incidental"}"#;
+		let problems =
+			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(log), &[]);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("has no round records and no covering waiver"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w3_a_step_only_round_joins_on_its_structured_step_and_falls_back_on_the_increment_axis() {
+		// O1 (single-field join, filled STEP axis): the mirror case, a round carrying
+		// `step` WITHOUT `increment`. On the filled step axis `round_step_slug` uses
+		// the structured `foo-incidental` id and joins to the `complete`
+		// `foo-incidental` step directly (no over-strip), so the step converges. On
+		// the unfilled increment axis `round_increment_id` falls back to the raw
+		// `task` (`foo-incidental`) as its grouping key. Pin that the filled axis uses
+		// the structured id while the unfilled axis independently uses the `task`
+		// shim, with no coupling between the two.
+		let log = r#"{"type":"round","task":"foo-incidental","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk","step":"foo-incidental"}"#;
+		let problems =
+			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(log), &[]);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 

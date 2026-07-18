@@ -1493,6 +1493,38 @@ mod tests {
 	}
 
 	#[test]
+	fn a_round_with_only_a_structured_step_is_accepted() {
+		// S3/O1 (independent optionality): `step` and `increment` are separately
+		// optional, so a round carrying `step` WITHOUT `increment` validates. Pins
+		// that `require_structured_ids` checks each field on its own and never
+		// requires the pair to co-occur.
+		let line = r#"{"type":"round","task":"foo-incidental","artifact":"a","phase":"work_review","changed_since_prev":false,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","step":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_round_with_only_a_structured_increment_is_accepted() {
+		// The mirror of the above: `increment` WITHOUT `step` also validates.
+		let line = r#"{"type":"round","task":"foo-incidental","artifact":"a","phase":"work_review","changed_since_prev":false,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk","increment":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn an_escalation_with_only_a_structured_step_is_accepted() {
+		// The escalation side of the same independent-optionality contract: `step`
+		// present, `increment` absent, accepted.
+		let line = r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision","step":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn an_escalation_with_only_a_structured_increment_is_accepted() {
+		// The mirror: `increment` present, `step` absent, accepted.
+		let line = r#"{"type":"escalation","task":"foo-incidental","artifact":"a","human_decision":"decision","increment":"foo-incidental"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
 	fn a_round_with_an_empty_structured_step_is_reported() {
 		// Present but blank is rejected, so a blank id can never masquerade as a real
 		// join key (the field is optional, but not optionally-empty).

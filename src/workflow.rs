@@ -27,16 +27,25 @@ use {
 	crate::{
 		metrics::{
 			self,
+			Decision,
 			Round,
 			RoundOutcome,
 		},
 		plan::{
 			self,
+			Question,
 			Step,
 		},
 	},
 	std::collections::BTreeMap,
 };
+
+/// The Open-Questions status prefix marking a decided item folded into a step
+/// (`decided -> folded into <slug>`). Held as a local constant here rather than
+/// imported from `plan.rs` because `plan.rs` stays byte-identical for this step
+/// (it keeps the prefix private); the two spellings must match, and the plan
+/// drift guard pins the template's copy.
+const QUEUE_FOLD_PREFIX: &str = "decided -> folded into ";
 
 /// The increment suffix marker: a `task` value is a leading step slug optionally
 /// followed by `-inc<x>` naming one increment of that step (for example
@@ -79,9 +88,65 @@ pub(crate) fn check_workflow(
 	log_contents: &str,
 ) -> Vec<String> {
 	let steps = plan::parse_roadmap(plan_markdown);
+	let questions = plan::parse_questions(plan_markdown);
 	let rounds = metrics::parse_rounds(log_contents);
+	let decisions = metrics::parse_decisions(log_contents);
 	let mut problems = round_log_consistency_problems(&rounds);
 	problems.extend(w3_problems(&steps, &rounds));
+	problems.extend(w4_problems(&questions, &decisions));
+	problems
+}
+
+/// The numeric index of an Open-Questions id (`Q-<n>` -> `n`), or `None` when the
+/// id is not the live `Q-<n>` shape. W4 uses this to order ids for its derived
+/// boundary; the historical `OQ-<letter>` provenance markers do not parse and are
+/// ignored, matching `plan.rs`'s own `is_question_id` treatment.
+fn question_index(id: &str) -> Option<u64> {
+	id.strip_prefix("Q-").and_then(|digits| digits.parse::<u64>().ok())
+}
+
+/// The W4 check: every decided Open-Questions item at or after the derived
+/// boundary must have a matching `type:"decision"` receipt in the round log.
+///
+/// W4 is FORWARD-LOOKING and its boundary is DERIVED, not a hardcoded cutoff: it
+/// requires a receipt only for a decided item whose `q_id` index is at or above
+/// the MINIMUM index among the decision records that actually exist in the log, so
+/// the first receipt ever written establishes the boundary and the ~40 historical
+/// decided items that predate the mechanism (a lower index than any recorded
+/// receipt) are never flagged. With no decision records the boundary is undefined
+/// and W4 requires nothing (the current plan stays green until the first receipt
+/// lands). The general `baseline` marker planned in `waiver-model` can later
+/// subsume this self-contained boundary.
+fn w4_problems(
+	questions: &[Question],
+	decisions: &[Decision],
+) -> Vec<String> {
+	let Some(boundary) = decisions.iter().filter_map(|d| question_index(&d.q_id)).min() else {
+		return Vec::new();
+	};
+	let mut problems = Vec::new();
+	for question in questions {
+		// Only decided-and-folded items are in scope; open/exploring/superseded
+		// items carry no decision to receipt.
+		if !question.status.starts_with(QUEUE_FOLD_PREFIX) {
+			continue;
+		}
+		// An id that does not parse to an index cannot be placed relative to the
+		// boundary, so it is left unchecked (there are none in the live plan).
+		let Some(index) = question_index(&question.id) else {
+			continue;
+		};
+		// Before the boundary: predates the mechanism, exempt.
+		if index < boundary {
+			continue;
+		}
+		if !decisions.iter().any(|d| d.q_id == question.id) {
+			problems.push(format!(
+				"Open-Questions item `{}` is decided (folded into a step) but has no matching `type:\"decision\"` receipt in the round log; record a decision receipt with `q_id` `{}`",
+				question.id, question.id
+			));
+		}
+	}
 	problems
 }
 
@@ -223,6 +288,32 @@ mod tests {
 	/// Parse a JSONL fixture into rounds via the metrics projection.
 	fn rounds(jsonl: &str) -> Vec<Round> {
 		metrics::parse_rounds(jsonl)
+	}
+
+	/// Parse a JSONL fixture into decision receipts via the metrics projection.
+	fn decisions(jsonl: &str) -> Vec<Decision> {
+		metrics::parse_decisions(jsonl)
+	}
+
+	/// Parse an Open-Questions-only plan fixture into questions.
+	fn questions(markdown: &str) -> Vec<Question> {
+		plan::parse_questions(markdown)
+	}
+
+	/// One minimal `decision` receipt log line naming the question id it decides.
+	fn decision_line(q_id: &str) -> String {
+		format!(
+			r#"{{"type":"decision","task":"t","q_id":"{q_id}","options":["A","B"],"recommendation":"A","chosen":"A"}}"#
+		)
+	}
+
+	/// An Open-Questions plan fixture: one decided-and-folded item per given id.
+	fn decided_questions_plan(ids: &[&str]) -> String {
+		let mut markdown = String::from("## Open Questions, Decisions, Issues and Blockers\n");
+		for id in ids {
+			markdown.push_str(&format!("- `{id}` (decided -> folded into `some-step`) an ask.\n"));
+		}
+		markdown
 	}
 
 	/// Build one minimal `round` log line carrying only the fields the projection
@@ -455,6 +546,67 @@ mod tests {
 		]
 		.join("\n");
 		assert!(round_log_consistency_problems(&rounds(&log)).is_empty());
+	}
+
+	#[test]
+	fn w4_with_no_decision_records_flags_nothing() {
+		// The forward-looking no-op: with zero decision records the boundary is
+		// undefined, so no decided item is required to have a receipt (the whole
+		// current plan stays green until the first receipt is written).
+		let plan = decided_questions_plan(&["Q-1", "Q-40", "Q-44"]);
+		let problems = w4_problems(&questions(&plan), &decisions(""));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w4_passes_a_decided_item_with_a_matching_receipt() {
+		// A decided item that has its `type:"decision"` receipt (same q_id) passes.
+		let plan = decided_questions_plan(&["Q-44"]);
+		let log = decision_line("Q-44");
+		let problems = w4_problems(&questions(&plan), &decisions(&log));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w4_flags_a_decided_item_at_the_boundary_without_a_receipt() {
+		// Two decided items, Q-44 and Q-45; the only receipt is for Q-44, which sets
+		// the boundary at index 44. Q-45 is at/after the boundary and has no receipt,
+		// so it is flagged; Q-44 (which has its receipt) is not.
+		let plan = decided_questions_plan(&["Q-44", "Q-45"]);
+		let log = decision_line("Q-44");
+		let problems = w4_problems(&questions(&plan), &decisions(&log));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("`Q-45` is decided")
+				&& problems[0].contains("has no matching `type:\"decision\"` receipt"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w4_does_not_flag_a_decided_item_before_the_boundary() {
+		// The historical exemption: the earliest receipt is for Q-44, so the boundary
+		// is index 44 and the ~40 pre-mechanism decided items (Q-1..Q-43) with no
+		// receipt are NOT flagged; only Q-44 (which has its receipt) is in scope and
+		// passes.
+		let plan = decided_questions_plan(&["Q-1", "Q-40", "Q-43", "Q-44"]);
+		let log = decision_line("Q-44");
+		let problems = w4_problems(&questions(&plan), &decisions(&log));
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w4_ignores_non_decided_queue_items() {
+		// Only `decided -> folded into <slug>` items are in scope; an open item at or
+		// after the boundary carries no decision and is never flagged.
+		let plan = concat!(
+			"## Open Questions, Decisions, Issues and Blockers\n",
+			"- `Q-50` (open) an undecided ask.\n",
+		);
+		let log = decision_line("Q-44");
+		let problems = w4_problems(&questions(plan), &decisions(&log));
+		assert!(problems.is_empty(), "{problems:?}");
 	}
 
 	#[test]

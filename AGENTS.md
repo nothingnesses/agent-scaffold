@@ -134,6 +134,7 @@ Instrumentation is enabled for this project (it was scaffolded with `--instrumen
 - `type: "escalation"` (one per total-round-cap escalation): `artifact` and `human_decision` (`decision` if the human changed course, `resume` if they just resumed).
 - `type: "dismissal_recheck"` (one per re-checked high or critical dismissal): `artifact` and `result` (`upheld` or `overturned`).
 - `type: "intake"` (one per human interrupt): `classification` (`trivial` or `non_trivial`) and `replanned` (boolean: whether a trivial call later had to be re-planned, that is, a misclassification).
+- `type: "decision"` (one per human decision folded into a step, the decision receipt): `q_id` (the Open-Questions id this receipt decides, for example `Q-44`), `options` (a non-empty array of the option label strings presented to the human), `recommendation` (the orchestrator's recommended option), and `chosen` (the human's choice, which must be one of `options`; choosing an option inherently records that the full set was presented, so the receipt is auditable evidence the human-input contract was met rather than a self-certified flag). Write one when an Open-Questions item goes `decided -> folded into <slug>`; `validate --workflow` (the W4 check) requires a matching receipt for every decided item at or after the first one recorded.
 
 The log can be checked against this schema with `agent-scaffold validate`, which exits non-zero and reports any malformed record.
 

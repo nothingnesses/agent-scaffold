@@ -269,6 +269,34 @@ fn require_reviewers(
 	Ok(())
 }
 
+/// Check the `decision` record's `options`: a required NON-EMPTY array whose
+/// every element is a string. Modelled on `require_severities` minus the enum
+/// step (an option label is any string, not a member of a fixed set). Returns the
+/// option strings on success so the caller can check `chosen` membership against
+/// them without re-reading the field.
+fn require_options<'a>(
+	obj: &'a Map<String, Value>,
+	name: &str,
+) -> Result<Vec<&'a str>, String> {
+	let value = obj.get(name).ok_or_else(|| format!("missing field `{name}`"))?;
+	let array = value
+		.as_array()
+		.ok_or_else(|| format!("field `{name}` has wrong type (expected array)"))?;
+	// A present-but-empty array cannot describe a real decision (a choice needs at
+	// least one option to choose from), so an empty array is a malformed record.
+	if array.is_empty() {
+		return Err(format!("field `{name}` is empty"));
+	}
+	let mut options = Vec::with_capacity(array.len());
+	for (index, element) in array.iter().enumerate() {
+		let text = element
+			.as_str()
+			.ok_or_else(|| format!("field `{name}`[{index}] has wrong type (expected string)"))?;
+		options.push(text);
+	}
+	Ok(options)
+}
+
 /// Check one already-parsed record against the schema, returning the first
 /// schema violation as a reason string, or `Ok(())` when the record is valid.
 /// Unknown extra fields are permitted (forward-compatible); only a missing
@@ -325,6 +353,24 @@ fn check_record(value: &Value) -> Result<(), String> {
 				Classification::parse(text).is_some()
 			})?;
 			require_bool(obj, "replanned")?;
+		}
+		"decision" => {
+			// A human-decision receipt: the question id it decides, the option labels
+			// presented, the recommendation, and the human's choice. The one genuinely
+			// new cross-field constraint is that `chosen` names one of the presented
+			// `options` (choosing Y from {X, Y, Z} inherently records that {X, Y, Z}
+			// was shown), which is what makes the receipt evidence rather than a
+			// self-certified flag.
+			require_str(obj, "q_id")?;
+			let options = require_options(obj, "options")?;
+			require_str(obj, "recommendation")?;
+			let chosen = require_str(obj, "chosen")?;
+			if !options.contains(&chosen) {
+				return Err(format!(
+					"field `chosen` value `{chosen}` is not one of the presented `options` [{}]",
+					options.join(", ")
+				));
+			}
 		}
 		other => return Err(format!("unknown `type` `{other}`")),
 	}
@@ -412,6 +458,51 @@ pub(crate) fn parse_rounds(contents: &str) -> Vec<Round> {
 		});
 	}
 	rounds
+}
+
+/// The workflow-relevant projection of one `decision` record: the fields the
+/// `workflow.rs` W4 cross-reference reads. A decision record carries more (the
+/// options, the recommendation, the choice), but W4 only needs the question id it
+/// decides and the record's line, so the projection is deliberately narrow,
+/// parallel to `Round`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Decision {
+	/// 1-based line number of the record within the log, for problem messages.
+	pub(crate) line: usize,
+	/// The Open-Questions id this receipt decides (for example `Q-44`).
+	pub(crate) q_id: String,
+}
+
+/// Project every well-formed `decision` record in `contents` into a `Decision`,
+/// preserving file order. A line that is blank, not JSON, not a `decision`, or a
+/// `decision` missing its projected `q_id` is skipped here: schema violations are
+/// the job of `validate_log`, which reports them, so this projection is a
+/// best-effort read for the W4 cross-reference and does not re-report them
+/// (parallel to `parse_rounds`).
+pub(crate) fn parse_decisions(contents: &str) -> Vec<Decision> {
+	let mut decisions = Vec::new();
+	for (index, line) in contents.lines().enumerate() {
+		if line.trim().is_empty() {
+			continue;
+		}
+		let Ok(value) = serde_json::from_str::<Value>(line) else {
+			continue;
+		};
+		let Some(obj) = value.as_object() else {
+			continue;
+		};
+		if obj.get("type").and_then(Value::as_str) != Some("decision") {
+			continue;
+		}
+		let Some(q_id) = obj.get("q_id").and_then(Value::as_str) else {
+			continue;
+		};
+		decisions.push(Decision {
+			line: index + 1,
+			q_id: q_id.to_string(),
+		});
+	}
+	decisions
 }
 
 /// Validate a JSONL metrics log, returning one `LineError` per malformed record.
@@ -653,6 +744,97 @@ mod tests {
 	}
 
 	#[test]
+	fn a_valid_decision_record_passes() {
+		// A well-formed decision receipt: q_id, a non-empty options array, a
+		// recommendation, and a chosen value that is a member of options.
+		let line = r#"{"type":"decision","task":"agent-scaffold","q_id":"Q-44","options":["A","B","C"],"recommendation":"B","chosen":"B","ts":"2026-07-18T00:00:00Z"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_decision_with_chosen_not_in_options_is_rejected() {
+		// The one genuinely new cross-field constraint: `chosen` must name one of the
+		// presented `options`.
+		let line = r#"{"type":"decision","task":"t","q_id":"Q-44","options":["A","B"],"recommendation":"A","chosen":"Z"}"#;
+		assert_eq!(
+			one_error(line),
+			"field `chosen` value `Z` is not one of the presented `options` [A, B]"
+		);
+	}
+
+	#[test]
+	fn a_decision_missing_q_id_is_reported() {
+		let line =
+			r#"{"type":"decision","task":"t","options":["A"],"recommendation":"A","chosen":"A"}"#;
+		assert_eq!(one_error(line), "missing field `q_id`");
+	}
+
+	#[test]
+	fn a_decision_missing_options_is_reported() {
+		let line =
+			r#"{"type":"decision","task":"t","q_id":"Q-1","recommendation":"A","chosen":"A"}"#;
+		assert_eq!(one_error(line), "missing field `options`");
+	}
+
+	#[test]
+	fn a_decision_missing_recommendation_is_reported() {
+		let line = r#"{"type":"decision","task":"t","q_id":"Q-1","options":["A"],"chosen":"A"}"#;
+		assert_eq!(one_error(line), "missing field `recommendation`");
+	}
+
+	#[test]
+	fn a_decision_missing_chosen_is_reported() {
+		let line =
+			r#"{"type":"decision","task":"t","q_id":"Q-1","options":["A"],"recommendation":"A"}"#;
+		assert_eq!(one_error(line), "missing field `chosen`");
+	}
+
+	#[test]
+	fn a_decision_with_an_empty_options_array_is_reported() {
+		let line = r#"{"type":"decision","task":"t","q_id":"Q-1","options":[],"recommendation":"A","chosen":"A"}"#;
+		assert_eq!(one_error(line), "field `options` is empty");
+	}
+
+	#[test]
+	fn a_decision_with_a_non_string_option_is_reported() {
+		let line = r#"{"type":"decision","task":"t","q_id":"Q-1","options":["A",7],"recommendation":"A","chosen":"A"}"#;
+		assert_eq!(one_error(line), "field `options`[1] has wrong type (expected string)");
+	}
+
+	#[test]
+	fn parse_decisions_projects_well_formed_records_and_skips_malformed_ones() {
+		// Best-effort projection: a well-formed decision is projected to (q_id, line);
+		// a decision missing `q_id`, a non-decision record, and a malformed line are
+		// all skipped silently (their reporting is validate_log's job).
+		let log = concat!(
+			r#"{"type":"decision","task":"t","q_id":"Q-44","options":["A","B"],"recommendation":"A","chosen":"A"}"#,
+			"\n",
+			r#"{"type":"round","task":"t","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk"}"#,
+			"\n",
+			r#"{"type":"decision","task":"t","options":["A"]}"#,
+			"\n",
+			"{not json",
+			"\n",
+			r#"{"type":"decision","task":"t","q_id":"Q-50","options":["X"],"recommendation":"X","chosen":"X"}"#,
+			"\n",
+		);
+		let decisions = parse_decisions(log);
+		assert_eq!(
+			decisions,
+			vec![
+				Decision {
+					line: 1,
+					q_id: "Q-44".to_string(),
+				},
+				Decision {
+					line: 5,
+					q_id: "Q-50".to_string(),
+				},
+			]
+		);
+	}
+
+	#[test]
 	fn an_optional_ts_of_wrong_type_is_reported() {
 		// `ts` is optional, but when present it must be a string.
 		let line = r#"{"type":"intake","task":"demo","classification":"trivial","replanned":false,"ts":123}"#;
@@ -678,7 +860,7 @@ mod tests {
 		// Anchor on the quoted form the prose uses (`type: "round"`), not a bare
 		// substring: `round`/`escalation` also occur as plain words elsewhere, so an
 		// unanchored match would not catch the deletion of a type's documentation.
-		for record_type in ["round", "escalation", "dismissal_recheck", "intake"] {
+		for record_type in ["round", "escalation", "dismissal_recheck", "intake", "decision"] {
 			assert!(
 				prose.contains(&format!("\"{record_type}\"")),
 				"record type `{record_type}` accepted by the validator is not documented in pack/instrument.md"
@@ -708,6 +890,10 @@ mod tests {
 			"result",
 			"classification",
 			"replanned",
+			"q_id",
+			"options",
+			"recommendation",
+			"chosen",
 		] {
 			// Anchor with backticks: the prose writes every field as `field`, so a
 			// backtick-wrapped match avoids a false positive from a short name

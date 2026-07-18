@@ -81,8 +81,10 @@ enum_field! {
 }
 
 enum_field! {
-	/// What the human did at a total-round-cap escalation.
-	HumanDecision {
+	/// What the human did at a total-round-cap escalation. Exposed to the crate
+	/// because `workflow.rs`'s W5 check joins a `record-backed` waiver's evidence
+	/// against an escalation record's `human_decision`.
+	pub(crate) HumanDecision {
 		Decision => "decision",
 		Resume => "resume",
 	}
@@ -144,6 +146,68 @@ enum_field! {
 		Medium => "medium",
 		High => "high",
 		Critical => "critical",
+	}
+}
+
+enum_field! {
+	/// Which unit a `waiver` record exempts from the convergence bar: a whole
+	/// Roadmap `step` (for a step that predates round-logging or whose review was
+	/// skipped) or one `increment` of a step (for an increment accepted below its
+	/// required streak). An increment waiver may be a self-declared
+	/// `review-skipped`/`predates-logging` exemption OR a record-backed
+	/// `accepted-at-escalation` one; the two tiers exist to stop a weak
+	/// self-declaration being laundered into a strong claim, not to forbid
+	/// self-declaration. Exposed to the crate because `workflow.rs`'s W3 refactor
+	/// reads it to decide whether a waiver covers a step-with-no-records or a
+	/// short-streak increment.
+	pub(crate) WaiverUnit {
+		Step => "step",
+		Increment => "increment",
+	}
+}
+
+enum_field! {
+	/// Why a `waiver` exempts its unit from the convergence bar. Exposed to the crate
+	/// because `workflow.rs`'s W5 check enforces the `reason` <-> `evidence_tier`
+	/// pairing (`predates-logging` and `review-skipped` are self-declared;
+	/// `accepted-at-escalation` is record-backed).
+	pub(crate) WaiverReason {
+		PredatesLogging => "predates-logging",
+		ReviewSkipped => "review-skipped",
+		AcceptedAtEscalation => "accepted-at-escalation",
+	}
+}
+
+enum_field! {
+	/// How strongly a `waiver` is evidenced: a `self-declared` waiver is the author's
+	/// word, a `record-backed` waiver points at an independent `type:"escalation"`
+	/// record. Kept as two tiers so a cleanup cannot launder a weak self-declaration
+	/// into looking as strong as an independent escalation record; W5 enforces which
+	/// reason may claim which tier. Exposed to the crate for the W5 join.
+	pub(crate) EvidenceTier {
+		SelfDeclared => "self-declared",
+		RecordBacked => "record-backed",
+	}
+}
+
+impl WaiverReason {
+	/// The on-disk spelling of this reason, for W5 problem messages.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			WaiverReason::PredatesLogging => "predates-logging",
+			WaiverReason::ReviewSkipped => "review-skipped",
+			WaiverReason::AcceptedAtEscalation => "accepted-at-escalation",
+		}
+	}
+}
+
+impl EvidenceTier {
+	/// The on-disk spelling of this evidence tier, for W5 problem messages.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			EvidenceTier::SelfDeclared => "self-declared",
+			EvidenceTier::RecordBacked => "record-backed",
+		}
 	}
 }
 
@@ -348,6 +412,11 @@ fn check_record(value: &Value) -> Result<(), String> {
 			}
 		}
 		"escalation" => {
+			// The `task` a record-backed waiver's `evidence` joins to must be non-empty,
+			// so an empty-`task` escalation can never satisfy the W5 join.
+			if require_str(obj, "task")?.is_empty() {
+				return Err("field `task` is empty".to_string());
+			}
 			require_str(obj, "artifact")?;
 			require_enum(obj, "human_decision", HumanDecision::VARIANTS, |text| {
 				HumanDecision::parse(text).is_some()
@@ -392,16 +461,78 @@ fn check_record(value: &Value) -> Result<(), String> {
 			// (strict validation) keeps the best-effort `parse_baseline` projection and
 			// this check agreeing on what a cutoff id is.
 			//
-			// The record is deliberately open to more cutoff fields: a future
-			// `waiver-model` step adds a steps/rounds cutoff for W3's historical
-			// exemption to this same `baseline` type. Only the field this step consumes
-			// is constrained here, and unknown extra fields stay permitted (see the
-			// doc comment above), so that extension needs no change to this arm.
+			// The `baseline` type serves W4 only (the `questions_through` cutoff); W3's
+			// historical exemption is carried by per-unit `type:"waiver"` records, not a
+			// cutoff on this type. Only the field this arm consumes is constrained, and
+			// unknown extra fields stay permitted (see the doc comment above).
 			let cutoff = require_str(obj, "questions_through")?;
 			if question_id_index(cutoff).is_none() {
 				return Err(format!(
 					"field `questions_through` value `{cutoff}` is not a `Q-<n>` id"
 				));
+			}
+		}
+		"waiver" => {
+			// An authorised waiver of the convergence bar for one unit. The two
+			// cross-field constraints are what keep it honest: the `increment` field is
+			// present exactly for an `increment`-unit waiver (a step-unit waiver names no
+			// increment), and the `evidence` pointer is present exactly for a
+			// `record-backed` waiver (a self-declared waiver carries no pointer). A
+			// malformed waiver is reported HERE so it cannot silently grant an exemption
+			// while the best-effort `parse_waivers` drops it. The `reason` <-> tier
+			// pairing (which reason may claim which tier) is W5's job, not this schema
+			// check's, so it is not enforced here.
+			let unit = require_str(obj, "unit")?;
+			let unit_variant = WaiverUnit::parse(unit).ok_or_else(|| {
+				format!(
+					"field `unit` value `{unit}` not one of [{}]",
+					WaiverUnit::VARIANTS.join(", ")
+				)
+			})?;
+			let step = require_str(obj, "step")?;
+			if step.is_empty() {
+				return Err("field `step` is empty".to_string());
+			}
+			require_enum(obj, "reason", WaiverReason::VARIANTS, |text| {
+				WaiverReason::parse(text).is_some()
+			})?;
+			let tier = require_str(obj, "evidence_tier")?;
+			let tier_variant = EvidenceTier::parse(tier).ok_or_else(|| {
+				format!(
+					"field `evidence_tier` value `{tier}` not one of [{}]",
+					EvidenceTier::VARIANTS.join(", ")
+				)
+			})?;
+			// `increment` presence is tied to `unit`: required (and non-empty) for an
+			// increment-unit waiver, forbidden for a step-unit one.
+			match unit_variant {
+				WaiverUnit::Increment => {
+					let increment = require_str(obj, "increment")?;
+					if increment.is_empty() {
+						return Err("field `increment` is empty".to_string());
+					}
+				}
+				WaiverUnit::Step =>
+					if obj.contains_key("increment") {
+						return Err(
+							"field `increment` is forbidden when `unit` is `step`".to_string()
+						);
+					},
+			}
+			// `evidence` presence is tied to `evidence_tier`: required for a
+			// record-backed waiver, forbidden for a self-declared one.
+			match tier_variant {
+				EvidenceTier::RecordBacked =>
+					if require_str(obj, "evidence")?.is_empty() {
+						return Err("field `evidence` is empty".to_string());
+					},
+				EvidenceTier::SelfDeclared =>
+					if obj.contains_key("evidence") {
+						return Err(
+							"field `evidence` is forbidden when `evidence_tier` is `self-declared`"
+								.to_string(),
+						);
+					},
 			}
 		}
 		other => return Err(format!("unknown `type` `{other}`")),
@@ -538,10 +669,10 @@ pub(crate) fn parse_decisions(contents: &str) -> Vec<Decision> {
 }
 
 /// The workflow-relevant projection of one `baseline` record: the declared
-/// decided-question cutoff W4 consults for its historical exemption. A `baseline`
-/// record may carry more (a future `waiver-model` W3 cutoff on the same type), but
-/// W4 only needs the cutoff index, so the projection is deliberately narrow,
-/// parallel to `Decision`.
+/// decided-question cutoff W4 consults for its historical exemption. The `baseline`
+/// type serves W4 only; W3's historical exemption is carried by per-unit
+/// `type:"waiver"` records, not a cutoff on this type. The projection is
+/// deliberately narrow (only the cutoff index W4 needs), parallel to `Decision`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Baseline {
 	/// 1-based line number of the record within the log, for problem messages.
@@ -590,6 +721,153 @@ pub(crate) fn parse_baseline(contents: &str) -> Vec<Baseline> {
 		});
 	}
 	baselines
+}
+
+/// The workflow-relevant projection of one `waiver` record: an authorised
+/// exemption from the convergence bar that `workflow.rs`'s W3 (does a covering
+/// waiver exist?) and W5 (is the waiver well-evidenced?) read. Projected by
+/// `parse_waivers`, parallel to `Decision`/`Baseline`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Waiver {
+	/// 1-based line number of the record within the log, for problem messages.
+	pub(crate) line: usize,
+	/// Whether the waiver covers a whole `step` or one `increment` of it.
+	pub(crate) unit: WaiverUnit,
+	/// The Roadmap step slug the waiver covers (W5 checks it names a real step).
+	pub(crate) step: String,
+	/// The increment token this waiver covers, present exactly for an
+	/// `increment`-unit waiver (matched against a round's full `task` in W3).
+	pub(crate) increment: Option<String>,
+	/// Why the waiver exempts its unit (W5 pairs it against the evidence tier).
+	pub(crate) reason: WaiverReason,
+	/// How strongly the waiver is evidenced (W5 pairs it against the reason and,
+	/// for the record-backed tier, joins the evidence against an escalation record).
+	pub(crate) evidence_tier: EvidenceTier,
+	/// The backing-record pointer, present exactly for a `record-backed` waiver;
+	/// for an `accepted-at-escalation` waiver it names the escalation record by its
+	/// `task`.
+	pub(crate) evidence: Option<String>,
+}
+
+/// Project every well-formed `waiver` record in `contents` into a `Waiver`,
+/// preserving file order. Best-effort, parallel to `parse_baseline`: a line that is
+/// blank, not JSON, not a `waiver`, or a waiver that violates the schema (a bad
+/// enum value, a missing `step`, or an `increment`/`evidence` presence rule broken)
+/// is skipped here. Schema violations are `validate_log`'s job to REPORT, so a
+/// malformed waiver is both reported there and DROPPED here, which is the load-
+/// bearing property: a malformed waiver can never silently grant an exemption,
+/// because W3 only ever sees the well-formed ones this projects.
+pub(crate) fn parse_waivers(contents: &str) -> Vec<Waiver> {
+	let mut waivers = Vec::new();
+	for (index, line) in contents.lines().enumerate() {
+		if line.trim().is_empty() {
+			continue;
+		}
+		let Ok(value) = serde_json::from_str::<Value>(line) else {
+			continue;
+		};
+		let Some(obj) = value.as_object() else {
+			continue;
+		};
+		if obj.get("type").and_then(Value::as_str) != Some("waiver") {
+			continue;
+		}
+		let Some(unit) = obj.get("unit").and_then(Value::as_str).and_then(WaiverUnit::parse) else {
+			continue;
+		};
+		let Some(step) = obj.get("step").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+			continue;
+		};
+		let Some(reason) = obj.get("reason").and_then(Value::as_str).and_then(WaiverReason::parse)
+		else {
+			continue;
+		};
+		let Some(evidence_tier) =
+			obj.get("evidence_tier").and_then(Value::as_str).and_then(EvidenceTier::parse)
+		else {
+			continue;
+		};
+		// The `increment` presence rule (present and non-empty iff the unit is an
+		// increment) is enforced here too, so a waiver that breaks it is dropped rather
+		// than projected as a mis-scoped exemption.
+		let increment = obj.get("increment").and_then(Value::as_str).filter(|s| !s.is_empty());
+		let increment = match (unit, increment) {
+			(WaiverUnit::Increment, Some(token)) => Some(token.to_string()),
+			(WaiverUnit::Increment, None) => continue,
+			(WaiverUnit::Step, None) => None,
+			(WaiverUnit::Step, Some(_)) => continue,
+		};
+		// The `evidence` presence rule (present iff record-backed) is likewise enforced
+		// here, so a laundered or missing pointer drops the waiver instead of exempting.
+		let evidence = obj.get("evidence").and_then(Value::as_str).filter(|s| !s.is_empty());
+		let evidence = match (evidence_tier, evidence) {
+			(EvidenceTier::RecordBacked, Some(pointer)) => Some(pointer.to_string()),
+			(EvidenceTier::RecordBacked, None) => continue,
+			(EvidenceTier::SelfDeclared, None) => None,
+			(EvidenceTier::SelfDeclared, Some(_)) => continue,
+		};
+		waivers.push(Waiver {
+			line: index + 1,
+			unit,
+			step: step.to_string(),
+			increment,
+			reason,
+			evidence_tier,
+			evidence,
+		});
+	}
+	waivers
+}
+
+/// The workflow-relevant projection of one `escalation` record: the fields
+/// `workflow.rs`'s W5 join reads. The full `escalation` schema is validated by
+/// `check_record`; this narrow projection only carries the `task` a record-backed
+/// waiver's `evidence` points at and the `human_decision` W5 requires to be a
+/// `decision`, parallel to the other `parse_*` projections.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Escalation {
+	/// 1-based line number of the record within the log, for problem messages.
+	pub(crate) line: usize,
+	/// The `task` value verbatim; a record-backed waiver's `evidence` joins to it.
+	pub(crate) task: String,
+	/// What the human did at the escalation; W5 requires a `decision`.
+	pub(crate) human_decision: HumanDecision,
+}
+
+/// Project every well-formed `escalation` record in `contents` into an
+/// `Escalation`, preserving file order. Best-effort, parallel to `parse_rounds`: a
+/// line that is blank, not JSON, not an `escalation`, or an `escalation` missing one
+/// of the projected fields is skipped (its reporting is `validate_log`'s job).
+pub(crate) fn parse_escalations(contents: &str) -> Vec<Escalation> {
+	let mut escalations = Vec::new();
+	for (index, line) in contents.lines().enumerate() {
+		if line.trim().is_empty() {
+			continue;
+		}
+		let Ok(value) = serde_json::from_str::<Value>(line) else {
+			continue;
+		};
+		let Some(obj) = value.as_object() else {
+			continue;
+		};
+		if obj.get("type").and_then(Value::as_str) != Some("escalation") {
+			continue;
+		}
+		let Some(task) = obj.get("task").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+			continue;
+		};
+		let Some(human_decision) =
+			obj.get("human_decision").and_then(Value::as_str).and_then(HumanDecision::parse)
+		else {
+			continue;
+		};
+		escalations.push(Escalation {
+			line: index + 1,
+			task: task.to_string(),
+			human_decision,
+		});
+	}
+	escalations
 }
 
 /// Validate a JSONL metrics log, returning one `LineError` per malformed record.
@@ -990,6 +1268,148 @@ mod tests {
 	}
 
 	#[test]
+	fn a_valid_step_waiver_passes() {
+		// A well-formed step-unit waiver: a self-declared `predates-logging` exemption
+		// for a whole step, carrying no `increment` and no `evidence`.
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"core-assets","reason":"predates-logging","evidence_tier":"self-declared","ts":"2026-07-18"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_valid_increment_waiver_passes() {
+		// A well-formed increment-unit waiver: a record-backed `accepted-at-escalation`
+		// exemption for one increment, carrying both `increment` and `evidence`.
+		let line = r#"{"type":"waiver","task":"t","unit":"increment","step":"optional-modules","increment":"optional-modules-inc2cii","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"optional-modules-inc2cii"}"#;
+		assert_eq!(validate_log(line), Vec::new());
+	}
+
+	#[test]
+	fn a_waiver_with_a_bad_unit_is_reported() {
+		let line = r#"{"type":"waiver","task":"t","unit":"module","step":"s","reason":"predates-logging","evidence_tier":"self-declared"}"#;
+		assert_eq!(one_error(line), "field `unit` value `module` not one of [step, increment]");
+	}
+
+	#[test]
+	fn a_waiver_with_a_bad_reason_is_reported() {
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"because","evidence_tier":"self-declared"}"#;
+		assert_eq!(
+			one_error(line),
+			"field `reason` value `because` not one of [predates-logging, review-skipped, accepted-at-escalation]"
+		);
+	}
+
+	#[test]
+	fn a_waiver_with_a_bad_evidence_tier_is_reported() {
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"predates-logging","evidence_tier":"strong"}"#;
+		assert_eq!(
+			one_error(line),
+			"field `evidence_tier` value `strong` not one of [self-declared, record-backed]"
+		);
+	}
+
+	#[test]
+	fn a_waiver_with_an_empty_step_is_reported() {
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"","reason":"predates-logging","evidence_tier":"self-declared"}"#;
+		assert_eq!(one_error(line), "field `step` is empty");
+	}
+
+	#[test]
+	fn a_step_waiver_with_an_increment_is_reported() {
+		// The `increment` field is forbidden on a step-unit waiver.
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"s","increment":"s-inc1","reason":"predates-logging","evidence_tier":"self-declared"}"#;
+		assert_eq!(one_error(line), "field `increment` is forbidden when `unit` is `step`");
+	}
+
+	#[test]
+	fn an_increment_waiver_without_an_increment_is_reported() {
+		// The `increment` field is required on an increment-unit waiver.
+		let line = r#"{"type":"waiver","task":"t","unit":"increment","step":"s","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"s-inc1"}"#;
+		assert_eq!(one_error(line), "missing field `increment`");
+	}
+
+	#[test]
+	fn a_self_declared_waiver_with_evidence_is_reported() {
+		// The `evidence` pointer is forbidden on a self-declared waiver.
+		let line = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"predates-logging","evidence_tier":"self-declared","evidence":"e"}"#;
+		assert_eq!(
+			one_error(line),
+			"field `evidence` is forbidden when `evidence_tier` is `self-declared`"
+		);
+	}
+
+	#[test]
+	fn a_record_backed_waiver_without_evidence_is_reported() {
+		// The `evidence` pointer is required on a record-backed waiver.
+		let line = r#"{"type":"waiver","task":"t","unit":"increment","step":"s","increment":"s-inc1","reason":"accepted-at-escalation","evidence_tier":"record-backed"}"#;
+		assert_eq!(one_error(line), "missing field `evidence`");
+	}
+
+	#[test]
+	fn parse_waivers_projects_well_formed_records_and_drops_malformed_ones() {
+		// Best-effort projection: two well-formed waivers (a step-unit and an
+		// increment-unit) are projected in file order; a waiver with a bad `unit`, one
+		// with an `increment` on a step-unit (a broken presence rule), and a non-waiver
+		// record are all dropped silently, so a malformed waiver never reaches W3.
+		let log = concat!(
+			r#"{"type":"waiver","task":"t","unit":"step","step":"core-assets","reason":"predates-logging","evidence_tier":"self-declared"}"#,
+			"\n",
+			r#"{"type":"waiver","task":"t","unit":"module","step":"s","reason":"predates-logging","evidence_tier":"self-declared"}"#,
+			"\n",
+			r#"{"type":"waiver","task":"t","unit":"step","step":"s","increment":"s-inc1","reason":"predates-logging","evidence_tier":"self-declared"}"#,
+			"\n",
+			r#"{"type":"round","task":"t","artifact":"a","phase":"work_review","changed_since_prev":true,"outcome":"clean","valid_findings":0,"severities":[],"consecutive_clean":1,"risk_class":"low_risk"}"#,
+			"\n",
+			r#"{"type":"waiver","task":"t","unit":"increment","step":"optional-modules","increment":"optional-modules-inc2cii","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"optional-modules-inc2cii"}"#,
+			"\n",
+		);
+		let waivers = parse_waivers(log);
+		assert_eq!(
+			waivers,
+			vec![
+				Waiver {
+					line: 1,
+					unit: WaiverUnit::Step,
+					step: "core-assets".to_string(),
+					increment: None,
+					reason: WaiverReason::PredatesLogging,
+					evidence_tier: EvidenceTier::SelfDeclared,
+					evidence: None,
+				},
+				Waiver {
+					line: 5,
+					unit: WaiverUnit::Increment,
+					step: "optional-modules".to_string(),
+					increment: Some("optional-modules-inc2cii".to_string()),
+					reason: WaiverReason::AcceptedAtEscalation,
+					evidence_tier: EvidenceTier::RecordBacked,
+					evidence: Some("optional-modules-inc2cii".to_string()),
+				},
+			]
+		);
+	}
+
+	#[test]
+	fn parse_escalations_projects_well_formed_records_and_skips_others() {
+		// Best-effort projection: an escalation record is projected to (line, task,
+		// human_decision); a non-escalation record is skipped.
+		let log = concat!(
+			r#"{"type":"escalation","task":"optional-modules-inc2cii","artifact":"a","human_decision":"decision"}"#,
+			"\n",
+			r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"predates-logging","evidence_tier":"self-declared"}"#,
+			"\n",
+		);
+		let escalations = parse_escalations(log);
+		assert_eq!(
+			escalations,
+			vec![Escalation {
+				line: 1,
+				task: "optional-modules-inc2cii".to_string(),
+				human_decision: HumanDecision::Decision,
+			}]
+		);
+	}
+
+	#[test]
 	fn an_optional_ts_of_wrong_type_is_reported() {
 		// `ts` is optional, but when present it must be a string.
 		let line = r#"{"type":"intake","task":"demo","classification":"trivial","replanned":false,"ts":123}"#;
@@ -1016,7 +1436,7 @@ mod tests {
 		// substring: `round`/`escalation` also occur as plain words elsewhere, so an
 		// unanchored match would not catch the deletion of a type's documentation.
 		for record_type in
-			["round", "escalation", "dismissal_recheck", "intake", "decision", "baseline"]
+			["round", "escalation", "dismissal_recheck", "intake", "decision", "baseline", "waiver"]
 		{
 			assert!(
 				prose.contains(&format!("\"{record_type}\"")),
@@ -1052,6 +1472,12 @@ mod tests {
 			"recommendation",
 			"chosen",
 			"questions_through",
+			"unit",
+			"step",
+			"increment",
+			"reason",
+			"evidence_tier",
+			"evidence",
 		] {
 			// Anchor with backticks: the prose writes every field as `field`, so a
 			// backtick-wrapped match avoids a false positive from a short name
@@ -1072,6 +1498,9 @@ mod tests {
 			("Classification", Classification::VARIANTS),
 			("RiskClass", RiskClass::VARIANTS),
 			("Severity", Severity::VARIANTS),
+			("WaiverUnit", WaiverUnit::VARIANTS),
+			("WaiverReason", WaiverReason::VARIANTS),
+			("EvidenceTier", EvidenceTier::VARIANTS),
 		] {
 			for variant in variants {
 				// Backtick-anchored for the same reason as the field checks: the

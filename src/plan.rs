@@ -49,24 +49,15 @@ pub struct Question {
 /// plan-template drift guard iterates this set, so a status added or renamed here
 /// is checked against the template automatically.
 ///
-/// `trivial` and `grandfathered` are terminal, complete-like statuses that the
-/// `workflow-invariants` cross-reference (`validate --workflow`) treats as
-/// review-exempt: `trivial` is a declared review-skipped completion (a low-stakes
-/// change deliberately not run through the review loop), and `grandfathered` is a
-/// legacy step that predates disciplined round-logging. W3 requires round records
-/// only for `complete` steps, so both are exempt by being a distinct status
-/// rather than `complete`.
-const ROADMAP_STATUSES: &[&str] = &[
-	"not started",
-	"in progress",
-	"complete",
-	"skipped",
-	"next",
-	"optional",
-	"deferred",
-	"trivial",
-	"grandfathered",
-];
+/// The former `trivial` and `grandfathered` terminal statuses have been RETIRED
+/// (`waiver-model`, Q-44): the review-exemption they declared is now a
+/// `type:"waiver"` record in the round log, one unified concept (a step that
+/// predates logging, or whose review was skipped, is covered by a step-level
+/// waiver) rather than two special-case Roadmap statuses. W3 exempts a `complete`
+/// step via a covering waiver, not a distinct status. `skipped` STAYS a distinct
+/// status: it answers "is this step done?" with "no", which is not an exemption.
+const ROADMAP_STATUSES: &[&str] =
+	&["not started", "in progress", "complete", "skipped", "next", "optional", "deferred"];
 
 /// The parametric Roadmap status prefix: `blocked on <slug>` names the blocking
 /// step. Kept as a named constant so the validator and the drift guard share one
@@ -524,11 +515,13 @@ mod tests {
 	}
 
 	#[test]
-	fn the_review_exempt_terminal_statuses_are_accepted() {
-		// `trivial` and `grandfathered` are terminal statuses the workflow
-		// cross-reference treats as review-exempt; `validate --plan` must accept them.
-		assert!(roadmap_status_ok("trivial"));
-		assert!(roadmap_status_ok("grandfathered"));
+	fn the_retired_review_exempt_statuses_are_rejected_but_skipped_stays_accepted() {
+		// `trivial` and `grandfathered` are RETIRED (their review-exemption is now a
+		// `type:"waiver"` record, not a status), so `validate --plan` must REJECT them as
+		// unknown statuses. `skipped` STAYS a distinct, accepted status.
+		assert!(!roadmap_status_ok("trivial"));
+		assert!(!roadmap_status_ok("grandfathered"));
+		assert!(roadmap_status_ok("skipped"));
 		let plan = concat!(
 			"## Roadmap\n",
 			"| Step    | Status        |\n",
@@ -539,7 +532,15 @@ mod tests {
 			"### `alpha`: a\n",
 			"### `beta`: b\n",
 		);
-		assert!(validate_plan(plan).is_empty(), "{:?}", validate_plan(plan));
+		let problems = validate_plan(plan);
+		assert!(
+			problems.iter().any(|p| p.contains("`alpha` has an unknown status `trivial`")),
+			"{problems:?}"
+		);
+		assert!(
+			problems.iter().any(|p| p.contains("`beta` has an unknown status `grandfathered`")),
+			"{problems:?}"
+		);
 	}
 
 	#[test]

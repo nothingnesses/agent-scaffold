@@ -9,13 +9,21 @@
 //! projection) rather than parsing either itself; there is no ledger parse (the
 //! `ledger-parse` keystone was skipped) and no new record type.
 //!
-//! Two checks live here:
+//! The checks that live here:
 //!
 //! - W3, the key invariant: every Roadmap step marked `complete` must have round
-//!   records that converge. A `complete` step with no matching records is the
-//!   `pause.md` catch (marked done without review). W3 checks only `complete`
-//!   steps; all others (`trivial`, `grandfathered`, `skipped`, and the in-flight
-//!   statuses) are not checked.
+//!   records that converge, OR a covering `type:"waiver"` record. A `complete` step
+//!   with no matching records and no covering step-waiver is the `pause.md` catch
+//!   (marked done without review). W3 checks only `complete` steps; the others
+//!   (`skipped` and the in-flight statuses) are not checked. W3 asks only whether a
+//!   covering waiver of the right unit and identity exists; whether that waiver is
+//!   itself well-evidenced is W5's job, kept orthogonal.
+//! - W5, the waiver-integrity check: every waiver must name a real Roadmap step,
+//!   an `increment`-unit waiver's `step` must own its `increment`, every
+//!   `record-backed` waiver's `evidence` must join to a real `type:"escalation"`
+//!   record with `human_decision:"decision"` that is scoped to the waived unit,
+//!   and the `reason` <-> `evidence_tier` pairing must be consistent so a
+//!   self-declaration cannot claim the strong tier.
 //! - The round log's internal consistency: within one increment's records, a
 //!   `clean` outcome advances the consecutive-clean streak by one and a `new_valid`
 //!   resets it to zero, so the logged `consecutive_clean` values are fully
@@ -29,8 +37,14 @@ use {
 			self,
 			Baseline,
 			Decision,
+			Escalation,
+			EvidenceTier,
+			HumanDecision,
 			Round,
 			RoundOutcome,
+			Waiver,
+			WaiverReason,
+			WaiverUnit,
 			question_id_index,
 		},
 		plan::{
@@ -40,7 +54,10 @@ use {
 			Step,
 		},
 	},
-	std::collections::BTreeMap,
+	std::collections::{
+		BTreeMap,
+		BTreeSet,
+	},
 };
 
 /// The increment suffix marker: a `task` value is a leading step slug optionally
@@ -88,9 +105,12 @@ pub(crate) fn check_workflow(
 	let rounds = metrics::parse_rounds(log_contents);
 	let decisions = metrics::parse_decisions(log_contents);
 	let baselines = metrics::parse_baseline(log_contents);
+	let waivers = metrics::parse_waivers(log_contents);
+	let escalations = metrics::parse_escalations(log_contents);
 	let mut problems = round_log_consistency_problems(&rounds);
-	problems.extend(w3_problems(&steps, &rounds));
+	problems.extend(w3_problems(&steps, &rounds, &waivers));
 	problems.extend(w4_problems(&questions, &decisions, &baselines));
+	problems.extend(w5_problems(&waivers, &steps, &escalations));
 	problems
 }
 
@@ -201,23 +221,32 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 }
 
 /// The W3 check: for every Roadmap step marked `complete`, its rounds must show
-/// convergence. Steps with any other status are skipped, so the terminal statuses
-/// (`trivial`, `grandfathered`, `skipped`) and the in-flight ones are not checked.
-/// For a `complete` step:
+/// convergence, OR a covering `type:"waiver"` record must exempt the shortfall.
+/// Steps with any other status are skipped, so `skipped` and the in-flight statuses
+/// are not checked. For a `complete` step:
 ///
 /// - Filter round records whose leading slug equals the step slug. No matching
-///   records is a violation (the `pause.md` catch: marked complete without review,
-///   and not declared `trivial` or `grandfathered`).
+///   records is a violation (the `pause.md` catch: marked complete without review),
+///   UNLESS a STEP-level waiver covers the step (`unit == step`, `step == slug`),
+///   which exempts it (a step that predates logging or whose review was skipped).
 /// - Group the matching records by increment (the full `task`). Within each
 ///   increment the `risk_class` must be consistent, and the increment's peak
 ///   consecutive-clean streak (over all its records, spanning the artifacts its
-///   rounds name) must reach the class's required count (`low_risk` 1, `risky` 2).
+///   rounds name) must reach the class's required count (`low_risk` 1, `risky` 2),
+///   UNLESS an INCREMENT-level waiver covers that increment (`unit == increment`,
+///   `increment == <that increment's task>`), which exempts the shortfall.
 ///   Grouping per increment, not per step, is what lets a step whose increments
 ///   converged under different risk classes pass (for example `round-log-core`,
 ///   `low_risk` at `-incA` and `risky` at `-incB`).
+///
+/// W3 consults ONLY the waiver's unit and identity (does a covering waiver exist?);
+/// it does NOT inspect `reason` or `evidence_tier`, which is W5's job, so the two
+/// checks stay orthogonal. The `risk_class`-inconsistency error within an increment
+/// is a data-integrity fault and is NOT suppressed by any waiver.
 fn w3_problems(
 	steps: &[Step],
 	rounds: &[Round],
+	waivers: &[Waiver],
 ) -> Vec<String> {
 	let mut problems = Vec::new();
 	for step in steps {
@@ -227,10 +256,17 @@ fn w3_problems(
 		let matching: Vec<&Round> =
 			rounds.iter().filter(|round| leading_slug(&round.task) == step.slug).collect();
 		if matching.is_empty() {
-			problems.push(format!(
-				"Roadmap step `{}` is `complete` but has no round records; if the review loop was deliberately skipped mark it `trivial`, if it predates round-logging mark it `grandfathered`",
-				step.slug
-			));
+			// Exempt iff a step-level waiver covers this step. W3 asks only about the
+			// unit and identity; W5 judges whether the waiver is well-evidenced.
+			let covered = waivers
+				.iter()
+				.any(|waiver| waiver.unit == WaiverUnit::Step && waiver.step == step.slug);
+			if !covered {
+				problems.push(format!(
+					"Roadmap step `{}` is `complete` but has no round records and no covering waiver; log its review rounds, or record a `type:\"waiver\"` for it if it predates logging or its review was skipped",
+					step.slug
+				));
+			}
 			continue;
 		}
 
@@ -265,15 +301,131 @@ fn w3_problems(
 			// regardless of any trailing bookkeeping rounds.
 			let peak = records.iter().map(|round| round.consecutive_clean).max().unwrap_or(0);
 			if peak < required {
-				problems.push(format!(
-					"Roadmap step `{}` increment `{}` reached a consecutive-clean streak of {} but its `{}` risk class needs {}",
-					step.slug,
-					increment,
-					peak,
-					class.label(),
-					required
-				));
+				// Exempt this increment iff an increment-level waiver covers it (its
+				// `increment` token equals this increment's full `task` AND its `step`
+				// names this step, so a mis-scoped waiver pointing at a real-but-wrong
+				// step exempts nothing). W3 checks only unit and identity; W5 judges the
+				// waiver's evidence.
+				let covered = waivers.iter().any(|waiver| {
+					waiver.unit == WaiverUnit::Increment
+						&& waiver.increment.as_deref() == Some(*increment)
+						&& waiver.step == step.slug
+				});
+				if !covered {
+					problems.push(format!(
+						"Roadmap step `{}` increment `{}` reached a consecutive-clean streak of {} but its `{}` risk class needs {}",
+						step.slug,
+						increment,
+						peak,
+						class.label(),
+						required
+					));
+				}
 			}
+		}
+	}
+	problems
+}
+
+/// The W5 check: every `type:"waiver"` record must be well-formed as an exemption,
+/// independent of whether W3 currently relies on it. Reports one problem per
+/// violation:
+///
+/// - The waiver's `step` must name a real Roadmap step slug (a waiver for a step the
+///   Roadmap does not track is dangling).
+/// - An `increment`-unit waiver's `step` must own its `increment`
+///   (`leading_slug(increment) == step`), so a waiver naming a real-but-wrong step
+///   is reported rather than silently mis-scoped.
+/// - A `record-backed` waiver's `evidence` must join to an existing
+///   `type:"escalation"` record whose `human_decision` is `decision`, whose `task`
+///   equals the evidence pointer, AND that is scoped to the waived unit (the
+///   escalation's `task` equals the waived `increment`, or its leading slug equals
+///   the waived `step`), so a self-declaration cannot cite an unrelated escalation
+///   to earn the strong tier.
+/// - The `reason` <-> `evidence_tier` pairing must be consistent so a
+///   self-declaration cannot claim the strong tier: `predates-logging` and
+///   `review-skipped` MUST be `self-declared`; `accepted-at-escalation` MUST be
+///   `record-backed`. Any other pairing is flagged.
+///
+/// W5 is orthogonal to W3: W3 asks "does a covering waiver exist?", W5 asks "is a
+/// waiver well-evidenced?". A waiver can therefore be flagged by W5 while still
+/// covering a step in W3 (the exemption is applied but its integrity is reported),
+/// which keeps a malformed-but-present waiver visible rather than silently trusted.
+fn w5_problems(
+	waivers: &[Waiver],
+	steps: &[Step],
+	escalations: &[Escalation],
+) -> Vec<String> {
+	let slugs: BTreeSet<&str> = steps.iter().map(|step| step.slug.as_str()).collect();
+	let mut problems = Vec::new();
+	for waiver in waivers {
+		// The waiver must name a real Roadmap step.
+		if !slugs.contains(waiver.step.as_str()) {
+			problems.push(format!(
+				"round log line {}: `type:\"waiver\"` names step `{}`, which is not a Roadmap step",
+				waiver.line, waiver.step
+			));
+		}
+		// An increment-unit waiver's `step` must own its `increment`: the increment's
+		// leading slug must equal the waiver's `step`. A mis-scoped waiver naming a
+		// real-but-wrong step is reported here (and refused by W3).
+		if waiver.unit == WaiverUnit::Increment {
+			if let Some(increment) = waiver.increment.as_deref() {
+				if leading_slug(increment) != waiver.step {
+					problems.push(format!(
+						"round log line {}: increment waiver names step `{}` but increment `{}` belongs to step `{}`",
+						waiver.line,
+						waiver.step,
+						increment,
+						leading_slug(increment)
+					));
+				}
+			}
+		}
+		// A record-backed waiver's evidence must join to a real decision escalation
+		// that is ALSO scoped to the waived unit, so a self-declaration cannot cite an
+		// unrelated escalation to earn the strong tier: for an increment-unit waiver
+		// the escalation's `task` must equal the waived `increment`; for a step-unit
+		// waiver its leading slug must equal the waived `step`.
+		if waiver.evidence_tier == EvidenceTier::RecordBacked {
+			// `parse_waivers` guarantees `evidence` is present for the record-backed
+			// tier, so a `None` here would already have been dropped; guard anyway.
+			if let Some(evidence) = waiver.evidence.as_deref() {
+				let backed = escalations.iter().any(|escalation| {
+					if escalation.task != evidence
+						|| escalation.human_decision != HumanDecision::Decision
+					{
+						return false;
+					}
+					// Tie the joined escalation to the unit the waiver exempts.
+					match waiver.unit {
+						WaiverUnit::Increment =>
+							waiver.increment.as_deref() == Some(escalation.task.as_str()),
+						WaiverUnit::Step => leading_slug(&escalation.task) == waiver.step,
+					}
+				});
+				if !backed {
+					problems.push(format!(
+						"round log line {}: `record-backed` waiver cites evidence `{}` but no `type:\"escalation\"` record with `human_decision` `decision` is scoped to this waiver's unit",
+						waiver.line, evidence
+					));
+				}
+			}
+		}
+		// The reason must be paired with the tier its integrity requires.
+		let pairing_ok = match waiver.reason {
+			WaiverReason::PredatesLogging | WaiverReason::ReviewSkipped =>
+				waiver.evidence_tier == EvidenceTier::SelfDeclared,
+			WaiverReason::AcceptedAtEscalation =>
+				waiver.evidence_tier == EvidenceTier::RecordBacked,
+		};
+		if !pairing_ok {
+			problems.push(format!(
+				"round log line {}: waiver reason `{}` must not carry evidence tier `{}`",
+				waiver.line,
+				waiver.reason.label(),
+				waiver.evidence_tier.label()
+			));
 		}
 	}
 	problems
@@ -301,6 +453,48 @@ mod tests {
 	/// Parse a JSONL fixture into baseline cutoffs via the metrics projection.
 	fn baselines(jsonl: &str) -> Vec<Baseline> {
 		metrics::parse_baseline(jsonl)
+	}
+
+	/// Parse a JSONL fixture into waivers via the metrics projection, so the tests
+	/// exercise the same best-effort parse W3/W5 read (a malformed waiver never
+	/// reaches these functions).
+	fn waivers(jsonl: &str) -> Vec<Waiver> {
+		metrics::parse_waivers(jsonl)
+	}
+
+	/// Parse a JSONL fixture into escalations via the metrics projection.
+	fn escalations(jsonl: &str) -> Vec<Escalation> {
+		metrics::parse_escalations(jsonl)
+	}
+
+	/// One minimal step-unit `waiver` log line for the given step, reason, and tier.
+	fn step_waiver_line(
+		step: &str,
+		reason: &str,
+		evidence_tier: &str,
+	) -> String {
+		format!(
+			r#"{{"type":"waiver","task":"t","unit":"step","step":"{step}","reason":"{reason}","evidence_tier":"{evidence_tier}"}}"#
+		)
+	}
+
+	/// One minimal increment-unit `waiver` log line naming its increment and the
+	/// `evidence` pointer its record-backed tier requires.
+	fn increment_waiver_line(
+		step: &str,
+		increment: &str,
+		evidence: &str,
+	) -> String {
+		format!(
+			r#"{{"type":"waiver","task":"t","unit":"increment","step":"{step}","increment":"{increment}","reason":"accepted-at-escalation","evidence_tier":"record-backed","evidence":"{evidence}"}}"#
+		)
+	}
+
+	/// One minimal `escalation` log line with a `decision` outcome for the task.
+	fn escalation_line(task: &str) -> String {
+		format!(
+			r#"{{"type":"escalation","task":"{task}","artifact":"a","human_decision":"decision"}}"#
+		)
 	}
 
 	/// One minimal `baseline` log line declaring a decided-question cutoff.
@@ -377,31 +571,33 @@ mod tests {
 	}
 
 	#[test]
-	fn a_trivial_step_is_exempt() {
-		// A `trivial` step needs no round records: W3 checks only `complete` steps.
-		let problems = w3_problems(&steps(&one_step_plan("skip-me", "trivial")), &[]);
-		assert!(problems.is_empty(), "{problems:?}");
-	}
-
-	#[test]
-	fn a_grandfathered_step_is_exempt() {
-		let problems = w3_problems(&steps(&one_step_plan("legacy", "grandfathered")), &[]);
-		assert!(problems.is_empty(), "{problems:?}");
-	}
-
-	#[test]
 	fn a_skipped_step_is_exempt() {
-		let problems = w3_problems(&steps(&one_step_plan("dropped", "skipped")), &[]);
+		let problems = w3_problems(&steps(&one_step_plan("dropped", "skipped")), &[], &[]);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
 	#[test]
-	fn a_complete_step_with_no_records_is_caught() {
-		// The `pause.md` catch: marked `complete` with no matching rounds.
-		let problems = w3_problems(&steps(&one_step_plan("no-review", "complete")), &[]);
+	fn a_complete_step_with_no_records_but_a_covering_step_waiver_passes() {
+		// A `complete` step with no rounds is exempt when a step-level waiver covers it
+		// (the retired `grandfathered`/`trivial` cases, now one waiver notion). W3 keys
+		// only on the unit and the step identity, not the waiver's reason or tier.
+		let waivers = waivers(&step_waiver_line("legacy", "predates-logging", "self-declared"));
+		let problems = w3_problems(&steps(&one_step_plan("legacy", "complete")), &[], &waivers);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn a_complete_step_with_no_records_and_no_covering_waiver_is_caught() {
+		// The `pause.md` catch: marked `complete` with no matching rounds and no
+		// covering step-waiver still fails. A waiver for a DIFFERENT step does not cover
+		// it, so the exemption stays scoped to the named step.
+		let waivers = waivers(&step_waiver_line("other", "predates-logging", "self-declared"));
+		let problems = w3_problems(&steps(&one_step_plan("no-review", "complete")), &[], &waivers);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
-			problems[0].contains("`no-review` is `complete` but has no round records"),
+			problems[0].contains(
+				"`no-review` is `complete` but has no round records and no covering waiver"
+			),
 			"{}",
 			problems[0]
 		);
@@ -421,7 +617,7 @@ mod tests {
 		]
 		.join("\n");
 		let problems =
-			w3_problems(&steps(&one_step_plan("round-log-core", "complete")), &rounds(&log));
+			w3_problems(&steps(&one_step_plan("round-log-core", "complete")), &rounds(&log), &[]);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -433,7 +629,7 @@ mod tests {
 			round_line("stall-incA", "AGENTS.md", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log));
+		let problems = w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &[]);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("reached a consecutive-clean streak of 1")
@@ -441,6 +637,54 @@ mod tests {
 			"{}",
 			problems[0]
 		);
+	}
+
+	#[test]
+	fn a_short_streak_increment_with_a_covering_increment_waiver_passes() {
+		// The `optional-modules-inc2cii` shape: a risky increment accepted at ONE clean
+		// round (peak 1, needs 2) at an escalation. An increment-level waiver naming its
+		// full `task` exempts the shortfall, so W3 does not flag it.
+		let log = [
+			round_line("stall-incA", "AGENTS.md", "new_valid", 0, "risky"),
+			round_line("stall-incA", "AGENTS.md", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&increment_waiver_line("stall", "stall-incA", "stall-incA"));
+		let problems =
+			w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &waivers);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn a_step_waiver_does_not_exempt_a_short_streak_increment() {
+		// The waiver units are distinct: a STEP-level waiver does not cover a short-streak
+		// INCREMENT (that needs an increment-level waiver), so the shortfall still fails.
+		let log = [
+			round_line("stall-incA", "AGENTS.md", "new_valid", 0, "risky"),
+			round_line("stall-incA", "AGENTS.md", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&step_waiver_line("stall", "predates-logging", "self-declared"));
+		let problems =
+			w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &waivers);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("reached a consecutive-clean streak of 1"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn a_risk_class_inconsistency_is_not_suppressed_by_a_waiver() {
+		// The risk_class-inconsistency error is a data-integrity fault: an increment-level
+		// waiver covering the increment does NOT suppress it, so it still fails.
+		let log = [
+			round_line("mixup-incA", "AGENTS.md", "new_valid", 0, "low_risk"),
+			round_line("mixup-incA", "AGENTS.md", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&increment_waiver_line("mixup", "mixup-incA", "mixup-incA"));
+		let problems =
+			w3_problems(&steps(&one_step_plan("mixup", "complete")), &rounds(&log), &waivers);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("inconsistent risk_class"), "{}", problems[0]);
 	}
 
 	#[test]
@@ -457,7 +701,8 @@ mod tests {
 			round_line("converge", "converge verification", "clean", 2, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("converge", "complete")), &rounds(&log));
+		let problems =
+			w3_problems(&steps(&one_step_plan("converge", "complete")), &rounds(&log), &[]);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -471,7 +716,7 @@ mod tests {
 			round_line("short", "short fixes", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("short", "complete")), &rounds(&log));
+		let problems = w3_problems(&steps(&one_step_plan("short", "complete")), &rounds(&log), &[]);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("reached a consecutive-clean streak of 1")
@@ -487,7 +732,7 @@ mod tests {
 		// caught, and the message must carry the `low_risk` label so a rename of the
 		// on-disk spelling cannot diverge from `RiskClass::label` silently.
 		let log = round_line("lr", "lr change", "new_valid", 0, "low_risk");
-		let problems = w3_problems(&steps(&one_step_plan("lr", "complete")), &rounds(&log));
+		let problems = w3_problems(&steps(&one_step_plan("lr", "complete")), &rounds(&log), &[]);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("`low_risk` risk class needs 1"), "{}", problems[0]);
 	}
@@ -498,7 +743,8 @@ mod tests {
 		// progress`) is not checked even with matching rounds in the log. This pins
 		// the guard against a future status-list refactor.
 		let log = round_line("wip", "wip change", "new_valid", 0, "risky");
-		let problems = w3_problems(&steps(&one_step_plan("wip", "in progress")), &rounds(&log));
+		let problems =
+			w3_problems(&steps(&one_step_plan("wip", "in progress")), &rounds(&log), &[]);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -511,7 +757,7 @@ mod tests {
 			round_line("mixup-incA", "AGENTS.md", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("mixup", "complete")), &rounds(&log));
+		let problems = w3_problems(&steps(&one_step_plan("mixup", "complete")), &rounds(&log), &[]);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("inconsistent risk_class"), "{}", problems[0]);
 	}
@@ -651,7 +897,7 @@ mod tests {
 			"| ---------------- | -------- |\n",
 			"| `round-log-core` | complete |\n",
 			"| `pause`          | complete |\n",
-			"| `declared`       | trivial  |\n",
+			"| `declared`       | skipped  |\n",
 		);
 		let log = [
 			round_line("round-log-core-incA", "src/metrics.rs", "clean", 1, "low_risk"),
@@ -667,5 +913,240 @@ mod tests {
 			"{}",
 			problems[0]
 		);
+	}
+
+	#[test]
+	fn w5_flags_a_waiver_naming_a_nonexistent_step() {
+		// A waiver whose `step` does not resolve to a Roadmap slug is dangling.
+		let steps = steps(&one_step_plan("real", "complete"));
+		let waivers = waivers(&step_waiver_line("ghost", "predates-logging", "self-declared"));
+		let problems = w5_problems(&waivers, &steps, &[]);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("names step `ghost`, which is not a Roadmap step"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w5_flags_a_record_backed_waiver_with_no_matching_escalation() {
+		// A record-backed waiver whose `evidence` joins to no `decision` escalation is
+		// flagged (the strong tier must be backed by a real human decision).
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waivers = waivers(&increment_waiver_line(
+			"optional-modules",
+			"optional-modules-inc2cii",
+			"optional-modules-inc2cii",
+		));
+		let problems = w5_problems(&waivers, &steps, &[]);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("cites evidence `optional-modules-inc2cii`")
+				&& problems[0].contains("no `type:\"escalation\"` record"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w5_passes_a_record_backed_waiver_with_a_matching_escalation() {
+		// The migration shape: an increment waiver whose evidence joins to a real
+		// `decision` escalation passes W5.
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waivers = waivers(&increment_waiver_line(
+			"optional-modules",
+			"optional-modules-inc2cii",
+			"optional-modules-inc2cii",
+		));
+		let escalations = escalations(&escalation_line("optional-modules-inc2cii"));
+		let problems = w5_problems(&waivers, &steps, &escalations);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_flags_each_inconsistent_reason_tier_pairing() {
+		// The three forbidden pairings: a self-declared reason forced to record-backed,
+		// and the escalation reason forced to self-declared. Each is flagged; the three
+		// valid pairings are accepted below.
+		let steps = steps(&one_step_plan("s", "complete"));
+		// `predates-logging` may not be record-backed. `parse_waivers` requires an
+		// `evidence` pointer for the record-backed tier, so include one; W5 then flags the
+		// pairing (and, with no escalation, the missing evidence join, hence two problems).
+		let bad_predates = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"predates-logging","evidence_tier":"record-backed","evidence":"x"}"#;
+		let problems = w5_problems(&waivers(bad_predates), &steps, &[]);
+		assert!(
+			problems.iter().any(|p| p.contains(
+				"reason `predates-logging` must not carry evidence tier `record-backed`"
+			)),
+			"{problems:?}"
+		);
+		// `review-skipped` may not be record-backed either.
+		let bad_review = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"review-skipped","evidence_tier":"record-backed","evidence":"x"}"#;
+		let problems = w5_problems(&waivers(bad_review), &steps, &[]);
+		assert!(
+			problems.iter().any(|p| p
+				.contains("reason `review-skipped` must not carry evidence tier `record-backed`")),
+			"{problems:?}"
+		);
+		// `accepted-at-escalation` may not be self-declared.
+		let bad_escalation = r#"{"type":"waiver","task":"t","unit":"step","step":"s","reason":"accepted-at-escalation","evidence_tier":"self-declared"}"#;
+		let problems = w5_problems(&waivers(bad_escalation), &steps, &[]);
+		assert!(
+			problems.iter().any(|p| p.contains(
+				"reason `accepted-at-escalation` must not carry evidence tier `self-declared`"
+			)),
+			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn w5_accepts_the_three_valid_reason_tier_pairings() {
+		// `predates-logging`/self-declared, `review-skipped`/self-declared, and
+		// `accepted-at-escalation`/record-backed (with its escalation) are all accepted.
+		let steps = steps(&one_step_plan("s", "complete"));
+		let escalations = escalations(&escalation_line("s-inc1"));
+		let log = [
+			step_waiver_line("s", "predates-logging", "self-declared"),
+			step_waiver_line("s", "review-skipped", "self-declared"),
+			increment_waiver_line("s", "s-inc1", "s-inc1"),
+		]
+		.join("\n");
+		let problems = w5_problems(&waivers(&log), &steps, &escalations);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn check_workflow_passes_the_optional_modules_migration_shape() {
+		// End to end mirroring this repo's migration: `optional-modules` is `complete`
+		// with a risky increment accepted at ONE clean round (peak 1, needs 2), unstuck by
+		// a record-backed increment waiver whose evidence joins to the increment's real
+		// `decision` escalation. W3 accepts it (covering waiver) and W5 accepts it (backed
+		// by the escalation), so the whole cross-reference is green.
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step               | Status   |\n",
+			"| ------------------ | -------- |\n",
+			"| `optional-modules` | complete |\n",
+		);
+		let log = [
+			round_line("optional-modules-inc2cii", "a", "new_valid", 0, "risky"),
+			round_line("optional-modules-inc2cii", "a", "clean", 1, "risky"),
+			escalation_line("optional-modules-inc2cii"),
+			increment_waiver_line(
+				"optional-modules",
+				"optional-modules-inc2cii",
+				"optional-modules-inc2cii",
+			),
+		]
+		.join("\n");
+		let problems = check_workflow(plan, &log);
+		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_flags_a_record_backed_waiver_whose_escalation_resumed_not_decided() {
+		// S3: an escalation exists with the matching `task` but `human_decision:"resume"`
+		// (not `decision`), so the record-backed join is not satisfied and the waiver is
+		// still flagged. `escalation_line` only emits `decision`, so build the raw line here.
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waivers = waivers(&increment_waiver_line(
+			"optional-modules",
+			"optional-modules-inc2cii",
+			"optional-modules-inc2cii",
+		));
+		let resume = r#"{"type":"escalation","task":"optional-modules-inc2cii","artifact":"a","human_decision":"resume"}"#;
+		let problems = w5_problems(&waivers, &steps, &escalations(resume));
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("cites evidence `optional-modules-inc2cii`")
+				&& problems[0].contains("is scoped to this waiver's unit"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w5_flags_a_record_backed_waiver_citing_an_unrelated_escalation() {
+		// Group A (O1): the joined escalation must be scoped to the waived unit. A
+		// record-backed increment waiver whose `evidence` names an escalation for a
+		// DIFFERENT task is flagged, even though that escalation is a real `decision`, so
+		// an unrelated decision cannot launder a weak self-declaration into the strong tier.
+		let steps = steps(&one_step_plan("optional-modules", "complete"));
+		let waiver =
+			increment_waiver_line("optional-modules", "optional-modules-inc2cii", "unrelated-task");
+		let escalations = escalations(&escalation_line("unrelated-task"));
+		let problems = w5_problems(&waivers(&waiver), &steps, &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("cites evidence `unrelated-task`")
+				&& problems[0].contains("is scoped to this waiver's unit"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w5_flags_an_increment_waiver_whose_step_does_not_own_its_increment() {
+		// O3: for an increment-unit waiver `leading_slug(increment)` must equal `step`. A
+		// waiver naming a real-but-wrong step (`alpha`) for an increment belonging to
+		// `beta` is reported, so a mis-scoped waiver cannot hide behind a real slug.
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step    | Status   |\n",
+			"| ------- | -------- |\n",
+			"| `alpha` | complete |\n",
+			"| `beta`  | complete |\n",
+		);
+		let waiver = increment_waiver_line("alpha", "beta-incB", "beta-incB");
+		let escalations = escalations(&escalation_line("beta-incB"));
+		let problems = w5_problems(&waivers(&waiver), &steps(plan), &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("increment waiver names step `alpha`")
+				&& problems[0].contains("increment `beta-incB` belongs to step `beta`"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn a_mis_scoped_increment_waiver_does_not_exempt_a_short_streak_increment() {
+		// O3 in W3: an increment waiver whose `step` names a real-but-wrong step no longer
+		// exempts the shortfall, because W3 now cross-checks `waiver.step == step.slug`.
+		// `alpha` is `skipped` (not W3-checked) so only the `beta` shortfall can be flagged.
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step    | Status   |\n",
+			"| ------- | -------- |\n",
+			"| `alpha` | skipped  |\n",
+			"| `beta`  | complete |\n",
+		);
+		let log = [
+			round_line("beta-incB", "a", "new_valid", 0, "risky"),
+			round_line("beta-incB", "a", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&increment_waiver_line("alpha", "beta-incB", "beta-incB"));
+		let problems = w3_problems(&steps(plan), &rounds(&log), &waivers);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("reached a consecutive-clean streak of 1"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn a_bare_slug_increment_waiver_exempts_a_short_streak() {
+		// S4: the migration's b2 shape uses an `increment` equal to the bare step slug (no
+		// `-inc` suffix), matching a `task` with no suffix that `leading_slug` returns
+		// whole. Pin it: a short risky increment `bare-step` is exempted by an increment
+		// waiver whose `step` and `increment` are both the bare slug `bare-step`.
+		let log = [
+			round_line("bare-step", "a", "new_valid", 0, "risky"),
+			round_line("bare-step", "a", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&increment_waiver_line("bare-step", "bare-step", "bare-step"));
+		let problems =
+			w3_problems(&steps(&one_step_plan("bare-step", "complete")), &rounds(&log), &waivers);
+		assert!(problems.is_empty(), "{problems:?}");
 	}
 }

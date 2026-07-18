@@ -31,6 +31,7 @@ use {
 			Decision,
 			Round,
 			RoundOutcome,
+			question_id_index,
 		},
 		plan::{
 			self,
@@ -93,15 +94,6 @@ pub(crate) fn check_workflow(
 	problems
 }
 
-/// The numeric index of an Open-Questions id (`Q-<n>` -> `n`), or `None` when the
-/// id is not the live `Q-<n>` shape. W4 uses this to place a decided item relative
-/// to the declared baseline cutoff; the historical `OQ-<letter>` provenance markers
-/// do not parse and are left unchecked, matching `plan.rs`'s own `is_question_id`
-/// treatment.
-fn question_index(id: &str) -> Option<u64> {
-	id.strip_prefix("Q-").and_then(|digits| digits.parse::<u64>().ok())
-}
-
 /// The W4 check: every decided Open-Questions item strictly after the DECLARED
 /// baseline cutoff must have a matching `type:"decision"` receipt in the round log.
 ///
@@ -140,7 +132,7 @@ fn w4_problems(
 		}
 		// An id that does not parse to an index cannot be placed relative to the
 		// cutoff, so it is left unchecked (there are none in the live plan).
-		let Some(index) = question_index(&question.id) else {
+		let Some(index) = question_id_index(&question.id) else {
 			continue;
 		};
 		// At or below the declared cutoff: predates the mechanism, exempt. With no

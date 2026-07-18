@@ -298,11 +298,13 @@ fn require_options<'a>(
 }
 
 /// The numeric index of an Open-Questions id (`Q-<n>` -> `n`), or `None` when the
-/// id is not the `Q-<n>` shape. Shared by the `baseline` schema check and the
-/// `parse_baseline` projection so both agree on what a cutoff id looks like (the
-/// historical `OQ-<letter>` provenance markers do not parse and are rejected as a
-/// cutoff).
-fn question_id_index(id: &str) -> Option<u64> {
+/// id is not the `Q-<n>` shape. Shared by the `baseline` schema check, the
+/// `parse_baseline` projection, and `workflow.rs`'s W4 check so all three agree on
+/// what a cutoff id looks like (the historical `OQ-<letter>` provenance markers do
+/// not parse and are rejected as a cutoff). W4 compares a decided item's index
+/// against the declared cutoff index; both operands come from this one parser so
+/// they cannot drift.
+pub(crate) fn question_id_index(id: &str) -> Option<u64> {
 	id.strip_prefix("Q-").and_then(|digits| digits.parse::<u64>().ok())
 }
 

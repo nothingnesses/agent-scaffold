@@ -101,7 +101,7 @@ LOAD-BEARING ORIGIN (do not regress): W3 exists because of a real incident. The 
 This is the core question the human posed (`docs/plans/agent-scaffold.md:124` item 2, `659`). Precise statement of what each represents:
 
 | Exemption | Granularity | Evidence state | Why the evidence is absent/short | Where authority is recorded | Evidence strength |
-| --------- | ----------- | -------------- | -------------------------------- | --------------------------- | ----------------- |
+| --- | --- | --- | --- | --- | --- |
 | `trivial` (E2) | step | zero round records | review deliberately skipped (low stakes) | Roadmap status column (orchestrator-declared) | weak (self-declared) |
 | `grandfathered` (E3) | step | zero records (b1) OR short streak (b2) | step predates the logging regime | Roadmap status column (orchestrator-declared) | weak (self-declared) |
 | `escalation-exempt` (E4) | increment | records exist but peak streak short | human accepted below the bar at the round cap | `type:"escalation"` `human_decision:"decision"` JSONL record | STRONG (independent durable record) |

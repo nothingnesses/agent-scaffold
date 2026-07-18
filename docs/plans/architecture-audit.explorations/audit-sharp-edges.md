@@ -141,7 +141,7 @@ This is the code-level symptom of SE-1. Each module header cites "Principle N" v
 ## Summary table
 
 | ID | Title | Severity | Effort | P8 resolves? |
-|----|-------|----------|--------|--------------|
+| --- | --- | --- | --- | --- |
 | SE-1 | Principle number namespace collision | moderate | small | No |
 | SE-2 | "trivial" names two unrelated concepts | moderate | small | Partial |
 | SE-3 | Two-tier workflow (instrumented vs not) | significant | medium | No |

@@ -21,12 +21,14 @@ The structured skeleton holds every datum the tooling produces or consumes: step
 Concretely:
 
 Structured (every field is a typed value the validator, W3, W4, and the render engine read):
+
 - Step: slug, title, status, order (integer), `blocked_by` (slug, optional), `detail_ref` (pointer to the prose sidecar)
 - Question: id, status (an enum), ask (short, one line), options (string array, populated when decided), recommendation (string, optional), chosen (string, optional, must be in options), folded_into (step slug, when decided), `body_ref` (pointer to the prose sidecar)
 - Waiver: id, unit_step (step slug), unit_increment (increment id, optional), reason (reason code), evidence_tier, evidence_ref (optional JSONL line pointer), note (short prose, optional)
 - Principle: number (integer), text (prose, but a one-liner the render uses for the numbered list)
 
 Prose payload (read only by humans; not machine-consumed):
+
 - Step detail body: the design, decisions, and outcome rationale for a step (can be many paragraphs)
 - Question body: the extended rationale and option elaboration (can be thousands of words)
 - Ledger per-round narrative: what was reviewed, the findings, the verdicts, the convergence decision
@@ -282,6 +284,7 @@ This is a housekeeping and verification increment: it validates that the migrati
 **Principle 8 (structured source, derived human-readable views).** This is the principle the whole design serves. The clean-slate model achieves full compliance: all machine-consumed data lives in the TOML or the JSONL, and the human-readable Markdown plan is fully derived. No other design achieves this.
 
 **Principle 16 (one source of truth, derive the rest).** This is also directly served. The current smells resolved:
+
 - B1 (ledger prose vs JSONL): the ledger round narrative stays prose (it is genuine transient content), and the JSONL is the structured round source; the acknowledged double-write is resolved by ceasing to treat the ledger narrative as a source for any count or convergence judgment. The LEDGER.template.md already says "when instrumentation is on, the orchestrator ALSO appends a `round` record"; under the clean-slate model, the JSONL is the sole source and the ledger narrative is read-only commentary.
 - B2/A1/A2 (Status line, RESUME STATE re-stating Roadmap): the Status line is derived by the render engine from the step status distribution; it is never hand-written. The RESUME STATE stays prose (it is genuinely transient and non-derivable: the round number and streak are not stored anywhere structured when the ledger is the only in-flight record).
 - B3 (status vocabulary triplicated): the code constants are the single source; the render engine writes them into the generated Markdown, not into a hand-maintained prose list.

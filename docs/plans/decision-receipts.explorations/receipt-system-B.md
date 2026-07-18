@@ -37,6 +37,7 @@ The record shape, following the schema conventions in src/metrics.rs lines 34-56
 ```
 
 Required fields:
+
 - `type`: the string `"decision"` (the record type discriminant)
 - `task`: the task slug, same as every other record type
 - `q_id`: the Open Questions item id (e.g. `"Q-42"`)

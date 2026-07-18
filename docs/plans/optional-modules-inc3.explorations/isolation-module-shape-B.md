@@ -94,8 +94,7 @@ No `requires` field: isolation is independent of the checks module.
 
 ### 5b. Asset table
 
-| Source (in pack/) | Destination (in project) | Ownership | Render | Executable | Notes |
-| isolation/README.md | .agents/isolation/README.md | working | false | false | Project-local setup record; user fills in image name and machine config |
+| Source (in pack/) | Destination (in project) | Ownership | Render | Executable | Notes | | isolation/README.md | .agents/isolation/README.md | working | false | false | Project-local setup record; user fills in image name and machine config |
 
 One asset, one working file. The guidance partial (`isolation-guidance.md`) is not a dropped asset; it is read by the tool and rendered into `{{modules}}` in AGENTS.md, the same mechanism as `checks-guidance.md` (referenced at `pack/pack.toml:13`, `src/manifest.rs:82-90`).
 
@@ -132,25 +131,27 @@ Container isolation (agent-box plus agent-images) isolates the filesystem, the e
 
 1. Install agent-box: see https://github.com/0xferrous/agent-box.
 2. Choose an agent image from https://github.com/nothingnesses/agent-images (for example `claude-code`). Build it with Nix (requires Nix with flakes enabled and Podman or Docker):
-   ```
-   nix build github:nothingnesses/agent-images#<agent>
-   podman load < result
-   ```
+```
+
+nix build github:nothingnesses/agent-images#<agent> podman load < result
+
+````
 3. Configure `~/.agent-box.toml` (global, per machine):
-   ```toml
-   workspace_dir = "~/.local/agent-box/workspaces"
-   base_repo_dir = "~/path/to/your/projects"
-   [runtime]
-   backend = "podman"
-   image = "localhost/agent-images/<agent>:latest"
-   env_passthrough = ["ANTHROPIC_API_KEY"]
-   ```
-   Replace `<agent>` with the image name you chose and add any other API keys your agent needs to `env_passthrough`.
-4. Record the image name and any project-specific notes in `.agents/isolation/README.md` (created by this module) so contributors can reproduce the setup.
+```toml
+workspace_dir = "~/.local/agent-box/workspaces"
+base_repo_dir = "~/path/to/your/projects"
+[runtime]
+backend = "podman"
+image = "localhost/agent-images/<agent>:latest"
+env_passthrough = ["ANTHROPIC_API_KEY"]
+````
+
+Replace `<agent>` with the image name you chose and add any other API keys your agent needs to `env_passthrough`. 4. Record the image name and any project-specific notes in `.agents/isolation/README.md` (created by this module) so contributors can reproduce the setup.
 
 ### Running a writer agent under container isolation
 
 Worktree mode (recommended: agent sees committed and tracked files only, not gitignored files):
+
 ```
 ab new <repo-name> -s <session-name> --git
 ab spawn -s <session-name> --git
@@ -167,7 +168,8 @@ At each session preflight (see the Preflight section above), the orchestrator sh
 - If both checks pass, state: "Container tier available via agent-box (image: <configured image>); using container isolation for writer agents."
 - If either check fails, state: "Container tier not wired; falling back to worktree isolation" and continue with the worktree tier per the isolation rule.
 - Reference `.agents/isolation/README.md` for the project's recorded image name and any project-specific notes.
-```
+
+````
 
 ### 5d. Content sketch: `pack/isolation/README.md` (dropped as `.agents/isolation/README.md`, working, verbatim)
 
@@ -198,7 +200,7 @@ base_repo_dir = "~/path/to/your/projects"
 backend = "podman"
 image = "localhost/agent-images/<image-name>:latest"
 env_passthrough = ["ANTHROPIC_API_KEY"]
-```
+````
 
 Add any other API keys or environment variables this project's agent needs.
 
@@ -206,6 +208,7 @@ Add any other API keys or environment variables this project's agent needs.
 
 <!-- Record any project-specific setup steps here, e.g. extra env vars,
 NixOS rootless Podman steps, or why a specific image was chosen. -->
+
 ```
 
 ### 5e. Composition with the checks module
@@ -240,3 +243,4 @@ What the user does NOT need to do: no changes to the workflow rules, no changes 
 **A per-project agent-box config file.** agent-box has no per-project config concept; its configuration is global via `~/.agent-box.toml`. A project-specific TOML config dropped under `.agents/` that no tool reads would be misleading. The `.agents/isolation/README.md` is documentation, clearly named as such.
 
 **Any wiring that requires agent-box at scaffold time.** The Rust binary must still run correctly (and produce identical output from core assets) when agent-box and agent-images are not installed. The new files are inert content until the user installs the external tools.
+```

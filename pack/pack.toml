@@ -141,3 +141,17 @@ source = "prompts/checks-reviewer.md"
 dest = ".agents/prompts/checks-reviewer.md"
 ownership = "reference"
 module = "checks"
+
+# The inert, opt-in pre-commit hook. It is namespaced under `.agents/` and is NOT
+# installed into `.git/hooks/` by scaffolding, so it changes no git behaviour until
+# the user activates it (via `--with-precommit-hook`, which installs a delegating
+# `.git/hooks/pre-commit` create-if-absent, or the documented symlink one-liner).
+# It delegates to `agent-scaffold checks --staged` so it never drifts from
+# `checks.toml`. A tool-owned reference asset, dropped executable so a symlink or a
+# delegating install can run it directly.
+[[asset]]
+source = "hooks/pre-commit"
+dest = ".agents/hooks/pre-commit"
+ownership = "reference"
+module = "checks"
+executable = true

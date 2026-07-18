@@ -39,10 +39,14 @@
 //!   `Drop`, so it can orphan a worktree and its temp directory; the next run
 //!   reclaims such orphans with a startup prune (see `prune_orphan_worktrees`), so
 //!   "always removed" holds across runs rather than unconditionally within one.
-//! - C. The isolated content reflects the current tracked WORKING-TREE state
+//! - C. The isolated content reflects the state the run's mode selects. A plain
+//!   run (`Isolation::WorkingTree`) isolates the current tracked WORKING-TREE state
 //!   (committed plus unstaged tracked modifications), captured with `git stash
-//!   create` (or `HEAD` when the tree is clean). Untracked files are not included;
-//!   an empty repository with no commits is rejected with a clear error.
+//!   create` (or `HEAD` when the tree is clean); untracked files are not included,
+//!   and an empty repository with no commits is rejected with a clear error. A
+//!   `--staged` run (`Isolation::Staged`) isolates the INDEX content via `git
+//!   write-tree` plus `git commit-tree`, so it sees exactly what a commit would
+//!   record and never sees unstaged working-tree edits.
 //! - D. The run succeeds (exit 0) iff every check that ran passed; a failing check
 //!   makes it exit 1. Usage and environment errors (not a git repo, git missing,
 //!   worktree setup failing, an unreadable config) exit 2; a malformed config
@@ -324,7 +328,7 @@ struct WorktreeGuard {
 
 impl Drop for WorktreeGuard {
 	fn drop(&mut self) {
-		let _ = Command::new("git")
+		let _ = git_command()
 			.arg("-C")
 			.arg(&self.repo)
 			.args(["worktree", "remove", "--force"])
@@ -333,8 +337,37 @@ impl Drop for WorktreeGuard {
 		// If git left the directory behind (or never registered it), remove it, then
 		// prune the admin entry so `git worktree list` is clean.
 		let _ = fs::remove_dir_all(&self.path);
-		let _ = Command::new("git").arg("-C").arg(&self.repo).args(["worktree", "prune"]).output();
+		let _ = git_command().arg("-C").arg(&self.repo).args(["worktree", "prune"]).output();
 	}
+}
+
+/// Strip the git environment variables a parent process may have set, so a child
+/// git command acts on the repository through `-C`/`current_dir` alone. This
+/// matters most for the pre-commit hook path: git runs a hook with `GIT_DIR`,
+/// `GIT_INDEX_FILE`, `GIT_WORK_TREE`, and `GIT_PREFIX` pointing at the committing
+/// repository, and if those leak into `git worktree add` it fails (it inherits a
+/// relative `GIT_DIR` and the committing index, so the new worktree cannot open its
+/// own index). The index content is still captured correctly: `git write-tree` run
+/// with `-C repo` and no `GIT_INDEX_FILE` reads `repo/.git/index`, which in a hook
+/// is exactly the index being committed. A check command that shells out to git is
+/// stripped too, so it sees the isolated worktree, not the outer repository.
+fn strip_git_env(command: &mut Command) -> &mut Command {
+	command
+		.env_remove("GIT_DIR")
+		.env_remove("GIT_WORK_TREE")
+		.env_remove("GIT_INDEX_FILE")
+		.env_remove("GIT_PREFIX")
+		.env_remove("GIT_COMMON_DIR")
+		.env_remove("GIT_OBJECT_DIRECTORY")
+}
+
+/// A fresh `git` command with the inherited git environment stripped (see
+/// `strip_git_env`), the single constructor every runner git invocation goes
+/// through so none of them leaks a hook's environment.
+fn git_command() -> Command {
+	let mut command = Command::new("git");
+	strip_git_env(&mut command);
+	command
 }
 
 /// Run a git command in `repo` and return its captured output, translating a
@@ -343,7 +376,7 @@ fn git(
 	repo: &Path,
 	args: &[&str],
 ) -> Result<std::process::Output, RunError> {
-	Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|error| {
+	git_command().arg("-C").arg(repo).args(args).output().map_err(|error| {
 		if error.kind() == io::ErrorKind::NotFound {
 			RunError::GitUnavailable
 		} else {
@@ -427,35 +460,100 @@ fn prune_orphan_worktrees(repo: &Path) {
 	let _ = git(repo, &["worktree", "prune"]);
 }
 
-/// The commit whose tree the isolation worktree checks out: the current tracked
-/// WORKING-TREE state (committed plus unstaged tracked modifications) via `git
-/// stash create`, or `HEAD` when the tree is clean (stash create prints nothing).
-/// A repository with no commits (so neither a stash commit nor a resolvable
-/// `HEAD`) is rejected. Untracked files are not captured; this is the documented
-/// limitation of the primitive.
-fn isolation_commit(repo: &Path) -> Result<String, RunError> {
-	// Resolve HEAD first: a repository with no commits has no HEAD, and `git stash
-	// create` itself errors there ("You do not have the initial commit yet"), so
-	// detecting the no-commits case up front gives a clear error rather than a
-	// generic stash failure.
-	let head = git(repo, &["rev-parse", "--verify", "HEAD"])?;
-	if !head.status.success() {
-		return Err(RunError::NoCommits);
-	}
-	let head_sha = String::from_utf8_lossy(&head.stdout).trim().to_string();
+/// Which state the isolation worktree checks out: the working tree, or the index.
+/// A plain `checks` run isolates the WORKING-TREE state; `checks --staged`
+/// isolates the STAGED/index content, so the pre-commit hook checks exactly what
+/// will be committed without seeing unstaged edits. The downstream path (worktree
+/// add, guard, run, cleanup, prune) is identical for both; only the isolated
+/// commit differs, so the mode is a single parameter to `run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Isolation {
+	/// Isolate the current tracked working-tree state (committed plus unstaged
+	/// tracked modifications), the default for a plain `checks` run.
+	WorkingTree,
+	/// Isolate the index (staged) content, for `checks --staged` and the hook, so
+	/// the run sees exactly what a commit would record.
+	Staged,
+}
 
-	// With at least one commit, capture the current tracked working-tree state.
-	// `stash create` returns a commit of the dirty tracked state, or nothing when
-	// the tree is clean, in which case HEAD is the state to isolate.
-	let created = git(repo, &["stash", "create"])?;
-	if !created.status.success() {
-		return Err(RunError::WorktreeSetup(format!(
-			"`git stash create` failed: {}",
-			String::from_utf8_lossy(&created.stderr).trim()
-		)));
+/// The commit whose tree the isolation worktree checks out, selected by `mode`.
+///
+/// `WorkingTree`: the current tracked working-tree state (committed plus unstaged
+/// tracked modifications) via `git stash create`, or `HEAD` when the tree is clean
+/// (stash create prints nothing). A repository with no commits (so neither a stash
+/// commit nor a resolvable `HEAD`) is rejected. Untracked files are not captured;
+/// this is the documented limitation of the primitive.
+///
+/// `Staged`: the INDEX content, via `git write-tree` (a tree object of the index)
+/// then `git commit-tree` (a commit-ish `git worktree add` can check out, since it
+/// needs a commit, not a bare tree). The throwaway commit is given a fixed identity
+/// with `-c user.name/user.email` so it succeeds even when the repository has no
+/// committer identity configured. This path does not need a prior commit: an index
+/// with staged content produces a tree even in a repository with no `HEAD`.
+fn isolation_commit(
+	repo: &Path,
+	mode: Isolation,
+) -> Result<String, RunError> {
+	match mode {
+		Isolation::WorkingTree => {
+			// Resolve HEAD first: a repository with no commits has no HEAD, and `git
+			// stash create` itself errors there ("You do not have the initial commit
+			// yet"), so detecting the no-commits case up front gives a clear error
+			// rather than a generic stash failure.
+			let head = git(repo, &["rev-parse", "--verify", "HEAD"])?;
+			if !head.status.success() {
+				return Err(RunError::NoCommits);
+			}
+			let head_sha = String::from_utf8_lossy(&head.stdout).trim().to_string();
+
+			// With at least one commit, capture the current tracked working-tree state.
+			// `stash create` returns a commit of the dirty tracked state, or nothing when
+			// the tree is clean, in which case HEAD is the state to isolate.
+			let created = git(repo, &["stash", "create"])?;
+			if !created.status.success() {
+				return Err(RunError::WorktreeSetup(format!(
+					"`git stash create` failed: {}",
+					String::from_utf8_lossy(&created.stderr).trim()
+				)));
+			}
+			let sha = String::from_utf8_lossy(&created.stdout).trim().to_string();
+			Ok(if sha.is_empty() { head_sha } else { sha })
+		}
+		Isolation::Staged => {
+			// A tree object of the current index (the staged content).
+			let tree_out = git(repo, &["write-tree"])?;
+			if !tree_out.status.success() {
+				return Err(RunError::WorktreeSetup(format!(
+					"`git write-tree` failed: {}",
+					String::from_utf8_lossy(&tree_out.stderr).trim()
+				)));
+			}
+			let tree = String::from_utf8_lossy(&tree_out.stdout).trim().to_string();
+			// Wrap the tree in a commit `git worktree add --detach` can check out. The
+			// fixed identity via `-c` keeps this working in a repository with no
+			// committer identity configured (the throwaway commit is never published).
+			let commit_out = git(
+				repo,
+				&[
+					"-c",
+					"user.name=agent-scaffold",
+					"-c",
+					"user.email=agent-scaffold@invalid",
+					"commit-tree",
+					&tree,
+					"-m",
+					"agent-scaffold checks --staged: index snapshot",
+				],
+			)?;
+			if !commit_out.status.success() {
+				return Err(RunError::WorktreeSetup(format!(
+					"`git commit-tree` failed: {}",
+					String::from_utf8_lossy(&commit_out.stderr).trim()
+				)));
+			}
+			Ok(String::from_utf8_lossy(&commit_out.stdout).trim().to_string())
+		}
 	}
-	let sha = String::from_utf8_lossy(&created.stdout).trim().to_string();
-	Ok(if sha.is_empty() { head_sha } else { sha })
 }
 
 /// Match `path` (a forward-slash relative path from `git ls-files`) against a
@@ -587,7 +685,7 @@ fn run_command(
 	worktree: &Path,
 	command: &str,
 ) -> Result<CheckStatus, RunError> {
-	let output = Command::new("sh")
+	let output = strip_git_env(&mut Command::new("sh"))
 		.arg("-c")
 		.arg(command)
 		.current_dir(worktree)
@@ -626,13 +724,17 @@ fn run_command(
 }
 
 /// Run the project's checks under `dir`, isolated in a temporary git worktree of
-/// the current tracked working-tree state. Reads `dir/.agents/checks.toml`; an
-/// absent config is not a failure (returns a `Report` with `config_present:
-/// false`). Only `lint` and `format` kinds run in this increment; `test` and
-/// `mutation` are skipped. The worktree is created only when at least one check is
-/// actually runnable, and is removed on every return via the `Drop` guard (a hard
-/// kill is the one gap, reclaimed by the startup prune on the next run).
-pub fn run(dir: &Path) -> Result<Report, RunError> {
+/// the state selected by `mode` (the working tree, or the index for
+/// `Isolation::Staged`). Reads `dir/.agents/checks.toml`; an absent config is not
+/// a failure (returns a `Report` with `config_present: false`). Only `lint` and
+/// `format` kinds run in this increment; `test` and `mutation` are skipped. The
+/// worktree is created only when at least one check is actually runnable, and is
+/// removed on every return via the `Drop` guard (a hard kill is the one gap,
+/// reclaimed by the startup prune on the next run).
+pub fn run(
+	dir: &Path,
+	mode: Isolation,
+) -> Result<Report, RunError> {
 	let config_path = dir.join(".agents").join("checks.toml");
 	if !config_path.exists() {
 		return Ok(Report {
@@ -680,8 +782,9 @@ pub fn run(dir: &Path) -> Result<Report, RunError> {
 	// one, so a SIGKILL leak self-heals on the next run (Invariant B's caveat).
 	prune_orphan_worktrees(&repo);
 
-	// The commit capturing the current tracked working-tree state (or HEAD when clean).
-	let commit = isolation_commit(&repo)?;
+	// The commit capturing the isolated state: the working tree (or HEAD when clean)
+	// for a plain run, or the index for `--staged`.
+	let commit = isolation_commit(&repo, mode)?;
 
 	// A unique temp path OUTSIDE the repository; git worktree add creates it. The
 	// `RUNNER_PREFIX` (with the embedded pid) is what the startup prune recognises.
@@ -868,7 +971,7 @@ mod tests {
 	fn absent_config_is_not_a_failure() {
 		let dir = scratch("absent");
 		init_repo(&dir);
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(!report.config_present);
 		assert!(report.results.is_empty());
 		assert!(report.success());
@@ -881,7 +984,7 @@ mod tests {
 		let dir = scratch("malformed");
 		init_repo(&dir);
 		write_config(&dir, "[[check]]\nname = \"x\"\nkind = \"nope\"\ncommand = \"c\"\n");
-		match run(&dir) {
+		match run(&dir, Isolation::WorkingTree) {
 			Err(RunError::Parse(_)) => {}
 			other => panic!("expected Parse error, got {other:?}"),
 		}
@@ -899,7 +1002,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success());
 		assert!(report.ran_any());
 		assert!(matches!(report.results[0].status, CheckStatus::Passed));
@@ -920,7 +1023,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(!report.success());
 		match &report.results[0].status {
 			CheckStatus::Failed(output) => assert!(output.contains("nope"), "output was: {output}"),
@@ -949,7 +1052,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(!report.success(), "the in-place format check reports a change as a failure");
 		// The LIVE file is byte-identical to before the run.
 		assert_eq!(fs::read_to_string(&tracked).unwrap(), "MISFORMATTED\n");
@@ -975,10 +1078,102 @@ mod tests {
 		// Unstaged edit to the tracked file.
 		fs::write(&tracked, "B\n").unwrap();
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success(), "the isolated tree should carry the unstaged edit (B)");
 		// The live edit is still there and untouched.
 		assert_eq!(fs::read_to_string(&tracked).unwrap(), "B\n");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn staged_isolation_sees_the_index_not_the_working_tree() {
+		// Invariant C, staged mode (the mirror of the working-tree test above). Commit
+		// "A", stage "B", then edit the working tree to "C" WITHOUT staging. A staged
+		// run isolates the index (B), so a check that greps for the staged "B" passes
+		// and one that greps for the unstaged "C" fails: the index is seen, the
+		// unstaged working-tree edit is not.
+		let dir = scratch("staged-index");
+		init_repo(&dir);
+		let tracked = dir.join("value.txt");
+		fs::write(&tracked, "A\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"has-b\"\nkind = \"lint\"\ncommand = \"grep -q B value.txt\"\n\n\
+			 [[check]]\nname = \"no-c\"\nkind = \"lint\"\ncommand = \"! grep -q C value.txt\"\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+		// Stage "B", then make a further unstaged edit to "C".
+		fs::write(&tracked, "B\n").unwrap();
+		git_ok(&dir, &["add", "value.txt"]);
+		fs::write(&tracked, "C\n").unwrap();
+
+		let report = run(&dir, Isolation::Staged).unwrap();
+		assert!(
+			report.success(),
+			"staged mode sees the index (B) and not the unstaged working-tree edit (C)"
+		);
+		// The live working tree still carries the unstaged "C", untouched by the run.
+		assert_eq!(fs::read_to_string(&tracked).unwrap(), "C\n");
+		// And the index still holds "B" (the run did not mutate it).
+		let staged =
+			Command::new("git").arg("-C").arg(&dir).args(["show", ":value.txt"]).output().unwrap();
+		assert_eq!(String::from_utf8_lossy(&staged.stdout), "B\n", "the index is untouched");
+		assert_eq!(worktree_paths(&dir).len(), 1, "no leftover worktree after a staged run");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_staged_run_with_nothing_staged_cleans_up() {
+		// With a clean index (nothing staged beyond HEAD), a staged run writes the
+		// HEAD tree, runs the check against it, and cleans up its worktree. This pins
+		// that the write-tree/commit-tree path handles the no-staged-changes case.
+		let dir = scratch("staged-clean");
+		init_repo(&dir);
+		fs::write(dir.join("value.txt"), "committed\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"has-committed\"\nkind = \"lint\"\n\
+			 command = \"grep -q committed value.txt\"\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+
+		let report = run(&dir, Isolation::Staged).unwrap();
+		assert!(report.success());
+		assert_eq!(worktree_paths(&dir).len(), 1, "the staged worktree is cleaned up");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_staged_format_check_never_mutates_the_live_tree_or_index() {
+		// Invariant A, staged mode: an in-place format check run under `--staged`
+		// rewrites only the discardable worktree copy. The live working file AND the
+		// staged index content are both byte-unchanged after the run.
+		let dir = scratch("staged-format-isolation");
+		init_repo(&dir);
+		let tracked = dir.join("code.txt");
+		fs::write(&tracked, "STAGED\n").unwrap();
+		write_config(
+			&dir,
+			"[[check]]\nname = \"fmt\"\nkind = \"format\"\ncommand = \"apply\"\n\
+			 check = \"printf 'reformatted\\n' > code.txt; exit 1\"\n",
+		);
+		git_ok(&dir, &["add", "."]);
+		git_ok(&dir, &["commit", "-q", "-m", "init"]);
+		// Stage a new value; the working tree matches the index here.
+		fs::write(&tracked, "STAGED\n").unwrap();
+		git_ok(&dir, &["add", "code.txt"]);
+
+		let report = run(&dir, Isolation::Staged).unwrap();
+		assert!(!report.success(), "the in-place format check reports a change as a failure");
+		// The live file is byte-identical to before the run.
+		assert_eq!(fs::read_to_string(&tracked).unwrap(), "STAGED\n");
+		// The index is byte-identical too (the format check touched only the worktree).
+		let staged =
+			Command::new("git").arg("-C").arg(&dir).args(["show", ":code.txt"]).output().unwrap();
+		assert_eq!(String::from_utf8_lossy(&staged.stdout), "STAGED\n");
+		assert_eq!(worktree_paths(&dir).len(), 1);
 		fs::remove_dir_all(&dir).unwrap();
 	}
 
@@ -996,7 +1191,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success());
 		fs::remove_dir_all(&dir).unwrap();
 	}
@@ -1013,7 +1208,7 @@ mod tests {
 			 [[check]]\nname = \"m\"\nkind = \"mutation\"\ncommand = \"cargo mutants\"\n\n\
 			 [[check]]\nname = \"f\"\nkind = \"format\"\ncommand = \"apply\"\n",
 		);
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.config_present);
 		assert!(!report.ran_any());
 		assert!(report.success());
@@ -1035,7 +1230,7 @@ mod tests {
 
 		// The command is `false` (would fail if run), but no `.py` file matches, so it
 		// is skipped and the run still succeeds.
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success());
 		match &report.results[0].status {
 			CheckStatus::Skipped(reason) => assert!(reason.contains("no tracked file")),
@@ -1056,7 +1251,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success());
 		assert!(matches!(report.results[0].status, CheckStatus::Passed));
 		fs::remove_dir_all(&dir).unwrap();
@@ -1066,7 +1261,7 @@ mod tests {
 	fn a_non_repo_target_with_runnable_checks_errors() {
 		let dir = scratch("non-repo");
 		write_config(&dir, "[[check]]\nname = \"ok\"\nkind = \"lint\"\ncommand = \"true\"\n");
-		match run(&dir) {
+		match run(&dir, Isolation::WorkingTree) {
 			Err(RunError::NotARepo(_)) => {}
 			other => panic!("expected NotARepo, got {other:?}"),
 		}
@@ -1078,7 +1273,7 @@ mod tests {
 		let dir = scratch("no-commits");
 		init_repo(&dir);
 		write_config(&dir, "[[check]]\nname = \"ok\"\nkind = \"lint\"\ncommand = \"true\"\n");
-		match run(&dir) {
+		match run(&dir, Isolation::WorkingTree) {
 			Err(RunError::NoCommits) => {}
 			other => panic!("expected NoCommits, got {other:?}"),
 		}
@@ -1121,7 +1316,7 @@ mod tests {
 		init_repo(&dir);
 		// Make `.agents/checks.toml` a directory, so `read_to_string` errors.
 		fs::create_dir_all(dir.join(".agents").join("checks.toml")).unwrap();
-		match run(&dir) {
+		match run(&dir, Isolation::WorkingTree) {
 			Err(error @ RunError::Io(_)) => assert_eq!(error.exit_code(), 2),
 			other => panic!("expected Io error with exit code 2, got {other:?}"),
 		}
@@ -1144,7 +1339,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success(), "a nested .py must not match a root-only *.py");
 		match &report.results[0].status {
 			CheckStatus::Skipped(reason) => assert!(reason.contains("no tracked file")),
@@ -1168,7 +1363,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(!report.success(), "an empty paths array runs the check unscoped");
 		assert!(matches!(report.results[0].status, CheckStatus::Failed(_)));
 		fs::remove_dir_all(&dir).unwrap();
@@ -1190,7 +1385,7 @@ mod tests {
 		git_ok(&dir, &["add", "."]);
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success(), "a stdin-reading check gets EOF and exits cleanly");
 		fs::remove_dir_all(&dir).unwrap();
 	}
@@ -1228,7 +1423,7 @@ mod tests {
 		// Two worktrees now: main plus the planted orphan.
 		assert_eq!(worktree_paths(&dir).len(), 2);
 
-		let report = run(&dir).unwrap();
+		let report = run(&dir, Isolation::WorkingTree).unwrap();
 		assert!(report.success());
 		// The orphan directory is gone and only the main worktree remains.
 		assert!(!orphan.exists(), "the registered orphan worktree was reclaimed");

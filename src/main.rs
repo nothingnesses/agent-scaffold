@@ -92,7 +92,9 @@ fn outcome_of(
 	}
 }
 
-/// Write `asset` under `root`, unless the planned outcome is to skip it.
+/// Write `asset` under `root`, unless the planned outcome is to skip it. An asset
+/// marked executable in the manifest (for example the checks module's
+/// `.agents/hooks/pre-commit`) has its executable bit set after the write.
 fn apply_asset(
 	root: &Path,
 	asset: &Asset,
@@ -105,7 +107,29 @@ fn apply_asset(
 	if let Some(parent) = dest.parent() {
 		fs::create_dir_all(parent)?;
 	}
-	fs::write(&dest, &asset.contents)
+	fs::write(&dest, &asset.contents)?;
+	if asset.executable {
+		make_executable(&dest)?;
+	}
+	Ok(())
+}
+
+/// Set the executable bit on `path` (mode `0o755`) on Unix; a no-op elsewhere.
+/// Used both for executable scaffolded assets and for the installed pre-commit
+/// hook, so the two share one implementation.
+#[cfg(unix)]
+fn make_executable(path: &Path) -> io::Result<()> {
+	use std::os::unix::fs::PermissionsExt;
+	let mut perms = fs::metadata(path)?.permissions();
+	perms.set_mode(0o755);
+	fs::set_permissions(path, perms)
+}
+
+/// The non-Unix stand-in: file permissions are not modelled the same way, so the
+/// executable bit is simply not set (a documented platform limitation).
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> io::Result<()> {
+	Ok(())
 }
 
 /// Version-control system to initialise in the output directory. Git by default;
@@ -333,6 +357,9 @@ struct ScaffoldArgs {
 	/// `docs/metrics/workflow.jsonl`. Off by default.
 	#[arg(long)]
 	instrument: bool,
+	/// Install a git pre-commit hook that runs the checks gate, create-if-absent (never clobbering an existing hook). Meaningful only with `--module checks`; using it without that module is a usage error. The installed hook delegates to the scaffolded `.agents/hooks/pre-commit`.
+	#[arg(long)]
+	with_precommit_hook: bool,
 }
 
 /// Arguments for the `validate` subcommand.
@@ -363,13 +390,15 @@ struct StatusArgs {
 	json: bool,
 }
 
-/// Arguments for the `checks` subcommand. `--staged` is reserved for a later
-/// increment (2c-ii) and deliberately not added here.
+/// Arguments for the `checks` subcommand.
 #[derive(Args)]
 struct ChecksArgs {
 	/// The project root to check (defaults to the current directory). Its `.agents/checks.toml` is read, and the checks run in a temporary worktree of this repository.
 	#[arg(long, default_value = ".")]
 	dir: PathBuf,
+	/// Isolate the STAGED (index) content instead of the working tree, so the run checks exactly what a commit would record (what the pre-commit hook uses). Without it, the working-tree state is isolated.
+	#[arg(long)]
+	staged: bool,
 }
 
 /// A derived, best-effort projection of the workflow state, serialised by
@@ -421,7 +450,8 @@ fn main() -> io::Result<()> {
 /// isolation bounds mutation for a relative-path check; it is not a security
 /// sandbox (see `checks` module docs).
 fn run_checks(args: ChecksArgs) -> io::Result<()> {
-	let report = match checks::run(&args.dir) {
+	let mode = if args.staged { checks::Isolation::Staged } else { checks::Isolation::WorkingTree };
+	let report = match checks::run(&args.dir, mode) {
 		Ok(report) => report,
 		Err(error) => {
 			// The exit code is single-sourced on `RunError::exit_code`: a malformed
@@ -664,7 +694,111 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	Ok(())
 }
 
+/// The module name whose gate the pre-commit hook runs. `--with-precommit-hook` is
+/// meaningful only when this module is selected.
+const CHECKS_MODULE: &str = "checks";
+
+/// The delegating pre-commit hook `--with-precommit-hook` installs into
+/// `.git/hooks/pre-commit`. It execs the scaffolded, tracked
+/// `.agents/hooks/pre-commit`, so the real logic lives in that one asset and never
+/// drifts (one source of truth). `git rev-parse --show-toplevel` resolves the repo
+/// root at hook-run time, so the hook works from any subdirectory.
+const PRECOMMIT_DELEGATE: &str = "#!/bin/sh\n\
+	# Installed by `agent-scaffold scaffold --with-precommit-hook` (create-if-absent).\n\
+	# Delegates to the tracked, single-source hook so the real logic lives in one\n\
+	# place and never drifts. Remove this file to disable the checks commit gate.\n\
+	exec \"$(git rev-parse --show-toplevel)/.agents/hooks/pre-commit\"\n";
+
+/// Whether the `--with-precommit-hook` request is coherent: it is meaningful only
+/// alongside `--module checks`, so requesting it without that module is a usage
+/// error (Principle 5, do not admit the incoherent state). Not requesting the hook
+/// is always coherent.
+fn precommit_coherent(
+	with_hook: bool,
+	modules: &[String],
+) -> bool {
+	!with_hook || modules.iter().any(|module| module == CHECKS_MODULE)
+}
+
+/// What happened when installing the pre-commit hook into `.git/hooks`.
+#[derive(Debug, PartialEq, Eq)]
+enum HookInstall {
+	/// The hook was written (no prior hook existed); carries its path.
+	Installed(PathBuf),
+	/// A pre-commit hook already existed; it was left untouched (never clobbered).
+	/// Carries the existing hook's path.
+	Exists(PathBuf),
+	/// The output directory is not a git repository (no resolvable hooks dir), so
+	/// the install was skipped rather than erroring the whole scaffold.
+	NotARepo,
+}
+
+/// Resolve the git hooks directory for `output_dir` via `git rev-parse --git-path
+/// hooks`, which handles a `.git` directory, a `.git` file (a linked worktree or a
+/// submodule), and honours the real git dir. Returns `None` when the directory is
+/// not a git repository or `git` is unavailable, so the caller can skip the install
+/// with a clear note instead of failing.
+fn hooks_dir(output_dir: &Path) -> Option<PathBuf> {
+	let output = std::process::Command::new("git")
+		.arg("-C")
+		.arg(output_dir)
+		.args(["rev-parse", "--git-path", "hooks"])
+		.output()
+		.ok()?;
+	if !output.status.success() {
+		return None;
+	}
+	let rel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+	if rel.is_empty() {
+		return None;
+	}
+	// `git -C <dir>` runs with `<dir>` as its working directory, so a relative path
+	// it prints is relative to `output_dir`; make it absolute against that.
+	let path = PathBuf::from(&rel);
+	Some(if path.is_absolute() { path } else { output_dir.join(path) })
+}
+
+/// Install the delegating pre-commit hook into `output_dir`'s `.git/hooks`,
+/// CREATE-IF-ABSENT: it writes `.git/hooks/pre-commit` only when none exists, never
+/// clobbering an existing hook (Principle 3). The written hook is made executable.
+/// When `output_dir` is not a git repository the install is skipped (returns
+/// `NotARepo`) rather than failing, since the scaffolded assets already landed.
+/// This writes INTO `.git/`, so it is deliberately separate from the asset-drop
+/// path.
+fn install_precommit_hook(output_dir: &Path) -> io::Result<HookInstall> {
+	let Some(hooks) = hooks_dir(output_dir) else {
+		return Ok(HookInstall::NotARepo);
+	};
+	fs::create_dir_all(&hooks)?;
+	let hook = hooks.join("pre-commit");
+	if hook.exists() {
+		return Ok(HookInstall::Exists(hook));
+	}
+	fs::write(&hook, PRECOMMIT_DELEGATE)?;
+	make_executable(&hook)?;
+	Ok(HookInstall::Installed(hook))
+}
+
+/// Print the manual activation one-liner for the scaffolded hook, used when an
+/// existing hook is left in place or the repo is not yet initialised.
+fn print_manual_hook_instructions() {
+	eprintln!("To activate the scaffolded checks hook manually, from the repo root:");
+	eprintln!("  ln -s ../../.agents/hooks/pre-commit .git/hooks/pre-commit");
+	eprintln!("(check for an existing .git/hooks/pre-commit first).");
+}
+
 fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
+	// `--with-precommit-hook` is meaningful only with `--module checks`; reject the
+	// incoherent combination up front with a usage error (exit 2) before any work,
+	// rather than admitting the bad state (Principle 5).
+	if !precommit_coherent(args.with_precommit_hook, &args.modules) {
+		eprintln!(
+			"error: --with-precommit-hook requires --module checks (the hook runs the checks \
+			 module's gate)"
+		);
+		std::process::exit(2);
+	}
+
 	// The active pack: the built-in one, or an external directory via --template.
 	let source = match &args.template {
 		Some(path) => manifest::PackSource::Directory(path.clone()),
@@ -777,6 +911,11 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 	for (asset, outcome) in assets.iter().zip(&outcomes) {
 		println!("{:>16}  {}", outcome.plan_label(), asset.dest);
 	}
+	// The pre-commit hook install is not a normal asset (it writes into `.git/`), so
+	// it is previewed on its own line, create-if-absent.
+	if args.with_precommit_hook {
+		println!("{:>16}  .git/hooks/pre-commit (create-if-absent)", "install");
+	}
 
 	if write {
 		if matches!(repo, InitPlan::Init) {
@@ -791,6 +930,31 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 			"Wrote to {} ({changed} changed, {untouched} left untouched).",
 			args.output_dir.display()
 		);
+		// Install the pre-commit hook last, after the assets (including the delegated-to
+		// `.agents/hooks/pre-commit`) have landed. Create-if-absent: an existing hook is
+		// never clobbered, and a non-repo output dir is skipped with a note, neither
+		// failing the scaffold that already succeeded.
+		if args.with_precommit_hook {
+			match install_precommit_hook(&args.output_dir)? {
+				HookInstall::Installed(path) =>
+					println!("Installed the pre-commit hook at {}.", path.display()),
+				HookInstall::Exists(path) => {
+					eprintln!(
+						"A pre-commit hook already exists at {}; leaving it untouched.",
+						path.display()
+					);
+					print_manual_hook_instructions();
+				}
+				HookInstall::NotARepo => {
+					eprintln!(
+						"--with-precommit-hook: {} is not a git repository; skipping the hook \
+						 install.",
+						args.output_dir.display()
+					);
+					print_manual_hook_instructions();
+				}
+			}
+		}
 	} else {
 		println!("Dry run; nothing written. Pass --write to apply.");
 	}
@@ -1068,12 +1232,13 @@ mod tests {
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();
 
-		// The four assets the checks module drops.
+		// The five assets the checks module drops.
 		let checks_assets = [
 			".agents/checks.toml",
 			".agents/checks/ast-grep/sgconfig.yml",
 			".agents/checks/ast-grep/rules/no-dbg-macro.yml",
 			".agents/prompts/checks-reviewer.md",
+			".agents/hooks/pre-commit",
 		];
 
 		// No module: the checks guidance is absent from AGENTS.md and none of the
@@ -1094,7 +1259,7 @@ mod tests {
 		}
 
 		// --module checks: the guidance partial is inlined into the `{{modules}}`
-		// slot and all four checks assets drop.
+		// slot and all five checks assets drop.
 		let on = build_assets(
 			&manifest::builtin(),
 			&selected,
@@ -1155,5 +1320,105 @@ mod tests {
 		let agents_on = on.iter().find(|a| a.dest == "AGENTS.md").unwrap();
 		assert!(agents_on.contents.ends_with('\n'));
 		assert!(!agents_on.contents.ends_with("\n\n"));
+	}
+
+	/// Initialise a git repository in `dir` (creating it) with a deterministic
+	/// identity, for the hook-install tests.
+	fn init_git_repo(dir: &Path) {
+		fs::create_dir_all(dir).unwrap();
+		for args in [
+			["init", "-q"].as_slice(),
+			["config", "user.email", "test@example.com"].as_slice(),
+			["config", "user.name", "Test"].as_slice(),
+		] {
+			let out =
+				std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+			assert!(out.status.success(), "git {args:?} failed");
+		}
+	}
+
+	/// Whether `path` has any executable bit set (Unix only; always true elsewhere,
+	/// where the bit is not modelled).
+	#[cfg(unix)]
+	fn is_executable(path: &Path) -> bool {
+		use std::os::unix::fs::PermissionsExt;
+		fs::metadata(path).unwrap().permissions().mode() & 0o111 != 0
+	}
+	#[cfg(not(unix))]
+	fn is_executable(_path: &Path) -> bool {
+		true
+	}
+
+	#[test]
+	fn with_precommit_hook_requires_the_checks_module() {
+		// The coherence rule the CLI enforces (turning a false into an exit-2 usage
+		// error): the flag is coherent only alongside `--module checks`, and is always
+		// coherent when not requested.
+		assert!(!precommit_coherent(true, &[]), "the hook without --module checks is incoherent");
+		assert!(
+			!precommit_coherent(true, &["other".to_string()]),
+			"another module does not make it coherent"
+		);
+		assert!(
+			precommit_coherent(true, &["checks".to_string()]),
+			"--module checks makes the hook coherent"
+		);
+		assert!(precommit_coherent(false, &[]), "not requesting the hook is always coherent");
+	}
+
+	#[test]
+	fn install_precommit_hook_creates_it_when_absent() {
+		// Create-if-absent, the happy path: no prior hook, so the delegating hook is
+		// written, made executable, and delegates to the tracked asset.
+		let root = scratch("hook-install-absent");
+		init_git_repo(&root);
+		let result = install_precommit_hook(&root).unwrap();
+		let path = match result {
+			HookInstall::Installed(path) => path,
+			other => panic!("expected Installed, got {other:?}"),
+		};
+		assert!(path.exists(), "the hook file was written");
+		assert!(is_executable(&path), "the installed hook is executable");
+		let body = fs::read_to_string(&path).unwrap();
+		assert!(body.starts_with("#!/bin/sh"), "the hook has a shebang");
+		assert!(
+			body.contains(".agents/hooks/pre-commit"),
+			"the hook delegates to the tracked asset"
+		);
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn install_precommit_hook_never_clobbers_an_existing_hook() {
+		// Principle 3: an existing pre-commit hook is left byte-untouched, and the
+		// install reports `Exists` so the caller can print the manual instructions.
+		let root = scratch("hook-install-exists");
+		init_git_repo(&root);
+		let hooks = root.join(".git").join("hooks");
+		fs::create_dir_all(&hooks).unwrap();
+		let existing = hooks.join("pre-commit");
+		fs::write(&existing, "#!/bin/sh\necho pre-existing\n").unwrap();
+
+		let result = install_precommit_hook(&root).unwrap();
+		match result {
+			HookInstall::Exists(path) => assert_eq!(path, existing),
+			other => panic!("expected Exists, got {other:?}"),
+		}
+		// The pre-existing hook is byte-identical: never clobbered.
+		assert_eq!(fs::read_to_string(&existing).unwrap(), "#!/bin/sh\necho pre-existing\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn install_precommit_hook_skips_a_non_repo() {
+		// A directory that is not a git repository yields `NotARepo`, so the caller
+		// skips the install with a note rather than failing the scaffold.
+		let root = scratch("hook-install-non-repo");
+		fs::create_dir_all(&root).unwrap();
+		match install_precommit_hook(&root).unwrap() {
+			HookInstall::NotARepo => {}
+			other => panic!("expected NotARepo, got {other:?}"),
+		}
+		fs::remove_dir_all(&root).unwrap();
 	}
 }

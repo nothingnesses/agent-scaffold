@@ -50,6 +50,11 @@ struct AssetSpec {
 	/// Whether to render (`{{var}}` substitution) rather than copy verbatim.
 	#[serde(default)]
 	render: bool,
+	/// Whether the dropped file is made executable (mode bit set). Defaults to
+	/// `false`; set for scripts that must run directly, such as the checks module's
+	/// `.agents/hooks/pre-commit`. Ignored on non-Unix platforms.
+	#[serde(default)]
+	executable: bool,
 	/// The optional module this asset belongs to. `None` (an absent field) is a
 	/// core asset, always dropped; `Some(name)` is dropped only when that module
 	/// is enabled (selected directly with `--module <name>`, or pulled in
@@ -261,6 +266,8 @@ pub struct Asset {
 	pub contents: String,
 	/// Whether the dropped file is tool-owned or a user working file.
 	pub ownership: Ownership,
+	/// Whether the dropped file is made executable (mode bit set on Unix).
+	pub executable: bool,
 }
 
 /// The source of a pack's files: the embedded built-in directory or a directory
@@ -520,6 +527,7 @@ pub fn load(
 				dest: spec.dest,
 				contents,
 				ownership: spec.ownership,
+				executable: spec.executable,
 			})
 		})
 		.collect()
@@ -619,8 +627,8 @@ mod tests {
 	}
 
 	#[test]
-	fn builtin_checks_module_adds_its_four_assets() {
-		// The built-in `checks` module tags four assets. With no module selected they
+	fn builtin_checks_module_adds_its_five_assets() {
+		// The built-in `checks` module tags five assets. With no module selected they
 		// are filtered out (the default list stays byte-identical, pinned by
 		// `builtin_manifest_lists_the_expected_assets`).
 		let core = load(&builtin(), &HashMap::new(), &HashMap::new(), &[]).unwrap();
@@ -630,29 +638,37 @@ mod tests {
 			".agents/prompts/checks-reviewer.md",
 			".agents/checks/ast-grep/sgconfig.yml",
 			".agents/checks/ast-grep/rules/no-dbg-macro.yml",
+			".agents/hooks/pre-commit",
 		] {
 			assert!(!core_dests.contains(&absent), "{absent} stays out when the module is off");
 		}
 
-		// `--module checks` drops exactly the four checks assets on top of the core
+		// `--module checks` drops exactly the five checks assets on top of the core
 		// set, each with its declared ownership.
 		let with_checks =
 			load(&builtin(), &HashMap::new(), &HashMap::new(), &["checks".to_string()]).unwrap();
-		let owned = |dest: &str| {
+		let asset = |dest: &str| {
 			with_checks
 				.iter()
 				.find(|a| a.dest == dest)
 				.unwrap_or_else(|| panic!("{dest} drops when the module is selected"))
-				.ownership
 		};
 		// The config, the ast-grep scaffold, and the example rule are user working
-		// files; the checks-reviewer role prompt is a tool-owned reference asset.
-		assert_eq!(owned(".agents/checks.toml"), Ownership::Working);
-		assert_eq!(owned(".agents/checks/ast-grep/sgconfig.yml"), Ownership::Working);
-		assert_eq!(owned(".agents/checks/ast-grep/rules/no-dbg-macro.yml"), Ownership::Working);
-		assert_eq!(owned(".agents/prompts/checks-reviewer.md"), Ownership::Reference);
-		// Exactly the four module assets are added, nothing else.
-		assert_eq!(with_checks.len(), core.len() + 4);
+		// files; the checks-reviewer role prompt and the pre-commit hook are tool-owned
+		// reference assets.
+		assert_eq!(asset(".agents/checks.toml").ownership, Ownership::Working);
+		assert_eq!(asset(".agents/checks/ast-grep/sgconfig.yml").ownership, Ownership::Working);
+		assert_eq!(
+			asset(".agents/checks/ast-grep/rules/no-dbg-macro.yml").ownership,
+			Ownership::Working
+		);
+		assert_eq!(asset(".agents/prompts/checks-reviewer.md").ownership, Ownership::Reference);
+		assert_eq!(asset(".agents/hooks/pre-commit").ownership, Ownership::Reference);
+		// The hook is the one executable asset; nothing else is.
+		assert!(asset(".agents/hooks/pre-commit").executable, "the hook drops executable");
+		assert!(!asset(".agents/checks.toml").executable, "the config is not executable");
+		// Exactly the five module assets are added, nothing else.
+		assert_eq!(with_checks.len(), core.len() + 5);
 	}
 
 	/// Write a filesystem pack fixture (a `pack.toml` plus one source file) and

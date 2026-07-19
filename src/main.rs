@@ -792,6 +792,11 @@ fn report_workflow(
 /// chosen plan source present; if a needed file is absent it prints a note and is
 /// skipped, the same treatment a missing file gets elsewhere here. `--plan` stays
 /// clap-required for now (the relaxation for a TOML-only project is deferred).
+///
+/// In TOML-primary mode the Markdown `--plan` is a GENERATED projection (rendered from
+/// the TOML, pinned to it by `render --check`), so the hand-authored-Markdown validator
+/// (`validate_plan`) is NOT run against it; the TOML is validated instead by
+/// `validate_source`. In Markdown mode `validate_plan` runs on `--plan` unchanged.
 fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	let mut problems: Vec<String> = Vec::new();
 	let mut summaries: Vec<String> = Vec::new();
@@ -824,36 +829,14 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 		None
 	};
 
-	let plan_contents = if let Some(plan_path) = &args.plan {
-		if plan_path.exists() {
-			let contents = fs::read_to_string(plan_path)?;
-			let plan_problems = plan::validate_plan(&contents);
-			if plan_problems.is_empty() {
-				summaries.push(format!(
-					"{}: {} steps, {} open-questions items, valid",
-					plan_path.display(),
-					plan::parse_roadmap(&contents).len(),
-					plan::parse_questions(&contents).len()
-				));
-			} else {
-				for problem in &plan_problems {
-					problems.push(format!("{}: {}", plan_path.display(), problem));
-				}
-			}
-			Some(contents)
-		} else {
-			eprintln!("no plan at {}; nothing to validate", plan_path.display());
-			None
-		}
-	} else {
-		None
-	};
-
 	// The `<task>.plan.toml` structured source, validated on request (like --plan). An
 	// absent --source path prints a note and is skipped, the same treatment the metrics
 	// log and the plan get. When it declares `[meta].primary = "toml"` it ALSO becomes
 	// the source the --workflow check reads below (the Inc 4 gate); a Markdown-primary
 	// or unparseable source is validated but does not drive the workflow check.
+	//
+	// Read BEFORE the Markdown --plan because, in TOML-primary mode, it decides whether
+	// --plan is validated at all (see `plan_is_projection` below).
 	let source_plan: Option<plan::PlanToml> = if let Some(source_path) = &args.source {
 		if source_path.exists() {
 			let contents = fs::read_to_string(source_path)?;
@@ -882,6 +865,49 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 			plan::parse_toml(&contents).ok()
 		} else {
 			eprintln!("no source plan at {}; nothing to validate", source_path.display());
+			None
+		}
+	} else {
+		None
+	};
+
+	// Whether the Markdown --plan is a GENERATED projection rather than a hand-authored
+	// source: true exactly when the --source parses as a TOML-primary plan
+	// (`[meta].primary = "toml"`). In that mode `<task>.md` is rendered FROM the TOML and
+	// pinned to it by `render --check`, and the TOML itself is validated above by
+	// `validate_source`, so running the hand-authored-Markdown validator (`validate_plan`)
+	// against the projection is category-confused and is skipped. In Markdown mode (no
+	// --source, a Markdown-primary source, or an unparseable one) `validate_plan` runs on
+	// --plan exactly as before.
+	let plan_is_projection = source_plan.as_ref().is_some_and(plan::PlanToml::is_toml_primary);
+
+	let plan_contents = if let Some(plan_path) = &args.plan {
+		if plan_path.exists() {
+			let contents = fs::read_to_string(plan_path)?;
+			if plan_is_projection {
+				summaries.push(format!(
+					"{}: generated projection of a TOML-primary source; skipping the Markdown plan \
+					 validator",
+					plan_path.display()
+				));
+			} else {
+				let plan_problems = plan::validate_plan(&contents);
+				if plan_problems.is_empty() {
+					summaries.push(format!(
+						"{}: {} steps, {} open-questions items, valid",
+						plan_path.display(),
+						plan::parse_roadmap(&contents).len(),
+						plan::parse_questions(&contents).len()
+					));
+				} else {
+					for problem in &plan_problems {
+						problems.push(format!("{}: {}", plan_path.display(), problem));
+					}
+				}
+			}
+			Some(contents)
+		} else {
+			eprintln!("no plan at {}; nothing to validate", plan_path.display());
 			None
 		}
 	} else {

@@ -1,9 +1,9 @@
 # Inc 4 triage: TOML-source swap for W3/W4/W5 + `status`
 
-Artifact: `structured-skeleton-inc4` (RISKY), commit `36a872f` on base `3f29a81`.
-Triager independent of the implementer and orchestrator. Verdicts below are judged against the Inc 4 contract (`docs/plans/agent-scaffold.md`, tag `structured-skeleton-inc4`), the Inc 5 / Inc 6 contracts (for defers), and the numbered Project Principles in `AGENTS.md`.
+Artifact: `structured-skeleton-inc4` (RISKY), commit `36a872f` on base `3f29a81`. Triager independent of the implementer and orchestrator. Verdicts below are judged against the Inc 4 contract (`docs/plans/agent-scaffold.md`, tag `structured-skeleton-inc4`), the Inc 5 / Inc 6 contracts (for defers), and the numbered Project Principles in `AGENTS.md`.
 
 Evidence checked directly (36a872f, not the pre-Inc-4 main working tree):
+
 - `git show 36a872f:src/main.rs` line 380: `--workflow` still carries `#[arg(long, requires = "plan")]`; the TOML branch comment reads "TOML-sourced: needs only the metrics log (the plan comes from the TOML)".
 - `git diff 3f29a81 36a872f -- src/workflow.rs`: `waivers_from_toml` sets `line: position`, where `position` is a per-`[[step.waiver]]` counter incremented BEFORE the drop `continue`, so it is TOML document order (kept waivers get unique but non-contiguous positions). `w5_problems` prints every violation as `round log line {}` using `waiver.line`.
 - `metrics::Waiver` (`src/metrics.rs:812`) has no `id` field. The TOML `source::Waiver` (`src/plan/source.rs:237`) HAS `id: String` (unique, enforced by `validate_source`); `waivers_from_toml` drops it.

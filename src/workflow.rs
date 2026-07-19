@@ -116,7 +116,7 @@ fn leading_slug(task: &str) -> &str {
 /// the SE-10/B6 lexical over-strip risk (T3) for new data: a record whose slug
 /// itself ends `-inc<alnum>` joins correctly on its declared `step` instead of
 /// being mis-stripped to its prefix.
-fn round_step_slug(round: &Round) -> &str {
+pub(crate) fn round_step_slug(round: &Round) -> &str {
 	round.step.as_deref().unwrap_or_else(|| leading_slug(&round.task))
 }
 
@@ -124,7 +124,7 @@ fn round_step_slug(round: &Round) -> &str {
 /// record carries one, else its `task` verbatim (the pre-migration shim). This
 /// is the identity the convergence streak is counted per, and Inc 4 will join it
 /// to the TOML `[[step.increment]].id`.
-fn round_increment_id(round: &Round) -> &str {
+pub(crate) fn round_increment_id(round: &Round) -> &str {
 	round.increment.as_deref().unwrap_or(&round.task)
 }
 
@@ -394,6 +394,20 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 	problems
 }
 
+/// The peak consecutive-clean streak over a set of round records: the maximum
+/// logged `consecutive_clean` value, or `0` when the slice is empty. This is the
+/// convergence arithmetic W3 checks a `complete` increment against, extracted so the
+/// forward `agent-scaffold next` projection and this backward check run the SAME
+/// computation over the same records rather than two copies that could drift
+/// (Principle 16). `consecutive_clean` is one running per-loop counter spanning the
+/// artifacts an increment's rounds name, so the peak (not the terminal value) is
+/// taken: in a correctly-run loop the loop stops at convergence so the peak equals
+/// the terminal value, and taking the peak lets a converged increment pass
+/// regardless of any trailing bookkeeping rounds.
+pub(crate) fn peak_consecutive_clean(records: &[&Round]) -> u64 {
+	records.iter().map(|round| round.consecutive_clean).max().unwrap_or(0)
+}
+
 /// The W3 check: for every Roadmap step marked `complete`, its rounds must show
 /// convergence, OR a covering `type:"waiver"` record must exempt the shortfall.
 /// Steps with any other status are skipped, so `skipped` and the in-flight statuses
@@ -420,7 +434,7 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 /// it does NOT inspect `reason` or `evidence_tier`, which is W5's job, so the two
 /// checks stay orthogonal. The `risk_class`-inconsistency error within an increment
 /// is a data-integrity fault and is NOT suppressed by any waiver.
-fn w3_problems(
+pub(crate) fn w3_problems(
 	spec: &WorkflowSpec,
 	steps: &[Step],
 	rounds: &[Round],
@@ -472,12 +486,9 @@ fn w3_problems(
 			// consecutive_clean over ALL of the increment's records and require that
 			// single peak to reach the class count.
 			//
-			// Peak, not terminal (T9): this matches the design's "max
-			// consecutive_clean seen" computation and is deliberate, not a bug. In a
-			// correctly-run loop the loop stops at convergence, so the peak equals the
-			// terminal value; taking the peak is what lets a converged increment pass
-			// regardless of any trailing bookkeeping rounds.
-			let peak = records.iter().map(|round| round.consecutive_clean).max().unwrap_or(0);
+			// Peak, not terminal (T9): see `peak_consecutive_clean`, which owns this
+			// computation so `agent-scaffold next` runs the identical arithmetic.
+			let peak = peak_consecutive_clean(records);
 			if peak < required {
 				// Exempt this increment iff an increment-level waiver covers it (its
 				// `increment` token equals this increment's full `task` AND its `step`

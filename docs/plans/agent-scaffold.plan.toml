@@ -678,6 +678,10 @@ waiver = []
 id = "workflow-driver-stage0a"
 risk_class = "risky"
 
+[[step.increment]]
+id = "workflow-driver-stage0b"
+risk_class = "risky"
+
 [[step]]
 slug = "doc-redundancy-cleanup"
 title = "single-source the type-A doc redundancies and fix the type-C accuracy bugs (`Q-49`)"

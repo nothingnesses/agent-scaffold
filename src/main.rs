@@ -1247,7 +1247,7 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 			.collect();
 		let save_summary = vec![
 			format!("Scaffold into: {}", args.output_dir.display()),
-			"Creates AGENTS.md and docs/plans/TEMPLATE.md if absent;".to_string(),
+			"Creates AGENTS.md and the docs/plans/ plan template if absent;".to_string(),
 			"always refreshes the .agents/ reference assets.".to_string(),
 			if args.force {
 				"Existing working files WILL be overwritten (--force).".to_string()
@@ -1336,6 +1336,32 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 		}
 		for (asset, outcome) in assets.iter().zip(&outcomes) {
 			apply_asset(&args.output_dir, asset, outcome)?;
+		}
+		// After the assets land, generate the projected `<task>.md` for every
+		// `<task>.plan.toml` skeleton the pack dropped, so a fresh scaffold ships the
+		// rendered plan view beside its structured source. The generated view is NOT a
+		// manifest asset (it is derived, and `render`/`render --check` own it), so it is
+		// (re)generated here rather than copied. A skeleton that fails to render is a
+		// broken pack, reported loudly and fatally (Principle 12) so the scaffold cannot
+		// silently ship an unrenderable plan; the assets have already landed, so this
+		// only rejects the incoherent template rather than losing work.
+		for asset in &assets {
+			let Some(stem) = asset.dest.strip_suffix(".plan.toml") else {
+				continue;
+			};
+			let source_path = args.output_dir.join(&asset.dest);
+			let rendered = match plan::render_plan(&source_path) {
+				Ok(rendered) => rendered,
+				Err(problems) => {
+					for problem in &problems {
+						eprintln!("error: could not render {}: {problem}", asset.dest);
+					}
+					std::process::exit(2);
+				}
+			};
+			let out_dest = format!("{stem}.md");
+			plan::write_rendered(&args.output_dir.join(&out_dest), &rendered)?;
+			println!("{:>16}  {out_dest}", "render");
 		}
 		let changed = outcomes.iter().filter(|o| !matches!(o, Outcome::SkippedExisting)).count();
 		let untouched = outcomes.len() - changed;

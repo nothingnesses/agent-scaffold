@@ -1,0 +1,58 @@
+# Starter `<task>.plan.toml` skeleton dropped by `agent-scaffold`. It is the
+# structured single source of truth for the plan: the Roadmap (`[[step]]`), the
+# Open-Questions queue (`[[question]]`), and the numbered Project Principles
+# (`[[principle]]`). Edit this file and the prose sidecars it references, then run
+# `agent-scaffold render <task>.plan.toml` to (re)generate the committed
+# `<task>.md`; never hand-edit that generated view. Copy this template to a
+# task-named file (for example `docs/plans/my-task.plan.toml`) to start a plan, and
+# rename its sidecar directories and files to match.
+#
+# A fresh project declares no `w4_baseline`: it has no pre-existing decisions, so
+# every decision it later folds in requires a matching JSONL decision receipt.
+
+[meta]
+title = "<title>"
+primary = "toml"
+
+# The prose sidecars render splices around the generated sections, resolved by their
+# task-relative names beside this file. Rename them when you rename the plan.
+[meta.sidecars]
+front = [
+  "TEMPLATE._status-narrative.md",
+  "TEMPLATE.motivations.md",
+  "TEMPLATE.principles-note.md",
+  "TEMPLATE.documentation-protocol.md",
+  "TEMPLATE.repo-layout.md",
+  "TEMPLATE.queue-intro.md",
+  "TEMPLATE.roadmap-intro.md",
+]
+tail = "TEMPLATE.success-criteria.md"
+
+# One placeholder step. Each `[[step]]` needs a matching body sidecar at
+# `<task>.steps/<slug>.md`; replace this with your first real step.
+[[step]]
+slug = "example-step"
+title = "An example step (replace with your first step)"
+status = "not-started"
+order = 1
+
+# The convergence-bar waiver schema is available but a fresh plan seeds none: a
+# `complete` step (or one increment of it) is exempted from the required clean-round
+# streak by a nested waiver, backed by a JSONL escalation record for the
+# `accepted-at-escalation` case. Uncomment and fill in when you actually need one.
+#
+# [[step.waiver]]
+# id = "example-step-w1"
+# unit = "step"
+# reason = "review-skipped"
+# evidence_tier = "self-declared"
+
+# The Open-Questions queue starts empty; add a `[[question]]` per human-owned
+# decision, with a matching body sidecar at `<task>.questions/<id>.md`.
+
+# Seed the Project Principles from AGENTS.md in order, then add the project-specific
+# ones after them, consolidating overlaps. One is seeded here as an example.
+[[principle]]
+n = 1
+name = "Ask clarifying questions before forging ahead"
+text = "Confirm intent before writing code, and give recommendations with reasoning."

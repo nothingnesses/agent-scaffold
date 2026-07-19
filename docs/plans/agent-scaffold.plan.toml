@@ -7,6 +7,7 @@ orphan_tasks = [
   "metrics-fields",
   "plan-fold",
   "plan-maintenance",
+  "post-inc6-folds",
   "workflow-hardening",
 ]
 
@@ -674,6 +675,36 @@ folds = []
 increment = []
 waiver = []
 
+[[step]]
+slug = "doc-redundancy-cleanup"
+title = "single-source the type-A doc redundancies and fix the type-C accuracy bugs (`Q-49`)"
+status = "not-started"
+order = 53
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "doc-currency-guidance"
+title = "documentation currency as core cross-cutting workflow guidance (`Q-50`)"
+status = "not-started"
+order = 54
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "task-entry-regrounding"
+title = "stakes-scaled task-entry re-grounding and per-step provenance links (`Q-53`)"
+status = "not-started"
+order = 55
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -966,6 +997,20 @@ folded_into = "structured-skeleton"
 receipt = "Q-48"
 
 [[question]]
+id = "Q-49"
+status = "decided"
+folded_into = "doc-redundancy-cleanup"
+receipt = "Q-49"
+ask = """cross-document redundancy between the pack docs/prompts and the canonical `pack/AGENTS.md`, raised by the human on Principle 8's one-source-of-truth clause and routed audit-first: DECIDED (human, 2026-07-19) SINGLE-SOURCE-WITH-REFERENCES: state each canonical rule/constant once in `pack/AGENTS.md` and replace type-A copies with a pointer, leave the type-B role prose as is, and fix the type-C accuracy bugs, chosen over leaving the copies duplicated and over generating the pack from `AGENTS.md`. Decision, ranked targets, and reasoning in `doc-redundancy-cleanup`; the audit files are the detailed evidence."""
+
+[[question]]
+id = "Q-50"
+status = "decided"
+folded_into = "doc-currency-guidance"
+receipt = "Q-50"
+ask = """whether keeping documentation and prompts current with a shipped change is an optional module, a deterministic check alone, or core workflow guidance: DECIDED (human, 2026-07-19) make documentation currency a CORE CROSS-CUTTING guidance reusing the existing roles, a documentation-impact assessment in the PLANNER's duties (when folding a change, identify which docs/prompts it makes stale) and in `pack/AGENTS.md` phase 2, plus a doc-currency check at the ACCEPTANCE step (does the shipped change leave any doc or prompt stale?), with the implementer updating and the reviewer verifying; chosen over an opt-in `--module` bundle and over a deterministic check alone. It complements, and is a prerequisite for, the workflow-driver's later doc-generation stages (`Q-51`). Decision and reasoning in `doc-currency-guidance`."""
+
+[[question]]
 id = "Q-51"
 status = "decided"
 folded_into = "workflow-driver"
@@ -976,6 +1021,13 @@ ask = """encode the workflow itself as a deterministic state-machine DRIVER (not
 id = "Q-52"
 status = "exploring"
 ask = """a deterministic, statistical-evidence-backed way to determine whether code is EARNING ITS KEEP (useful and worth keeping) vs accrued cruft/maintenance burden, run periodically (manually or in the workflow, e.g. at the acceptance/UAT step), likely MULTIPLE methods working together: the human raised (2026-07-19) that AI-accelerated development accrues code and maintenance burden faster, making keep-or-cut discipline the bottleneck, and asked for the prior art and how to OBJECTIVELY determine code usefulness. ORCHESTRATOR STARTING ANSWER (to be verified and extended by a WebSearch-backed research pass, since knowledge has a cutoff): usefulness is not intrinsic but RELATIONAL, made objective by making it FALSIFIABLE, the direct analog of mutation testing (mutation asks 'if I change this, does a test catch it?'; usefulness asks 'if I REMOVE this, does anything observably notice?'). Operational definition: code earns its keep iff removing it causes an observable loss (a test fails, the build breaks, a downstream dependency breaks, a production metric/behavior changes, or a documented requirement / public-API contract is violated). PRIOR-ART CLUSTERS to survey and cite: (1) static unused-code/reachability detection (compiler/linter dead-code, call-graph, `cargo-udeps`/`cargo-machete`, vulture, staticcheck, Knip, tree-shaking), blind to reflection/FFI/dynamic-dispatch/public-API; (2) dynamic/production usage (coverage as necessary-not-sufficient, PRODUCTION coverage / 'dark code' sampling, feature-usage telemetry tying code to user value); (3) DEBLOATING research (CHISEL, RAZOR, TRIMMER, piecewise compilation; delta-debugging / 1-minimality, Zeller), operationalizing keep-what-observed-use-needs; (4) mutation testing and its INVERSE, 'pseudo-tested methods' (Niedermayr et al.: body-nulling survives all tests -> effectively untested/weak-value), generalizable to a DELETION experiment; (5) behavioral-code-analysis / maintenance-cost hotspots (Tornhill/CodeScene churn x complexity, Feathers), the burden side; (6) traceability/provenance (code mapping to no requirement/test/API contract is suspect; connects to this repo's provenance direction). MULTI-SIGNAL DESIGN to propose: combine reachable/depended-on? (static) + exercised? (coverage) + deletion-safe? (deletion/pseudo-test mutant survives tests + canary, the strong signal) + traceable? (requirement/API contract; public API a legit keeper) + cost>value? (hotspot) into an ADVISORY report of candidates-not-earning-their-keep with per-signal evidence, fed into the triage/implement loop where a human decides each deletion (NEVER auto-delete; Chesterton's Fence; public-crate API surface excluded or deprecation-cycled). WORKFLOW FIT: run periodically at acceptance/UAT or on a cadence, reusing the `checks` module (already runs lint/format/test/mutation kinds in an isolated worktree) + the `review` entry mode; the deletion experiment maps onto the planned mutation module. This is `exploring`: the human directed (2026-07-19) recording it now and running the research pass AFTER the Q-51 Mealy exploration synthesises. A WebSearch-backed research pass is owed (lenses: a prior-art survey with citations; the concrete multi-signal design + `checks`/`review`/`mutation` composition; a skeptic lens on false-positives, the public-API/semver problem, and the auditor's own maintenance cost). Design record: `docs/plans/code-value-audit.explorations/`."""
+
+[[question]]
+id = "Q-53"
+status = "decided"
+folded_into = "task-entry-regrounding"
+receipt = "Q-53"
+ask = """whether to add a task-entry re-grounding and human alignment check before starting a step: DECIDED (Socratic, human, 2026-07-19) add a LIGHT, stakes-scaled task-entry RE-GROUNDING run before starting a step and on resume, sourced from the DURABLE artifacts (plan Step Detail by slug, ledger RESUME STATE, decision receipts by q_id, findings by path, code by file:line/commit) and NOT conversation history (a fact found only in ephemeral history is a durability bug to flush into the artifacts, not to cite; out-of-VCS history pointers were rejected as moving the fragility rather than fixing it): the orchestrator writes a short brief (what the task is, why it exists, the cited evidence including the decision receipt with the human's recorded choice, and what it is about to do) and pushes it for a go/no-go via the human-input contract, scaled to stakes. Also ADOPT structured PER-STEP PROVENANCE links (a step -> the decisions/findings/commits that justify it, mirroring questions' `folded_into`/`receipt`) that `render` can present as "why this step exists". Chosen over no-regrounding and over out-of-VCS history pointers. Decision and reasoning in `task-entry-regrounding`."""
 
 [[principle]]
 n = 1

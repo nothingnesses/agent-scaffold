@@ -810,8 +810,12 @@ pub(crate) fn parse_baseline(contents: &str) -> Vec<Baseline> {
 /// `parse_waivers`, parallel to `Decision`/`Baseline`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Waiver {
-	/// 1-based line number of the record within the log, for problem messages.
-	pub(crate) line: usize,
+	/// A substrate-appropriate locator naming this waiver in a W5 problem message:
+	/// for a JSONL waiver its 1-based log line (`round log line N`), for a TOML
+	/// waiver its `[[step.waiver]].id`. Each parser fills it correctly for its own
+	/// substrate, so a W5 message points a reader at the real record rather than
+	/// asserting a false JSONL line for a TOML waiver. W5 prints it verbatim.
+	pub(crate) locator: String,
 	/// Whether the waiver covers a whole `step` or one `increment` of it.
 	pub(crate) unit: WaiverUnit,
 	/// The Roadmap step slug the waiver covers (W5 checks it names a real step).
@@ -888,7 +892,7 @@ pub(crate) fn parse_waivers(contents: &str) -> Vec<Waiver> {
 			(EvidenceTier::SelfDeclared, Some(_)) => continue,
 		};
 		waivers.push(Waiver {
-			line: index + 1,
+			locator: format!("round log line {}", index + 1),
 			unit,
 			step: step.to_string(),
 			increment,
@@ -1476,7 +1480,7 @@ mod tests {
 			waivers,
 			vec![
 				Waiver {
-					line: 1,
+					locator: "round log line 1".to_string(),
 					unit: WaiverUnit::Step,
 					step: "core-assets".to_string(),
 					increment: None,
@@ -1485,7 +1489,7 @@ mod tests {
 					evidence: None,
 				},
 				Waiver {
-					line: 5,
+					locator: "round log line 5".to_string(),
 					unit: WaiverUnit::Increment,
 					step: "optional-modules".to_string(),
 					increment: Some("optional-modules-inc2cii".to_string()),

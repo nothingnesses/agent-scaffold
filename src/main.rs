@@ -374,10 +374,10 @@ struct ValidateArgs {
 	/// Path to a Markdown plan to validate (its Roadmap and Open Questions regions). When omitted, only the metrics log is validated.
 	#[arg(long)]
 	plan: Option<PathBuf>,
-	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated.
+	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Needs both the plan (via --plan) and the metrics log (via --metrics, which defaults). Requires --plan.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). --plan is still required either way.
 	#[arg(long, requires = "plan")]
 	workflow: bool,
 }
@@ -663,11 +663,15 @@ fn report_workflow(
 /// run exits with code 1 (a validation failure, distinct from the code 2 used for
 /// usage errors). Otherwise each present, valid file prints a one-line ok summary
 /// and the run exits 0. With no `--plan` and no `--workflow`, this is metrics-only,
-/// unchanged from the previous increment. With `--workflow` (which requires
+/// unchanged from the previous increment. With `--workflow` (which still requires
 /// `--plan`), the plan status is cross-referenced against the round log: every
-/// `complete` Roadmap step must have converged round records. The workflow check
-/// needs both files present; if either is absent it prints a note and is skipped,
-/// the same treatment a missing file gets elsewhere here.
+/// `complete` Roadmap step must have converged round records. When `--source` is
+/// TOML-primary (`[meta].primary = "toml"`) the steps, questions, waivers, and
+/// baseline are read from it instead of the Markdown plan (the Inc 4 swap); otherwise
+/// the Markdown `--plan` is used. Either way the check needs the metrics log and the
+/// chosen plan source present; if a needed file is absent it prints a note and is
+/// skipped, the same treatment a missing file gets elsewhere here. `--plan` stays
+/// clap-required for now (the relaxation for a TOML-only project is deferred).
 fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	let mut problems: Vec<String> = Vec::new();
 	let mut summaries: Vec<String> = Vec::new();
@@ -772,7 +776,9 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	if args.workflow {
 		let toml_primary = source_plan.as_ref().filter(|source| source.is_toml_primary());
 		match (toml_primary, &plan_contents, &metrics_contents) {
-			// TOML-sourced: needs only the metrics log (the plan comes from the TOML).
+			// TOML-sourced: the plan is read from the TOML source, so `plan_contents` is
+			// ignored here; --plan stays clap-required (present but unused) until the
+			// deferred relaxation. Needs the metrics log for the rounds/decisions/escalations.
 			(Some(source), _, Some(metrics_text)) => {
 				let source_display = args
 					.source
@@ -820,13 +826,16 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 }
 
 /// Read a `<task>.plan.toml` at `path` and return it only when it is the plan's
-/// source of truth (`[meta].primary == "toml"`), the Inc 4 (Q-46) gate shared by
-/// `validate --workflow` and `status`. A `None` path, a missing file, an unparseable
-/// source, or one whose `[meta].primary` is `markdown` all yield `None`, so the caller
-/// falls back to the Markdown path and the live repo (no TOML source) is unaffected.
-/// A parse error is intentionally swallowed here: `validate --source` is the place that
-/// REPORTS a malformed source; for sourcing the projection/checks it simply means "no
-/// TOML source", the safe fallback.
+/// source of truth (`[meta].primary == "toml"`), the Inc 4 (Q-46) gate for `status`.
+/// A `None` path, a missing file, or a source whose `[meta].primary` is `markdown` all
+/// yield `None`, so the caller falls back to the Markdown `--plan` and the live repo (no
+/// TOML source, or a Markdown-primary one) is unaffected.
+///
+/// A source that FAILS to parse also yields `None`, but because the caller explicitly
+/// passed `--source`, a one-line stderr note makes the fallback visible rather than
+/// silent (Principle 12, fail loudly). It stays a note, not a hard error: `status` is a
+/// best-effort projection, and `validate --source` is where a malformed source is
+/// REPORTED as a failure with a non-zero exit.
 fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 	let Some(path) = path else {
 		return Ok(None);
@@ -837,7 +846,18 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 	let contents = fs::read_to_string(path)?;
 	Ok(match plan::parse_toml(&contents) {
 		Ok(source) if source.is_toml_primary() => Some(source),
-		_ => None,
+		// Parsed but Markdown-primary (or primary unset): a legitimate fallback to
+		// `--plan`, documented on the `--source` help, so no note.
+		Ok(_) => None,
+		// Failed to parse: make the silent fallback visible with a note rather than
+		// swallowing it, since the user explicitly asked for this source.
+		Err(_) => {
+			eprintln!(
+				"note: --source {} did not parse as a `<task>.plan.toml`; projecting from --plan",
+				path.display()
+			);
+			None
+		}
 	})
 }
 

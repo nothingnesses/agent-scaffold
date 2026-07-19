@@ -220,15 +220,14 @@ fn run_checks(
 /// silently grant a W3 exemption (`validate --source` REPORTS these; the projection the
 /// checks read DROPS them, the synthesis invariant). The `reason` <-> `evidence_tier`
 /// pairing is NOT filtered here (it is W5's job to report, matching `parse_waivers`).
-/// The `line` field carries the waiver's 1-based position in TOML document order: there
-/// is no JSONL line for a TOML waiver, so it is a stable disambiguator for the shared
-/// W5 message rather than a real log line.
+/// The `locator` field carries the waiver's `[[step.waiver]].id`: a TOML waiver has no
+/// JSONL log line, so its W5 message names it by that stable id (`TOML waiver <id>`)
+/// instead of asserting a false `round log line N`, while a JSONL waiver keeps its log
+/// line (one `w5_problems`, correct per substrate).
 fn waivers_from_toml(plan: &PlanToml) -> Vec<Waiver> {
 	let mut waivers = Vec::new();
-	let mut position = 0usize;
 	for step in &plan.steps {
 		for waiver in &step.waivers {
-			position += 1;
 			let increment = waiver.increment.as_deref().filter(|token| !token.is_empty());
 			let increment = match (waiver.unit, increment) {
 				(WaiverUnit::Increment, Some(token)) => Some(token.to_string()),
@@ -244,7 +243,7 @@ fn waivers_from_toml(plan: &PlanToml) -> Vec<Waiver> {
 				(EvidenceTier::SelfDeclared, Some(_)) => continue,
 			};
 			waivers.push(Waiver {
-				line: position,
+				locator: format!("TOML waiver `{}`", waiver.id),
 				unit: waiver.unit,
 				step: step.slug.clone(),
 				increment,
@@ -531,8 +530,8 @@ fn w5_problems(
 		// The waiver must name a real Roadmap step.
 		if !slugs.contains(waiver.step.as_str()) {
 			problems.push(format!(
-				"round log line {}: `type:\"waiver\"` names step `{}`, which is not a Roadmap step",
-				waiver.line, waiver.step
+				"{}: `type:\"waiver\"` names step `{}`, which is not a Roadmap step",
+				waiver.locator, waiver.step
 			));
 		}
 		// An increment-unit waiver's `step` must own its `increment`: the increment's
@@ -542,8 +541,8 @@ fn w5_problems(
 			if let Some(increment) = waiver.increment.as_deref() {
 				if leading_slug(increment) != waiver.step {
 					problems.push(format!(
-						"round log line {}: increment waiver names step `{}` but increment `{}` belongs to step `{}`",
-						waiver.line,
+						"{}: increment waiver names step `{}` but increment `{}` belongs to step `{}`",
+						waiver.locator,
 						waiver.step,
 						increment,
 						leading_slug(increment)
@@ -577,8 +576,8 @@ fn w5_problems(
 				});
 				if !backed {
 					problems.push(format!(
-						"round log line {}: `record-backed` waiver cites evidence `{}` but no `type:\"escalation\"` record with `human_decision` `decision` is scoped to this waiver's unit",
-						waiver.line, evidence
+						"{}: `record-backed` waiver cites evidence `{}` but no `type:\"escalation\"` record with `human_decision` `decision` is scoped to this waiver's unit",
+						waiver.locator, evidence
 					));
 				}
 			}
@@ -589,8 +588,8 @@ fn w5_problems(
 		let pairing_ok = waiver.reason.required_tier() == waiver.evidence_tier;
 		if !pairing_ok {
 			problems.push(format!(
-				"round log line {}: waiver reason `{}` must not carry evidence tier `{}`",
-				waiver.line,
+				"{}: waiver reason `{}` must not carry evidence tier `{}`",
+				waiver.locator,
 				waiver.reason.label(),
 				waiver.evidence_tier.label()
 			));
@@ -1584,7 +1583,10 @@ mod tests {
 		// Un-launderable property (mis-tier): a `self-declared` reason dressed as
 		// `record-backed` (with an evidence pointer so the presence filter keeps it) trips
 		// W5's `reason` <-> `evidence_tier` pairing over the TOML source. The step is
-		// `in-progress` so W3 does not also fire, isolating the W5 rejection.
+		// `in-progress` so W3 does not fire, but the record-backed waiver cites an evidence
+		// pointer with no matching escalation, so TWO W5 problems fire (the missing evidence
+		// join AND the reason-tier mismatch); the assertion targets the reason-tier one. The
+		// message names the waiver by its TOML id, not a JSONL log line.
 		let source = concat!(
 			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
 			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
@@ -1593,9 +1595,10 @@ mod tests {
 		);
 		let problems = check_workflow_toml(&toml_plan(source), "");
 		assert!(
-			problems.iter().any(|problem| problem.contains(
-				"reason `predates-logging` must not carry evidence tier `record-backed`"
-			)),
+			problems.iter().any(|problem| problem.contains("TOML waiver `w`")
+				&& problem.contains(
+					"waiver reason `predates-logging` must not carry evidence tier `record-backed`"
+				)),
 			"{problems:?}"
 		);
 	}
@@ -1616,7 +1619,8 @@ mod tests {
 		let log = escalation_line("unrelated-task");
 		let problems = check_workflow_toml(&toml_plan(source), &log);
 		assert!(
-			problems.iter().any(|problem| problem.contains("cites evidence `unrelated-task`")
+			problems.iter().any(|problem| problem.contains("TOML waiver `w`")
+				&& problem.contains("cites evidence `unrelated-task`")
 				&& problem.contains("is scoped to this waiver's unit")),
 			"{problems:?}"
 		);

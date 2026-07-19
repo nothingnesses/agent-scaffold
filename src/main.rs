@@ -317,8 +317,6 @@ enum Command {
 	Checks(ChecksArgs),
 	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
 	Render(RenderArgs),
-	/// Migrate a hand-authored Markdown plan into the structured `<task>.plan.toml` skeleton plus its opaque Markdown sidecars, reading the plan's Roadmap/queue/Step-Details via the shipped parsers and the JSONL round log for waivers/baseline. Additive: it writes `[meta].primary = "markdown"` so the existing checks keep reading the Markdown plan; the cutover is a separate, gated step. Every prose block is moved verbatim into exactly one sidecar.
-	Migrate(MigrateArgs),
 }
 
 /// Arguments for the `scaffold` subcommand.
@@ -414,28 +412,6 @@ struct RenderArgs {
 	strict: bool,
 }
 
-/// Arguments for the `migrate` subcommand.
-#[derive(Args)]
-struct MigrateArgs {
-	/// Path to the hand-authored Markdown plan to migrate.
-	plan: PathBuf,
-	/// Path to the JSONL round log the waivers and baseline are read from.
-	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
-	metrics: PathBuf,
-	/// Directory to write the `<task>.plan.toml` and sidecars into (defaults to the plan's directory).
-	#[arg(long)]
-	out_dir: Option<PathBuf>,
-	/// The task name (the `<task>` in `<task>.plan.toml` and the sidecar directories). Defaults to the plan file's stem.
-	#[arg(long)]
-	task: Option<String>,
-	/// Supply the superseding id for a `(superseded)` queue item, as `--supersede Q-x=Q-y` (repeatable). The Markdown `(superseded)` status carries no target, but the typed schema requires a resolving `superseded_by`.
-	#[arg(long = "supersede", value_name = "Q-x=Q-y")]
-	supersede: Vec<String>,
-	/// Overwrite existing sidecar/TOML files instead of refusing when an output file already exists.
-	#[arg(long)]
-	force: bool,
-}
-
 /// Arguments for the `checks` subcommand.
 #[derive(Args)]
 struct ChecksArgs {
@@ -484,103 +460,7 @@ fn main() -> io::Result<()> {
 		Command::Status(args) => run_status(args),
 		Command::Checks(args) => run_checks(args),
 		Command::Render(args) => run_render(args),
-		Command::Migrate(args) => run_migrate(args),
 	}
-}
-
-/// Migrate a Markdown plan into the structured `<task>.plan.toml` + sidecars (Inc 5
-/// PREP). Reads the plan and the JSONL round log, builds the skeleton via
-/// `plan::migrate`, and writes the TOML and every sidecar under the output directory.
-/// Additive and Markdown-primary: the generated source declares
-/// `[meta].primary = "markdown"`, so the live `validate --workflow`/`status` path keeps
-/// reading the Markdown plan. On any structural mismatch the migration reports the
-/// problems and writes nothing (exit 1). Existing output files are refused unless
-/// `--force`, so a re-run never silently clobbers an edited sidecar.
-fn run_migrate(args: MigrateArgs) -> io::Result<()> {
-	let markdown = fs::read_to_string(&args.plan)?;
-	let metrics = if args.metrics.exists() {
-		fs::read_to_string(&args.metrics)?
-	} else {
-		eprintln!(
-			"no metrics log at {}; migrating with no waivers/baseline",
-			args.metrics.display()
-		);
-		String::new()
-	};
-	let task = args.task.clone().unwrap_or_else(|| {
-		args.plan
-			.file_name()
-			.and_then(|name| name.to_str())
-			.map(|name| name.strip_suffix(".md").unwrap_or(name).to_string())
-			.unwrap_or_else(|| "plan".to_string())
-	});
-	let out_dir = args
-		.out_dir
-		.clone()
-		.or_else(|| args.plan.parent().map(Path::to_path_buf))
-		.unwrap_or_else(|| PathBuf::from("."));
-
-	let mut supersede: BTreeMap<String, String> = BTreeMap::new();
-	for entry in &args.supersede {
-		match entry.split_once('=') {
-			Some((from, to)) => {
-				supersede.insert(from.trim().to_string(), to.trim().to_string());
-			}
-			None => {
-				eprintln!("error: --supersede expects Q-x=Q-y, got `{entry}`");
-				std::process::exit(2);
-			}
-		}
-	}
-
-	let migration = match plan::migrate(&markdown, &metrics, &task, &supersede) {
-		Ok(migration) => migration,
-		Err(problems) => {
-			for problem in &problems {
-				eprintln!("{}: {problem}", args.plan.display());
-			}
-			std::process::exit(1);
-		}
-	};
-
-	// Refuse to clobber an existing output unless --force, so a re-run cannot silently
-	// overwrite an edited sidecar (Principle 3, safe on existing files).
-	let plan_toml_path = out_dir.join(format!("{task}.plan.toml"));
-	let mut targets: Vec<(PathBuf, &str)> =
-		vec![(plan_toml_path.clone(), migration.plan_toml.as_str())];
-	for (rel, content) in &migration.sidecars {
-		targets.push((out_dir.join(rel), content.as_str()));
-	}
-	if !args.force {
-		let existing: Vec<String> = targets
-			.iter()
-			.filter(|(path, _)| path.exists())
-			.map(|(path, _)| path.display().to_string())
-			.collect();
-		if !existing.is_empty() {
-			eprintln!(
-				"error: {} output file(s) already exist; pass --force to overwrite:",
-				existing.len()
-			);
-			for path in &existing {
-				eprintln!("  {path}");
-			}
-			std::process::exit(1);
-		}
-	}
-	for (path, content) in &targets {
-		if let Some(parent) = path.parent() {
-			fs::create_dir_all(parent)?;
-		}
-		fs::write(path, content)?;
-	}
-	println!(
-		"migrated {} -> {} (+ {} sidecars, primary=markdown)",
-		args.plan.display(),
-		plan_toml_path.display(),
-		migration.sidecars.len()
-	);
-	Ok(())
 }
 
 /// Render a `<task>.plan.toml` into its generated `<task>.md`, or (with `--check`)

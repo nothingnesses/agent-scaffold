@@ -191,10 +191,11 @@ enum_field! {
 }
 
 impl WaiverReason {
-	/// Every variant in declaration order, so an exhaustive iteration (for example the
-	/// render engine's waiver-reason breakdown) is compiler-checked to include a future
-	/// variant rather than silently dropping it from a hand-written literal array
-	/// (Principle 16, one source of truth). A new variant is a compile-time inclusion.
+	/// Every variant in declaration order, iterated by any exhaustive consumer (for
+	/// example the render engine's waiver-reason breakdown) so no variant is silently
+	/// dropped from a hand-written literal (Principle 16, one source of truth). The
+	/// `const _` cross-check below ties this array's length to the macro-generated
+	/// `VARIANTS` list, so adding a variant is a compile error until it is listed here.
 	pub(crate) const ALL: [WaiverReason; 3] = [
 		WaiverReason::PredatesLogging,
 		WaiverReason::ReviewSkipped,
@@ -224,6 +225,13 @@ impl WaiverReason {
 		}
 	}
 }
+
+/// Compile-time exhaustiveness guard for `WaiverReason::ALL`: `VARIANTS` is generated
+/// by the `enum_field!` macro from the full variant list, so a new variant grows it
+/// and this equality fails to compile until the variant is added to `ALL` too. This
+/// turns the C4 drift (a variant silently missing from the render breakdown) into a
+/// build error rather than a stale hand-written array.
+const _: () = assert!(WaiverReason::ALL.len() == WaiverReason::VARIANTS.len());
 
 impl EvidenceTier {
 	/// The on-disk spelling of this evidence tier, for W5 problem messages.

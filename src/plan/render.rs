@@ -308,8 +308,15 @@ fn assemble(
 	sections.push(vocabulary_section());
 	sections.push(questions_section(question_blobs));
 	sections.push(roadmap_section(step_blobs));
-	sections.push(step_details_section(step_blobs));
-	sections.push(question_details_section(question_blobs));
+	// The two details sections carry only a heading when no item has body prose, so
+	// guard them the way the front/tail prose pushes are guarded: an empty section
+	// (no step/question bodies) emits NOTHING rather than a bare dangling heading.
+	if let Some(section) = step_details_section(step_blobs) {
+		sections.push(section);
+	}
+	if let Some(section) = question_details_section(question_blobs) {
+		sections.push(section);
+	}
 
 	if let Some(tail) = tail_blob {
 		let trimmed = tail.trim_end();
@@ -506,31 +513,38 @@ fn escape_cell(text: &str) -> String {
 }
 
 /// The Step Details section: each step's opaque body sidecar inlined verbatim, in the
-/// caller's fixed order (each sidecar carries its own `### <slug>` heading).
-fn step_details_section(step_blobs: &[(&Step, String)]) -> String {
+/// caller's fixed order (each sidecar carries its own `### <slug>` heading). Returns
+/// `None` when no step contributes a non-empty body, so the caller emits no bare
+/// heading (a step with no body prose contributes no entry).
+fn step_details_section(step_blobs: &[(&Step, String)]) -> Option<String> {
 	let mut out = String::from("## Step Details");
+	let mut any = false;
 	for (_, body) in step_blobs {
 		let trimmed = body.trim_end();
 		if !trimmed.is_empty() {
 			let _ = write!(out, "\n\n{trimmed}");
+			any = true;
 		}
 	}
-	out
+	any.then_some(out)
 }
 
 /// The Question Details section: each question's opaque body sidecar inlined verbatim,
 /// in the caller's fixed `Q-<n>` order (each sidecar carries its own prose). Mirrors
-/// `step_details_section` so the Open-Questions queue stays one line per item; a
-/// question with no body prose contributes no entry.
-fn question_details_section(question_blobs: &[(&Question, String)]) -> String {
+/// `step_details_section`, including returning `None` when no question contributes a
+/// non-empty body, so the Open-Questions queue stays one line per item and a
+/// question-free (or all-empty) plan emits no bare heading.
+fn question_details_section(question_blobs: &[(&Question, String)]) -> Option<String> {
 	let mut out = String::from("## Question Details");
+	let mut any = false;
 	for (_, body) in question_blobs {
 		let trimmed = body.trim_end();
 		if !trimmed.is_empty() {
 			let _ = write!(out, "\n\n{trimmed}");
+			any = true;
 		}
 	}
-	out
+	any.then_some(out)
 }
 
 /// Atomically write the rendered `<task>.md`: write the bytes to a temp file in the
@@ -555,15 +569,17 @@ pub(crate) fn write_rendered(
 		Some(parent) => parent.join(&temp_name),
 		None => PathBuf::from(&temp_name),
 	};
-	fs::write(&temp_path, rendered)?;
-	match fs::rename(&temp_path, out_path) {
-		Ok(()) => Ok(()),
-		Err(error) => {
-			// Do not leave the temp sibling behind if the rename fails.
-			let _ = fs::remove_file(&temp_path);
-			Err(error)
-		}
+	// Write the bytes, then atomically rename into place. On ANY failure remove the
+	// temp sibling so none leaks: a partial write (disk-full, an I/O error, a kill
+	// mid-write) leaves a `.<task>.md.<pid>.tmp` dotfile the `?` would otherwise skip,
+	// and a failed rename leaves the written temp behind. Either way the pre-existing
+	// `<task>.md` is untouched, since it is never opened until the rename.
+	let write_then_rename =
+		fs::write(&temp_path, rendered).and_then(|()| fs::rename(&temp_path, out_path));
+	if write_then_rename.is_err() {
+		let _ = fs::remove_file(&temp_path);
 	}
+	write_then_rename
 }
 
 #[cfg(test)]
@@ -762,6 +778,61 @@ mod tests {
 			}
 		}
 		out
+	}
+
+	#[test]
+	fn a_failed_atomic_write_leaves_no_temp_file_behind() {
+		// L2: on a write/rename failure the atomic write must remove its temp sibling
+		// rather than leak a `.<task>.md.<pid>.tmp` dotfile. A rename onto an existing
+		// DIRECTORY fails (EISDIR on Linux) AFTER the temp file is written, exercising the
+		// error path.
+		let dir = scratch("write-fail");
+		let out_path = dir.join("target.md");
+		fs::create_dir(&out_path).unwrap();
+		let result = write_rendered(&out_path, "some rendered content");
+		assert!(result.is_err(), "a rename onto an existing directory must fail");
+		// No temp sibling remains anywhere in the directory.
+		let leaked: Vec<PathBuf> = fs::read_dir(&dir)
+			.unwrap()
+			.map(|entry| entry.unwrap().path())
+			.filter(|path| {
+				path.file_name()
+					.and_then(|name| name.to_str())
+					.is_some_and(|name| name.ends_with(".tmp"))
+			})
+			.collect();
+		assert!(leaked.is_empty(), "the temp file leaked on the error path: {leaked:?}");
+		let _ = fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn empty_details_sections_emit_no_bare_heading() {
+		// N1: a plan with no questions (and no step body prose) must not emit a bare
+		// `## Question Details` / `## Step Details` heading with nothing beneath it.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+		);
+		let plan = parse_toml(source).expect("parses");
+		let empty_steps: Vec<(&Step, String)> =
+			plan.steps.iter().map(|step| (step, String::new())).collect();
+		let out = assemble(&plan, "t", &[], None, &empty_steps, &[]);
+		assert!(
+			!out.contains("## Question Details"),
+			"no questions must emit no Question Details heading: {out}"
+		);
+		assert!(
+			!out.contains("## Step Details"),
+			"empty step bodies must emit no Step Details heading: {out}"
+		);
+		// Non-vacuous: a non-empty step body keeps the heading.
+		let bodied_steps: Vec<(&Step, String)> =
+			plan.steps.iter().map(|step| (step, "### a\n\nbody".to_string())).collect();
+		let out2 = assemble(&plan, "t", &[], None, &bodied_steps, &[]);
+		assert!(
+			out2.contains("## Step Details"),
+			"a non-empty step body keeps the heading: {out2}"
+		);
 	}
 
 	#[test]

@@ -205,6 +205,20 @@ impl StepStatus {
 	}
 }
 
+/// Compile-time exhaustiveness guard for `StepStatus::ALL`: a wildcard-free match over
+/// every variant, so adding a `StepStatus` makes this fail to compile until the new
+/// variant is also listed in `ALL` above (a stale `ALL` would silently drop it from the
+/// render engine's status distribution; Principle 16).
+const _: () = match StepStatus::NotStarted {
+	StepStatus::NotStarted
+	| StepStatus::InProgress
+	| StepStatus::Complete
+	| StepStatus::Skipped
+	| StepStatus::Next
+	| StepStatus::Optional
+	| StepStatus::Deferred => (),
+};
+
 /// One increment of a step (`[[step.increment]]`): a structured id and its
 /// convergence risk class. The id retires the lexical `-inc<x>` strip (Inc 2), so
 /// a round record can join to this id directly instead of by prefix.
@@ -307,6 +321,17 @@ impl QuestionStatus {
 		}
 	}
 }
+
+/// Compile-time exhaustiveness guard for `QuestionStatus::ALL`: a wildcard-free match
+/// over every variant, so adding a `QuestionStatus` makes this fail to compile until
+/// the new variant is also listed in `ALL` above (a stale `ALL` would silently drop it
+/// from the render engine's generated queue-status vocabulary; Principle 16).
+const _: () = match QuestionStatus::Open {
+	QuestionStatus::Open
+	| QuestionStatus::Exploring
+	| QuestionStatus::Decided
+	| QuestionStatus::Superseded => (),
+};
 
 /// One project principle (`[[principle]]`): its number, name, and text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

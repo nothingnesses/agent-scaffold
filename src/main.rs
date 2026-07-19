@@ -417,8 +417,8 @@ struct StatusArgs {
 	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `docs/plans/<task>.ledger.md` derived from the plan source) instead of the state projection. Exits 0 with a note when the ledger or the section is absent.
 	#[arg(long)]
 	resume: bool,
-	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename.
-	#[arg(long)]
+	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename. Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
+	#[arg(long, requires = "resume")]
 	ledger_fragment: Option<PathBuf>,
 }
 

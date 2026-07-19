@@ -567,12 +567,42 @@ evidence = "waiver-model"
 [[step]]
 slug = "structured-skeleton"
 title = "the clean-slate plan-as-data + `render` (Q-44 / Q-45, option B)"
-status = "in-progress"
+status = "complete"
 order = 45
 blocked_by = []
 folds = []
-increment = []
-waiver = []
+
+[[step.increment]]
+id = "structured-skeleton-inc1"
+risk_class = "low_risk"
+
+[[step.increment]]
+id = "structured-skeleton-inc2"
+risk_class = "low_risk"
+
+[[step.increment]]
+id = "structured-skeleton-inc3"
+risk_class = "risky"
+
+[[step.increment]]
+id = "structured-skeleton-inc4"
+risk_class = "risky"
+
+[[step.increment]]
+id = "structured-skeleton-inc5"
+risk_class = "risky"
+
+[[step.increment]]
+id = "structured-skeleton-inc6"
+risk_class = "risky"
+
+[[step.waiver]]
+id = "structured-skeleton-inc6-w1"
+unit = "increment"
+increment = "structured-skeleton-inc6"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "structured-skeleton-inc6"
 
 [[step]]
 slug = "state-queries"

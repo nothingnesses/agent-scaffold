@@ -1,7 +1,6 @@
 # Inc 3 triage - render engine (`structured-skeleton-inc3`)
 
-Triager verdicts on the three reviewer findings files for commit `17a328e` on base `9afe567`.
-Independent adjudication: I did not write or review the code. Severity is absolute impact if left unfixed, on `low`/`medium`/`high`/`critical`. Fix-now means the fix belongs in this increment (Inc 3) before the enforcement swap (Inc 4) and the live migration (Inc 5); defer means it is legitimately settled later.
+Triager verdicts on the three reviewer findings files for commit `17a328e` on base `9afe567`. Independent adjudication: I did not write or review the code. Severity is absolute impact if left unfixed, on `low`/`medium`/`high`/`critical`. Fix-now means the fix belongs in this increment (Inc 3) before the enforcement swap (Inc 4) and the live migration (Inc 5); defer means it is legitimately settled later.
 
 Read against `AGENTS.md`, `.agents/prompts/triager.md`, the Inc 3 bullet in `docs/plans/agent-scaffold.md:686`, and `docs/plans/structured-skeleton.explorations/synthesis.md` (section 3 and 3(f), section 4 Inc 5 expected-diffs). Confirmed against `src/plan/render.rs` and `src/plan/source.rs` at the commit, and by running `cargo test --all-targets` in the worktree.
 
@@ -128,8 +127,7 @@ These are recommendations for the human/orchestrator to settle, per the human-in
 
 ### C1 - open-question count semantics
 
-Options: (a) count `Open` only (current); (b) count `Open | Exploring`.
-Recommendation: (b) count `Open | Exploring`, and consider naming the number to match its meaning (for example "unresolved questions"). Reasoning: AGENTS.md and the schema (`plan.rs:82-84`) describe `exploring` as an UNRESOLVED sub-state of open (a design pass is still owed), and the plan's queue is the single human-decision queue; the Status line's job is to convey how many decisions are still outstanding, and an exploring item is one the human still owes. Excluding it undercounts outstanding work. The existing `status`/`validate` path uses a third metric again (`open_questions.len()`, the whole queue, `main.rs:573`/`:719`), so there is no single precedent to inherit; whichever is chosen, add the pinning test.
+Options: (a) count `Open` only (current); (b) count `Open | Exploring`. Recommendation: (b) count `Open | Exploring`, and consider naming the number to match its meaning (for example "unresolved questions"). Reasoning: AGENTS.md and the schema (`plan.rs:82-84`) describe `exploring` as an UNRESOLVED sub-state of open (a design pass is still owed), and the plan's queue is the single human-decision queue; the Status line's job is to convey how many decisions are still outstanding, and an exploring item is one the human still owes. Excluding it undercounts outstanding work. The existing `status`/`validate` path uses a third metric again (`open_questions.len()`, the whole queue, `main.rs:573`/`:719`), so there is no single precedent to inherit; whichever is chosen, add the pinning test.
 
 ### F1 - question bodies to a `## Question Details` section
 

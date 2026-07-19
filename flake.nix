@@ -38,6 +38,10 @@
 
           treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
             projectRootFile = "flake.nix";
+            # The render golden fixtures are byte-exact `agent-scaffold render`
+            # output (Markdown + TOML + prose sidecars), not formatter output, so
+            # prettier/taplo must not touch them or `render --check` would diverge.
+            settings.global.excludes = [ "src/plan/testdata/render-fixture*" ];
             programs = {
               nixfmt.enable = true;
               rustfmt = {

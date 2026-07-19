@@ -1,31 +1,19 @@
 # Inc 3 round 3 (confirming) review - render engine, verify round-2 fixes + full re-attack
 
-Reviewer lens: independent confirming round (round 3) on the render engine. Role separation
-holds: I did NOT write this code. This is a risky increment needing two consecutive clean
-rounds; this is a potential first-of-two, so this is a genuine adversarial pass. I verified the
-three round-2 fixes (L2 temp cleanup, L3 exhaustiveness, N1 empty-details headings) landed and
-are sound, and re-attacked the whole increment for residual/new defects.
+Reviewer lens: independent confirming round (round 3) on the render engine. Role separation holds: I did NOT write this code. This is a risky increment needing two consecutive clean rounds; this is a potential first-of-two, so this is a genuine adversarial pass. I verified the three round-2 fixes (L2 temp cleanup, L3 exhaustiveness, N1 empty-details headings) landed and are sound, and re-attacked the whole increment for residual/new defects.
 
 Fix range under review: `69b21c4..7e0503c`. Full increment: `9afe567..7e0503c`.
 
-Build/test state (run READ-ONLY in the worktree `structured-skeleton-inc3`, HEAD `7e0503c`,
-tree clean):
+Build/test state (run READ-ONLY in the worktree `structured-skeleton-inc3`, HEAD `7e0503c`, tree clean):
 
-- `cargo test --all-targets` -> 286 passing (282 unit + 1 `checks_staged_hook_env` + 3
-  `scaffold_precommit_hook`), matching the implementer's claim of 286.
+- `cargo test --all-targets` -> 286 passing (282 unit + 1 `checks_staged_hook_env` + 3 `scaffold_precommit_hook`), matching the implementer's claim of 286.
 - `cargo clippy --all-targets -- -D warnings` -> clean, zero warnings.
 - `cargo run -- render --check src/plan/testdata/render-fixture.plan.toml` -> `up to date`.
-- `docs/plans/agent-scaffold.md` last touched at `9afe567` (the increment base); untouched by
-  the increment and by the fix round.
+- `docs/plans/agent-scaffold.md` last touched at `9afe567` (the increment base); untouched by the increment and by the fix round.
 
 ## Verdict
 
-Not fully clean: ONE low finding (L3b below), introduced by the round-2 const-assert additions
-for `StepStatus`/`QuestionStatus`. No medium, high, or critical. The three named round-2 fixes
-(L2, N1, and the `WaiverReason` half of L3) are correct and non-vacuously tested. The finding is
-marginal (the guard does fire a compile error on a new variant, so the acceptance criterion is
-technically met); I raise it because the guard does not do what its own comment claims, and it is
-strictly weaker than the sibling `WaiverReason` fix in the same commit.
+Not fully clean: ONE low finding (L3b below), introduced by the round-2 const-assert additions for `StepStatus`/`QuestionStatus`. No medium, high, or critical. The three named round-2 fixes (L2, N1, and the `WaiverReason` half of L3) are correct and non-vacuously tested. The finding is marginal (the guard does fire a compile error on a new variant, so the acceptance criterion is technically met); I raise it because the guard does not do what its own comment claims, and it is strictly weaker than the sibling `WaiverReason` fix in the same commit.
 
 ---
 
@@ -35,136 +23,66 @@ strictly weaker than the sibling `WaiverReason` fix in the same commit.
 
 `src/plan/render.rs:556-583` (`write_rendered`).
 
-The write and rename are now a single `and_then` chain, and a single `if
-write_then_rename.is_err() { let _ = fs::remove_file(&temp_path); }` cleans up on ANY error
-branch, then the result is returned. Re-attack by reasoning over every branch:
+The write and rename are now a single `and_then` chain, and a single `if write_then_rename.is_err() { let _ = fs::remove_file(&temp_path); }` cleans up on ANY error branch, then the result is returned. Re-attack by reasoning over every branch:
 
-- Write fails (`fs::write` errors, e.g. ENOSPC / partial write / kill mid-write): `and_then`
-  short-circuits, result is `Err`, cleanup removes the (possibly partial) temp. No leak. This is
-  the exact disk-full path that leaked in round 2 (the old `?` returned before cleanup); it is
-  now covered.
-- Rename fails (`fs::write` ok, `fs::rename` errors): result is `Err`, cleanup removes the
-  written temp. No leak.
-- Success: both `Ok`, `is_err()` false, no cleanup attempted; after the rename the temp no
-  longer exists at `temp_path` anyway. Success path unchanged from round 2.
-- The pre-existing `<task>.md` is never opened until the atomic `fs::rename`, so every failure
-  path leaves it byte-intact.
+- Write fails (`fs::write` errors, e.g. ENOSPC / partial write / kill mid-write): `and_then` short-circuits, result is `Err`, cleanup removes the (possibly partial) temp. No leak. This is the exact disk-full path that leaked in round 2 (the old `?` returned before cleanup); it is now covered.
+- Rename fails (`fs::write` ok, `fs::rename` errors): result is `Err`, cleanup removes the written temp. No leak.
+- Success: both `Ok`, `is_err()` false, no cleanup attempted; after the rename the temp no longer exists at `temp_path` anyway. Success path unchanged from round 2.
+- The pre-existing `<task>.md` is never opened until the atomic `fs::rename`, so every failure path leaves it byte-intact.
 
-I found no branch where a `.<task>.md.<pid>.tmp` leaks. The new test
-`a_failed_atomic_write_leaves_no_temp_file_behind` (`render.rs:783+`) is non-vacuous: it makes
-`out_path` an existing DIRECTORY so `fs::write` succeeds (creating the temp) and `fs::rename`
-then fails (EISDIR-class), asserting `result.is_err()` AND scanning the directory for any
-`*.tmp` leftover (asserts none). It exercises the rename-failure branch and the shared cleanup;
-because the cleanup is a single shared statement, the write-failure branch runs the identical
-code. Scratch tests write under `std::env::temp_dir()`, off the worktree.
+I found no branch where a `.<task>.md.<pid>.tmp` leaks. The new test `a_failed_atomic_write_leaves_no_temp_file_behind` (`render.rs:783+`) is non-vacuous: it makes `out_path` an existing DIRECTORY so `fs::write` succeeds (creating the temp) and `fs::rename` then fails (EISDIR-class), asserting `result.is_err()` AND scanning the directory for any `*.tmp` leftover (asserts none). It exercises the rename-failure branch and the shared cleanup; because the cleanup is a single shared statement, the write-failure branch runs the identical code. Scratch tests write under `std::env::temp_dir()`, off the worktree.
 
 ### L3 (compile-time exhaustiveness) - CONFIRMED for WaiverReason; StepStatus/QuestionStatus see L3b
 
 `src/metrics.rs:234`, `src/plan/source.rs:208-220,325-334`.
 
-- `WaiverReason`: `const _: () = assert!(WaiverReason::ALL.len() == WaiverReason::VARIANTS.len());`
-  is in a const context (compile-time, not runtime). `VARIANTS` is generated by the `enum_field!`
-  macro (`metrics.rs:44`, `const VARIANTS: &'static [&'static str] = &[$($text),+];`), one entry
-  per variant, so adding a `WaiverReason` grows `VARIANTS` to 4 while `ALL` stays `[_; 3]`, and
-  the `assert!` fails to compile until `ALL` is extended. This STRICTLY ties `ALL`'s length to
-  the variant set. Sound; the render breakdown (`render.rs:379`, `for reason in
-  WaiverReason::ALL`) cannot silently drop a variant. This resolves the round-2 L3 overclaim.
-- `StepStatus` / `QuestionStatus`: the wildcard-free `const _: () = match ... { <all variants>
-  => () }` guards are in a const context and DO fail to compile if a variant is added (a
-  non-exhaustive match is E0004). So the stated acceptance ("fails to compile if a variant is
-  added") is met. However the mechanism does not tie to `ALL` the way the comment claims; see
-  L3b.
+- `WaiverReason`: `const _: () = assert!(WaiverReason::ALL.len() == WaiverReason::VARIANTS.len());` is in a const context (compile-time, not runtime). `VARIANTS` is generated by the `enum_field!` macro (`metrics.rs:44`, `const VARIANTS: &'static [&'static str] = &[$($text),+];`), one entry per variant, so adding a `WaiverReason` grows `VARIANTS` to 4 while `ALL` stays `[_; 3]`, and the `assert!` fails to compile until `ALL` is extended. This STRICTLY ties `ALL`'s length to the variant set. Sound; the render breakdown (`render.rs:379`, `for reason in WaiverReason::ALL`) cannot silently drop a variant. This resolves the round-2 L3 overclaim.
+- `StepStatus` / `QuestionStatus`: the wildcard-free `const _: () = match ... { <all variants> => () }` guards are in a const context and DO fail to compile if a variant is added (a non-exhaustive match is E0004). So the stated acceptance ("fails to compile if a variant is added") is met. However the mechanism does not tie to `ALL` the way the comment claims; see L3b.
 
 ### N1 (empty details sections) - CONFIRMED sound
 
 `src/plan/render.rs:314-319,519-548`.
 
-`step_details_section`/`question_details_section` now return `Option<String>` (`None` when no
-item contributes a non-empty trimmed body), and `assemble` guards each `push` with `if let
-Some(section)`. So a plan with no questions (or all-empty bodies) emits no bare `## Question
-Details` / `## Step Details` heading. The test `empty_details_sections_emit_no_bare_heading`
-(`render.rs:834+`) is non-vacuous: it asserts BOTH the negative (a 1-step, 0-question,
-empty-body plan emits neither heading) AND the positive (a step with body `### a\n\nbody` DOES
-re-emit `## Step Details`). No section-spacing regression from the `Option` refactor: `sections`
-is joined with `"\n\n"`, an absent section is simply not in the vector, and the golden still
-matches byte-for-byte (both the deterministic test and `render --check` pass), so the ordering
-and blank-line structure are unchanged when sections drop out.
+`step_details_section`/`question_details_section` now return `Option<String>` (`None` when no item contributes a non-empty trimmed body), and `assemble` guards each `push` with `if let Some(section)`. So a plan with no questions (or all-empty bodies) emits no bare `## Question Details` / `## Step Details` heading. The test `empty_details_sections_emit_no_bare_heading` (`render.rs:834+`) is non-vacuous: it asserts BOTH the negative (a 1-step, 0-question, empty-body plan emits neither heading) AND the positive (a step with body `### a\n\nbody` DOES re-emit `## Step Details`). No section-spacing regression from the `Option` refactor: `sections` is joined with `"\n\n"`, an absent section is simply not in the vector, and the golden still matches byte-for-byte (both the deterministic test and `render --check` pass), so the ordering and blank-line structure are unchanged when sections drop out.
 
 ---
 
 ## L3b (low) - StepStatus/QuestionStatus guards do not tie to `ALL`, and their comments say they do
 
-`src/plan/source.rs:208-220` (StepStatus guard + comment) and `src/plan/source.rs:325-334`
-(QuestionStatus guard + comment).
+`src/plan/source.rs:208-220` (StepStatus guard + comment) and `src/plan/source.rs:325-334` (QuestionStatus guard + comment).
 
-Defect. Each guard's doc comment reads: "adding a `StepStatus` makes this fail to compile until
-the new variant is also listed in `ALL` above (a stale `ALL` would silently drop it from the
-render engine's status distribution)". The first clause is true (the match becomes
-non-exhaustive), but "until the new variant is also listed in `ALL` above" is false: the compile
-error is resolved by listing the variant in the MATCH ARM, not in `ALL`. Nothing forces `ALL`.
+Defect. Each guard's doc comment reads: "adding a `StepStatus` makes this fail to compile until the new variant is also listed in `ALL` above (a stale `ALL` would silently drop it from the render engine's status distribution)". The first clause is true (the match becomes non-exhaustive), but "until the new variant is also listed in `ALL` above" is false: the compile error is resolved by listing the variant in the MATCH ARM, not in `ALL`. Nothing forces `ALL`.
 
 Repro (by reasoning; standard Rust semantics, not run because it needs an enum edit):
 
 1. Add `StepStatus::Blocked` (an 8th variant).
-2. Compile errors appear at `label()` (`source.rs:196`, non-exhaustive) and at the guard match
-   (`source.rs:212`, non-exhaustive). `ALL: [StepStatus; 7]` with its 7 literal elements still
-   compiles (a `[_; 7]` array with 7 valid initializers is valid regardless of variant count).
-3. Fix the two matches by adding `Blocked` arms. Neither edit touches `ALL`. The crate now
-   compiles with a stale 7-element `ALL`.
-4. `render.rs:353` (`for status in StepStatus::ALL`) then iterates only 7 statuses, so a
-   `blocked`-status step is silently dropped from the render status distribution. That is exactly
-   the C4 drift the guard's comment says it prevents.
+2. Compile errors appear at `label()` (`source.rs:196`, non-exhaustive) and at the guard match (`source.rs:212`, non-exhaustive). `ALL: [StepStatus; 7]` with its 7 literal elements still compiles (a `[_; 7]` array with 7 valid initializers is valid regardless of variant count).
+3. Fix the two matches by adding `Blocked` arms. Neither edit touches `ALL`. The crate now compiles with a stale 7-element `ALL`.
+4. `render.rs:353` (`for status in StepStatus::ALL`) then iterates only 7 statuses, so a `blocked`-status step is silently dropped from the render status distribution. That is exactly the C4 drift the guard's comment says it prevents.
 
-No test catches this either: `every_step_status_label_is_an_accepted_roadmap_status`
-(`render.rs:1069-1081`) only forward-checks `ALL -> ROADMAP_STATUSES` (each of the 7 in `ALL`
-has a valid label), never `ROADMAP_STATUSES -> ALL` or a count, so a stale `ALL` stays green. The
-identical gap applies to `QuestionStatus::ALL` (consumed at `render.rs:413` for the generated
-queue-status vocabulary).
+No test catches this either: `every_step_status_label_is_an_accepted_roadmap_status` (`render.rs:1069-1081`) only forward-checks `ALL -> ROADMAP_STATUSES` (each of the 7 in `ALL` has a valid label), never `ROADMAP_STATUSES -> ALL` or a count, so a stale `ALL` stays green. The identical gap applies to `QuestionStatus::ALL` (consumed at `render.rs:413` for the generated queue-status vocabulary).
 
-This is the same class of issue round-2 raised as L3 for `WaiverReason` (overclaiming comment +
-unenforced `ALL` exhaustiveness). For `WaiverReason` the fix made the claim true (the
-`len == VARIANTS.len()` cross-check). For these two siblings the fix added a guard that fires a
-compile error but does NOT tie to `ALL`, while the comment claims it does. It is in scope as a
-NEW item because these guards were added in the fix commit under review (`7e0503c`).
+This is the same class of issue round-2 raised as L3 for `WaiverReason` (overclaiming comment + unenforced `ALL` exhaustiveness). For `WaiverReason` the fix made the claim true (the `len == VARIANTS.len()` cross-check). For these two siblings the fix added a guard that fires a compile error but does NOT tie to `ALL`, while the comment claims it does. It is in scope as a NEW item because these guards were added in the fix commit under review (`7e0503c`).
 
-Severity low, not medium: unlike the original C4 (a hand-written literal in `render.rs` with no
-guard at all), a new variant here DOES force a compile error at `label()` and the guard, so a
-maintainer cannot add one without editing this exact impl region (with `ALL` 8-20 lines away).
-The drift requires satisfying those two matches while overlooking the adjacent `ALL`. Real but
-low, on the same latent-drift bar the triager used for C4.
+Severity low, not medium: unlike the original C4 (a hand-written literal in `render.rs` with no guard at all), a new variant here DOES force a compile error at `label()` and the guard, so a maintainer cannot add one without editing this exact impl region (with `ALL` 8-20 lines away). The drift requires satisfying those two matches while overlooking the adjacent `ALL`. Real but low, on the same latent-drift bar the triager used for C4.
 
 Suggested direction (either):
-- Reword both comments to describe the guard honestly as a compile tripwire on this enum (forcing
-  a maintainer to revisit `ALL`), NOT as a compiler-checked tie to `ALL`. Cheapest; matches the
-  round-2 "soften the comment" option.
-- Or make it a strict tie for parity with `WaiverReason`: e.g. route these two enums through the
-  `enum_field!` macro (or an equivalent `VARIANTS` count) and add `const _: () =
-  assert!(StepStatus::ALL.len() == StepStatus::VARIANTS.len());`. This actually turns a stale
-  `ALL` into a build error.
+
+- Reword both comments to describe the guard honestly as a compile tripwire on this enum (forcing a maintainer to revisit `ALL`), NOT as a compiler-checked tie to `ALL`. Cheapest; matches the round-2 "soften the comment" option.
+- Or make it a strict tie for parity with `WaiverReason`: e.g. route these two enums through the `enum_field!` macro (or an equivalent `VARIANTS` count) and add `const _: () = assert!(StepStatus::ALL.len() == StepStatus::VARIANTS.len());`. This actually turns a stale `ALL` into a build error.
 
 ---
 
 ## Re-attacks that found nothing
 
-- The `Option<String>` details refactor: no spacing/ordering regression (golden byte-matches;
-  empty-both, empty-one, and bodied cases all produce well-formed output). No new panic path
-  (`write!` to a `String` cannot fail; the ignored `Result` is fine).
-- The `write_rendered` error-branch change: no temp leak on any branch, success path unchanged,
-  pre-existing output preserved on failure (see L2). No double-remove or use-after-rename.
-- The `WaiverReason` const-assert: strict, compile-time, in a const context; correctly tied to
-  the macro `VARIANTS` length.
-- Golden faithfulness: `render_is_deterministic_and_matches_the_golden` asserts
-  `render_plan(...) == include_str!(golden)`, and it is in the green suite; `render --check`
-  reports up to date. The golden is engine output, not a hand/prettier edit.
+- The `Option<String>` details refactor: no spacing/ordering regression (golden byte-matches; empty-both, empty-one, and bodied cases all produce well-formed output). No new panic path (`write!` to a `String` cannot fail; the ignored `Result` is fine).
+- The `write_rendered` error-branch change: no temp leak on any branch, success path unchanged, pre-existing output preserved on failure (see L2). No double-remove or use-after-rename.
+- The `WaiverReason` const-assert: strict, compile-time, in a const context; correctly tied to the macro `VARIANTS` length.
+- Golden faithfulness: `render_is_deterministic_and_matches_the_golden` asserts `render_plan(...) == include_str!(golden)`, and it is in the green suite; `render --check` reports up to date. The golden is engine output, not a hand/prettier edit.
 - `docs/plans/agent-scaffold.md` (the live plan) is untouched (last commit `9afe567`, the base).
-- L1 (symlink escape via a sidecar ref): re-examined under the CURRENT trusted in-repo source
-  model. No new evidence raises it above low; `is_safe_sidecar_ref` is still purely lexical and a
-  symlink still escapes, but that is only reachable by an in-repo committed artifact today. Left
-  as the orchestrator's consciously-accepted residual for the git-url-fetch increment; not
-  re-raised as blocking.
+- L1 (symlink escape via a sidecar ref): re-examined under the CURRENT trusted in-repo source model. No new evidence raises it above low; `is_safe_sidecar_ref` is still purely lexical and a symlink still escapes, but that is only reachable by an in-repo committed artifact today. Left as the orchestrator's consciously-accepted residual for the git-url-fetch increment; not re-raised as blocking.
 
 ## Notes
 
-- Test count: 286 (282 + 1 + 3), matching the claim. Round 2 saw 284; the +2 are the new L2 and
-  N1 tests.
+- Test count: 286 (282 + 1 + 3), matching the claim. Round 2 saw 284; the +2 are the new L2 and N1 tests.
 - Clippy clean under `-D warnings`.

@@ -678,7 +678,7 @@ waiver = []
 [[step]]
 slug = "doc-redundancy-cleanup"
 title = "single-source the type-A doc redundancies and fix the type-C accuracy bugs (`Q-49`)"
-status = "not-started"
+status = "complete"
 order = 53
 blocked_by = []
 folds = []

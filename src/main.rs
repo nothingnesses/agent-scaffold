@@ -388,6 +388,9 @@ struct StatusArgs {
 	/// Path to a Markdown plan to project (its Roadmap steps and Open Questions items). When omitted, the plan part of the projection is empty.
 	#[arg(long)]
 	plan: Option<PathBuf>,
+	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the plan projection is read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
+	#[arg(long)]
+	source: Option<PathBuf>,
 	/// Path to the JSONL metrics log to summarise (a record count).
 	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
 	metrics: PathBuf,
@@ -628,6 +631,26 @@ fn run_checks(args: ChecksArgs) -> io::Result<()> {
 	}
 }
 
+/// Fold a workflow check's result into the run's summaries or problems, so the TOML-
+/// sourced and Markdown-sourced branches report identically: an empty result is a
+/// one-line "invariants hold" summary, and each violation is prefixed with the plan
+/// source and the log it spans. Single-sourced so the two branches cannot drift.
+fn report_workflow(
+	workflow_problems: Vec<String>,
+	source_display: &str,
+	metrics_display: &str,
+	summaries: &mut Vec<String>,
+	problems: &mut Vec<String>,
+) {
+	if workflow_problems.is_empty() {
+		summaries.push(format!("{source_display} vs {metrics_display}: workflow invariants hold"));
+	} else {
+		for problem in workflow_problems {
+			problems.push(format!("{source_display} vs {metrics_display}: {problem}"));
+		}
+	}
+}
+
 /// Validate the metrics log at `args.metrics` against the record schema and, when
 /// `--plan` is given, the plan's structured regions against the plan schema.
 ///
@@ -702,12 +725,12 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 		None
 	};
 
-	// The `<task>.plan.toml` structured source, validated on request (like --plan).
-	// An absent --source path prints a note and is skipped, the same treatment the
-	// metrics log and the plan get. This is additive: the source is not yet consulted
-	// by the workflow checks, so its problems only affect the source's own summary and
-	// the overall exit code.
-	if let Some(source_path) = &args.source {
+	// The `<task>.plan.toml` structured source, validated on request (like --plan). An
+	// absent --source path prints a note and is skipped, the same treatment the metrics
+	// log and the plan get. When it declares `[meta].primary = "toml"` it ALSO becomes
+	// the source the --workflow check reads below (the Inc 4 gate); a Markdown-primary
+	// or unparseable source is validated but does not drive the workflow check.
+	let source_plan: Option<plan::PlanToml> = if let Some(source_path) = &args.source {
 		if source_path.exists() {
 			let contents = fs::read_to_string(source_path)?;
 			let source_problems = plan::validate_source(&contents);
@@ -729,42 +752,56 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					problems.push(format!("{}: {}", source_path.display(), problem));
 				}
 			}
+			// Parse (independently of the validate outcome) so the workflow gate can read
+			// it. A parse failure means "no TOML source" and the check falls back to the
+			// Markdown plan; `validate_source` already reported the malformed source above.
+			plan::parse_toml(&contents).ok()
 		} else {
 			eprintln!("no source plan at {}; nothing to validate", source_path.display());
+			None
 		}
-	}
+	} else {
+		None
+	};
 
-	// The workflow cross-reference needs both artifacts; run it only when both are
-	// present (clap already requires --plan alongside --workflow). Problems are
-	// reported into the same list, prefixed with both paths since a violation is a
-	// disagreement between them.
+	// The workflow cross-reference. When the --source is TOML-primary, the checks read
+	// steps/questions/waivers from it and the baseline from `[meta].w4_baseline`, joining
+	// the JSONL rounds/decisions/escalations (the Inc 4 swap); otherwise they read the
+	// Markdown plan + the JSONL waiver/baseline records, unchanged. Problems are reported
+	// into the same list, prefixed with the source and the log a violation spans.
 	if args.workflow {
-		match (&plan_contents, &metrics_contents) {
-			(Some(plan_text), Some(metrics_text)) => {
+		let toml_primary = source_plan.as_ref().filter(|source| source.is_toml_primary());
+		match (toml_primary, &plan_contents, &metrics_contents) {
+			// TOML-sourced: needs only the metrics log (the plan comes from the TOML).
+			(Some(source), _, Some(metrics_text)) => {
+				let source_display = args
+					.source
+					.as_ref()
+					.map_or_else(|| "source".to_string(), |path| path.display().to_string());
+				report_workflow(
+					workflow::check_workflow_toml(source, metrics_text),
+					&source_display,
+					&metrics_path.display().to_string(),
+					&mut summaries,
+					&mut problems,
+				);
+			}
+			// Markdown-sourced: needs both the Markdown plan and the metrics log.
+			(None, Some(plan_text), Some(metrics_text)) => {
 				let plan_display = args
 					.plan
 					.as_ref()
 					.map_or_else(|| "plan".to_string(), |path| path.display().to_string());
-				let workflow_problems = workflow::check_workflow(plan_text, metrics_text);
-				if workflow_problems.is_empty() {
-					summaries.push(format!(
-						"{} vs {}: workflow invariants hold",
-						plan_display,
-						metrics_path.display()
-					));
-				} else {
-					for problem in &workflow_problems {
-						problems.push(format!(
-							"{} vs {}: {}",
-							plan_display,
-							metrics_path.display(),
-							problem
-						));
-					}
-				}
+				report_workflow(
+					workflow::check_workflow(plan_text, metrics_text),
+					&plan_display,
+					&metrics_path.display().to_string(),
+					&mut summaries,
+					&mut problems,
+				);
 			}
 			_ => eprintln!(
-				"--workflow needs both a plan and a metrics log present; skipping the workflow check"
+				"--workflow needs a metrics log and either a TOML source or a Markdown plan present; skipping the workflow check"
 			),
 		}
 	}
@@ -782,6 +819,28 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	}
 }
 
+/// Read a `<task>.plan.toml` at `path` and return it only when it is the plan's
+/// source of truth (`[meta].primary == "toml"`), the Inc 4 (Q-46) gate shared by
+/// `validate --workflow` and `status`. A `None` path, a missing file, an unparseable
+/// source, or one whose `[meta].primary` is `markdown` all yield `None`, so the caller
+/// falls back to the Markdown path and the live repo (no TOML source) is unaffected.
+/// A parse error is intentionally swallowed here: `validate --source` is the place that
+/// REPORTS a malformed source; for sourcing the projection/checks it simply means "no
+/// TOML source", the safe fallback.
+fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
+	let Some(path) = path else {
+		return Ok(None);
+	};
+	if !path.exists() {
+		return Ok(None);
+	}
+	let contents = fs::read_to_string(path)?;
+	Ok(match plan::parse_toml(&contents) {
+		Ok(source) if source.is_toml_primary() => Some(source),
+		_ => None,
+	})
+}
+
 /// Emit a best-effort projection of the workflow state: from `--plan` (when given
 /// and readable) the Roadmap steps and Open Questions items, and from the metrics
 /// log (when present) a record count. Unlike `validate`, this never hard-fails on
@@ -789,15 +848,25 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 /// part of the projection empty. With `--json` the projection is printed as
 /// pretty JSON; otherwise a short human-readable summary is printed.
 fn run_status(args: StatusArgs) -> io::Result<()> {
-	let plan = match &args.plan {
-		Some(path) if path.exists() => {
-			let contents = fs::read_to_string(path)?;
-			Some(PlanProjection {
-				steps: plan::parse_roadmap(&contents),
-				open_questions: plan::parse_questions(&contents),
-			})
+	// The Inc 4 gate: when a `--source` is a `<task>.plan.toml` declaring
+	// `[meta].primary = "toml"`, project the plan from it; otherwise fall back to the
+	// Markdown `--plan`, so a Markdown-primary or absent source is unaffected.
+	let plan = if let Some(source) = toml_source(&args.source)? {
+		Some(PlanProjection {
+			steps: source.step_views(),
+			open_questions: source.question_views(),
+		})
+	} else {
+		match &args.plan {
+			Some(path) if path.exists() => {
+				let contents = fs::read_to_string(path)?;
+				Some(PlanProjection {
+					steps: plan::parse_roadmap(&contents),
+					open_questions: plan::parse_questions(&contents),
+				})
+			}
+			_ => None,
 		}
-		_ => None,
 	};
 	let metrics = if args.metrics.exists() {
 		let contents = fs::read_to_string(&args.metrics)?;

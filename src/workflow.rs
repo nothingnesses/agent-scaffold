@@ -51,6 +51,7 @@ use {
 			QUEUE_FOLD_PREFIX,
 			Question,
 			Step,
+			source::PlanToml,
 		},
 	},
 	std::collections::{
@@ -140,26 +141,139 @@ fn escalation_increment_id(escalation: &Escalation) -> &str {
 	escalation.increment.as_deref().unwrap_or(&escalation.task)
 }
 
-/// Cross-reference the plan against the round log, returning one human-readable
-/// problem per violation (an empty vector means the workflow invariants hold).
-/// Combines the round-log internal-consistency check (over every round record)
-/// with the W3 step-convergence check (over every `complete` Roadmap step).
+/// Cross-reference the MARKDOWN-sourced plan against the round log, returning one
+/// human-readable problem per violation (an empty vector means the workflow
+/// invariants hold). This is the default source: the steps, questions, waivers, and
+/// baseline all come from the Markdown plan and the JSONL log, exactly as before Inc
+/// 4. The `check_workflow_toml` sibling reads the same checks from a TOML source; both
+/// funnel into `run_checks`, so the four checks stay one implementation and only their
+/// input source differs (Principle 16). A repo with no `<task>.plan.toml`, or one whose
+/// `[meta].primary` is `markdown`, uses this path and is byte-for-byte unaffected.
 pub(crate) fn check_workflow(
 	plan_markdown: &str,
 	log_contents: &str,
 ) -> Vec<String> {
-	let steps = plan::parse_roadmap(plan_markdown);
-	let questions = plan::parse_questions(plan_markdown);
-	let rounds = metrics::parse_rounds(log_contents);
-	let decisions = metrics::parse_decisions(log_contents);
-	let baselines = metrics::parse_baseline(log_contents);
-	let waivers = metrics::parse_waivers(log_contents);
-	let escalations = metrics::parse_escalations(log_contents);
-	let mut problems = round_log_consistency_problems(&rounds);
-	problems.extend(w3_problems(&steps, &rounds, &waivers));
-	problems.extend(w4_problems(&questions, &decisions, &baselines));
-	problems.extend(w5_problems(&waivers, &steps, &escalations));
+	run_checks(
+		&plan::parse_roadmap(plan_markdown),
+		&plan::parse_questions(plan_markdown),
+		&metrics::parse_rounds(log_contents),
+		&metrics::parse_decisions(log_contents),
+		&metrics::parse_baseline(log_contents),
+		&metrics::parse_waivers(log_contents),
+		&metrics::parse_escalations(log_contents),
+	)
+}
+
+/// Cross-reference a TOML-sourced plan (`[meta].primary == "toml"`) against the round
+/// log, the Inc 4 (Q-46) source swap. The steps, questions, WAIVERS, and the W4
+/// baseline are projected from the `<task>.plan.toml` (`step_views`/`question_views`,
+/// `waivers_from_toml`, `baseline_from_toml`); the rounds, decisions, and escalations
+/// still come from the JSONL log, since those are genuine append-only events that keep
+/// a JSONL home. W5's record-backed join is therefore now CROSS-SUBSTRATE: a mutable
+/// TOML `[[step.waiver]]` joined to the immutable JSONL `escalation` it cites. The
+/// checks themselves are unchanged (`run_checks`); only the waiver/baseline/step/
+/// question inputs are re-sourced, so the pause.md catch and the un-launderable
+/// two-tier property hold identically across substrates.
+pub(crate) fn check_workflow_toml(
+	plan: &PlanToml,
+	log_contents: &str,
+) -> Vec<String> {
+	run_checks(
+		&plan.step_views(),
+		&plan.question_views(),
+		&metrics::parse_rounds(log_contents),
+		&metrics::parse_decisions(log_contents),
+		&baseline_from_toml(plan),
+		&waivers_from_toml(plan),
+		&metrics::parse_escalations(log_contents),
+	)
+}
+
+/// Run the four cross-reference checks over already-sourced inputs, so the same check
+/// logic serves both the Markdown+JSONL and the TOML substrates (Principle 16, one
+/// implementation): the round-log internal-consistency check (over every round
+/// record), W3 (step convergence OR a covering waiver), W4 (decided-item decision
+/// receipts), and W5 (waiver integrity, incl. the cross-substrate escalation join).
+fn run_checks(
+	steps: &[Step],
+	questions: &[Question],
+	rounds: &[Round],
+	decisions: &[Decision],
+	baselines: &[Baseline],
+	waivers: &[Waiver],
+	escalations: &[Escalation],
+) -> Vec<String> {
+	let mut problems = round_log_consistency_problems(rounds);
+	problems.extend(w3_problems(steps, rounds, waivers));
+	problems.extend(w4_problems(questions, decisions, baselines));
+	problems.extend(w5_problems(waivers, steps, escalations));
 	problems
+}
+
+/// Flatten a TOML plan's nested `[[step.waiver]]` entries into the flat
+/// `metrics::Waiver` shape W3/W5 consume, so the same waiver checks run over either
+/// substrate (Principle 16). Each waiver's `step` is supplied by the step it nests on
+/// (the nesting replaces the JSONL `step` field). This mirrors `metrics::parse_waivers`
+/// best-effort PRESENCE filtering: a waiver breaking the `increment` (present iff
+/// `unit == increment`) or `evidence` (present iff `record-backed`) rule is DROPPED,
+/// exactly as the JSONL projection drops it, so a malformed TOML waiver can never
+/// silently grant a W3 exemption (`validate --source` REPORTS these; the projection the
+/// checks read DROPS them, the synthesis invariant). The `reason` <-> `evidence_tier`
+/// pairing is NOT filtered here (it is W5's job to report, matching `parse_waivers`).
+/// The `line` field carries the waiver's 1-based position in TOML document order: there
+/// is no JSONL line for a TOML waiver, so it is a stable disambiguator for the shared
+/// W5 message rather than a real log line.
+fn waivers_from_toml(plan: &PlanToml) -> Vec<Waiver> {
+	let mut waivers = Vec::new();
+	let mut position = 0usize;
+	for step in &plan.steps {
+		for waiver in &step.waivers {
+			position += 1;
+			let increment = waiver.increment.as_deref().filter(|token| !token.is_empty());
+			let increment = match (waiver.unit, increment) {
+				(WaiverUnit::Increment, Some(token)) => Some(token.to_string()),
+				(WaiverUnit::Increment, None) => continue,
+				(WaiverUnit::Step, None) => None,
+				(WaiverUnit::Step, Some(_)) => continue,
+			};
+			let evidence = waiver.evidence.as_deref().filter(|pointer| !pointer.is_empty());
+			let evidence = match (waiver.evidence_tier, evidence) {
+				(EvidenceTier::RecordBacked, Some(pointer)) => Some(pointer.to_string()),
+				(EvidenceTier::RecordBacked, None) => continue,
+				(EvidenceTier::SelfDeclared, None) => None,
+				(EvidenceTier::SelfDeclared, Some(_)) => continue,
+			};
+			waivers.push(Waiver {
+				line: position,
+				unit: waiver.unit,
+				step: step.slug.clone(),
+				increment,
+				reason: waiver.reason,
+				evidence_tier: waiver.evidence_tier,
+				evidence,
+			});
+		}
+	}
+	waivers
+}
+
+/// Project the TOML `[meta].w4_baseline` cutoff into the `metrics::Baseline` shape W4
+/// consumes: at most one baseline (W4 resolves last-one-wins, so a single element is
+/// equivalent). An absent or non-`Q-<n>` cutoff yields NO baseline, so W4 then requires
+/// a decision receipt for every decided item, the same safe direction as a fresh repo
+/// with no baseline record. The `line` field is unused by W4 (it reads only the cutoff)
+/// so it carries a placeholder.
+fn baseline_from_toml(plan: &PlanToml) -> Vec<Baseline> {
+	plan.meta
+		.w4_baseline
+		.as_deref()
+		.and_then(question_id_index)
+		.map(|questions_through| Baseline {
+			line: 0,
+			questions_through,
+		})
+		.into_iter()
+		.collect()
 }
 
 /// The W4 check: every decided Open-Questions item strictly after the DECLARED
@@ -1363,5 +1477,232 @@ mod tests {
 		let problems = w5_problems(&waivers(waiver), &steps, &escalations(escalation));
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("is scoped to this waiver's unit"), "{}", problems[0]);
+	}
+
+	// -- Inc 4: the TOML-sourced path (`[meta].primary == "toml"`) --
+	//
+	// These drive the SAME W3/W4/W5 + pause.md checks over a `<task>.plan.toml` source
+	// instead of the Markdown plan + JSONL waiver/baseline records, via
+	// `check_workflow_toml`. The fixtures are inline `concat!` TOML strings (like the
+	// `plan::source` tests), so no new on-disk fixture file exists for taplo/prettier to
+	// touch; the rounds/decisions/escalations still come from the JSONL log.
+
+	/// Parse an inline `<task>.plan.toml` fixture into a `PlanToml`, panicking on a
+	/// parse error (the fixtures are hand-authored and expected to parse).
+	fn toml_plan(source: &str) -> PlanToml {
+		plan::parse_toml(source).expect("fixture `<task>.plan.toml` parses")
+	}
+
+	#[test]
+	fn check_workflow_toml_catches_the_pause_pattern() {
+		// The pause.md catch survives the source swap: a `complete` TOML step with no
+		// matching rounds and no covering waiver still FAILS W3, identically to the
+		// Markdown path.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"pause\"\ntitle = \"P\"\nstatus = \"complete\"\norder = 1\n",
+		);
+		let problems = check_workflow_toml(&toml_plan(source), "");
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0]
+				.contains("`pause` is `complete` but has no round records and no covering waiver"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_converges_a_clean_complete_step() {
+		// The happy path over TOML: a `complete` step whose single low-risk increment
+		// converged (peak streak 1) passes both W3 and the round-log consistency check.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"done\"\ntitle = \"D\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.increment]]\nid = \"done-inc1\"\nrisk_class = \"low_risk\"\n",
+		);
+		let log = round_line("done-inc1", "a", "clean", 1, "low_risk");
+		assert!(check_workflow_toml(&toml_plan(source), &log).is_empty());
+	}
+
+	#[test]
+	fn check_workflow_toml_passes_the_optional_modules_accepted_at_escalation_waiver() {
+		// Migration shape (a), expressed in TOML: `optional-modules` is `complete` with a
+		// risky increment accepted at ONE clean round (peak 1, needs 2), unstuck by a
+		// record-backed `[[step.waiver]]` whose `evidence` joins CROSS-SUBSTRATE to the
+		// increment's real `decision` escalation in the JSONL. W3 accepts it (covering
+		// increment waiver) and W5 accepts it (backed by the scoped escalation).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"optional-modules\"\ntitle = \"OM\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.increment]]\nid = \"optional-modules-inc2cii\"\nrisk_class = \"risky\"\n",
+			"[[step.waiver]]\nid = \"om-w1\"\nunit = \"increment\"\nincrement = \"optional-modules-inc2cii\"\n",
+			"reason = \"accepted-at-escalation\"\nevidence_tier = \"record-backed\"\nevidence = \"optional-modules-inc2cii\"\n",
+		);
+		let log = [
+			round_line("optional-modules-inc2cii", "a", "new_valid", 0, "risky"),
+			round_line("optional-modules-inc2cii", "a", "clean", 1, "risky"),
+			escalation_line("optional-modules-inc2cii"),
+		]
+		.join("\n");
+		assert!(
+			check_workflow_toml(&toml_plan(source), &log).is_empty(),
+			"{:?}",
+			check_workflow_toml(&toml_plan(source), &log)
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_passes_the_waiver_model_self_referential_waiver() {
+		// Migration shape (b), the self-referential dogfooding case: the `waiver-model`
+		// step's own increment `waiver-model` (a bare token equal to the step slug, no
+		// `-inc` suffix) is accepted below its streak by a record-backed waiver whose
+		// `evidence` points at the `waiver-model` escalation that accepted it. W3 and W5
+		// both pass, joining the increment id and the escalation across substrates.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"waiver-model\"\ntitle = \"WM\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.increment]]\nid = \"waiver-model\"\nrisk_class = \"risky\"\n",
+			"[[step.waiver]]\nid = \"wm-w1\"\nunit = \"increment\"\nincrement = \"waiver-model\"\n",
+			"reason = \"accepted-at-escalation\"\nevidence_tier = \"record-backed\"\nevidence = \"waiver-model\"\n",
+		);
+		let log = [
+			round_line("waiver-model", "a", "new_valid", 0, "risky"),
+			round_line("waiver-model", "a", "clean", 1, "risky"),
+			escalation_line("waiver-model"),
+		]
+		.join("\n");
+		assert!(
+			check_workflow_toml(&toml_plan(source), &log).is_empty(),
+			"{:?}",
+			check_workflow_toml(&toml_plan(source), &log)
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_w5_rejects_a_mis_tiered_waiver() {
+		// Un-launderable property (mis-tier): a `self-declared` reason dressed as
+		// `record-backed` (with an evidence pointer so the presence filter keeps it) trips
+		// W5's `reason` <-> `evidence_tier` pairing over the TOML source. The step is
+		// `in-progress` so W3 does not also fire, isolating the W5 rejection.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
+			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"record-backed\"\nevidence = \"x\"\n",
+		);
+		let problems = check_workflow_toml(&toml_plan(source), "");
+		assert!(
+			problems.iter().any(|problem| problem.contains(
+				"reason `predates-logging` must not carry evidence tier `record-backed`"
+			)),
+			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_w5_rejects_a_wrong_escalation_waiver() {
+		// Un-launderable property (wrong escalation): a correctly-tiered record-backed
+		// increment waiver whose `evidence` cites an escalation NOT scoped to the waived
+		// unit (a `decision` escalation for an unrelated task) is still flagged by W5, so
+		// an unrelated human decision cannot back a TOML waiver across the substrate split.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
+			"[[step.increment]]\nid = \"s-inc1\"\nrisk_class = \"risky\"\n",
+			"[[step.waiver]]\nid = \"w\"\nunit = \"increment\"\nincrement = \"s-inc1\"\n",
+			"reason = \"accepted-at-escalation\"\nevidence_tier = \"record-backed\"\nevidence = \"unrelated-task\"\n",
+		);
+		let log = escalation_line("unrelated-task");
+		let problems = check_workflow_toml(&toml_plan(source), &log);
+		assert!(
+			problems.iter().any(|problem| problem.contains("cites evidence `unrelated-task`")
+				&& problem.contains("is scoped to this waiver's unit")),
+			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_w4_reads_the_meta_baseline_cutoff() {
+		// W4 over TOML reads its cutoff from `[meta].w4_baseline`: a decided item at the
+		// cutoff (Q-44) with no receipt is exempt, while one strictly above it (Q-45) with
+		// no receipt is flagged. The step is `in-progress` so only W4 speaks.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\nw4_baseline = \"Q-44\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
+			"[[question]]\nid = \"Q-44\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"s\"\n",
+			"[[question]]\nid = \"Q-45\"\nstatus = \"decided\"\nask = \"b\"\nfolded_into = \"s\"\n",
+		);
+		let problems = check_workflow_toml(&toml_plan(source), "");
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("`Q-45` is decided")
+				&& problems[0].contains("has no matching `type:\"decision\"` receipt"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn check_workflow_toml_w4_passes_a_decided_item_with_a_receipt() {
+		// The companion: a decided item above the cutoff whose `type:"decision"` receipt
+		// is present in the JSONL passes W4 over the TOML source (the receipt still lives
+		// in the log, per Q-46's 3(c): only genuine events keep a JSONL home).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\nw4_baseline = \"Q-44\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
+			"[[question]]\nid = \"Q-45\"\nstatus = \"decided\"\nask = \"b\"\nfolded_into = \"s\"\nreceipt = \"Q-45\"\n",
+		);
+		let log = decision_line("Q-45");
+		assert!(check_workflow_toml(&toml_plan(source), &log).is_empty());
+	}
+
+	#[test]
+	fn check_workflow_toml_w4_with_no_baseline_requires_a_receipt() {
+		// With no `[meta].w4_baseline`, W4 requires a receipt for EVERY decided item (the
+		// exemption must be declared), so a decided item with no receipt is flagged.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"s\"\n",
+		);
+		let problems = check_workflow_toml(&toml_plan(source), "");
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("`Q-1` is decided"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn check_workflow_toml_drops_a_malformed_waiver_so_it_grants_no_exemption() {
+		// The best-effort drop mirrors the JSONL path: a step-unit waiver that also carries
+		// an `increment` (a presence-rule violation) is DROPPED by `waivers_from_toml`, so
+		// it does NOT cover the `complete` step-with-no-rounds, which the pause.md catch
+		// then flags. A malformed TOML waiver can never silently grant a W3 exemption.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.increment]]\nid = \"s-inc1\"\nrisk_class = \"low_risk\"\n",
+			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\nincrement = \"s-inc1\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
+		);
+		let problems = check_workflow_toml(&toml_plan(source), "");
+		assert!(
+			problems.iter().any(|problem| problem
+				.contains("`s` is `complete` but has no round records and no covering waiver")),
+			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn a_toml_step_waiver_covers_a_complete_step_with_no_rounds() {
+		// The step-unit exemption over TOML: a `complete` step with no rounds is exempt
+		// when a well-formed step-unit `[[step.waiver]]` covers it (the retired
+		// predates-logging/review-skipped cases), so the pause.md catch does not fire.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
+			"[[step]]\nslug = \"legacy\"\ntitle = \"L\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
+		);
+		assert!(check_workflow_toml(&toml_plan(source), "").is_empty());
 	}
 }

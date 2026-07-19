@@ -42,6 +42,7 @@ pub(crate) use {
 		write_rendered,
 	},
 	source::{
+		PlanToml,
 		parse_toml,
 		validate_source,
 	},

@@ -360,6 +360,60 @@ pub(crate) fn parse_toml(contents: &str) -> Result<PlanToml, toml::de::Error> {
 	toml::from_str(contents)
 }
 
+impl PlanToml {
+	/// Whether this source owns the plan's status: `[meta].primary == "toml"`. This
+	/// is the Inc 4 gate. When it holds, `validate --workflow` and `status` read the
+	/// steps/questions (and, in the checks, the waivers and baseline) from this TOML
+	/// instead of the Markdown plan and the JSONL waiver/baseline records; when it is
+	/// `markdown` (the default) the Markdown + JSONL path is used unchanged, so a repo
+	/// with no TOML source, or one still declaring `markdown`, is unaffected.
+	pub(crate) fn is_toml_primary(&self) -> bool {
+		self.meta.primary == Primary::Toml
+	}
+
+	/// Project the TOML steps into the flat `plan::Step` view the enforcement checks
+	/// (W3) and `status` consume, so the SAME check logic runs over either substrate
+	/// (Principle 16): the slug carries over verbatim and the typed `StepStatus` is
+	/// rendered to its Markdown-vocabulary `label` (`complete`, `not started`, ...),
+	/// which W3's `status == "complete"` guard and `status`'s grouping already key
+	/// off. The typed `blocked_by` list has no Markdown-status counterpart and is not
+	/// projected (W3 and `status` never read the `blocked on <slug>` string).
+	pub(crate) fn step_views(&self) -> Vec<super::Step> {
+		self.steps
+			.iter()
+			.map(|step| super::Step {
+				slug: step.slug.clone(),
+				status: step.status.label().to_string(),
+			})
+			.collect()
+	}
+
+	/// Project the TOML questions into the flat `plan::Question` view W4 and `status`
+	/// consume. The typed `decided` status plus its `folded_into` slug is rendered
+	/// back into the Markdown parametric `decided -> folded into <slug>` string, so
+	/// W4's existing `starts_with(QUEUE_FOLD_PREFIX)` decided-gate matches the same
+	/// item set with no fork (the contract's "W4's decided-gate becomes decided
+	/// reading folded_into", expressed as a normalization of the input rather than a
+	/// second W4 implementation); the other statuses map to their labels verbatim.
+	pub(crate) fn question_views(&self) -> Vec<super::Question> {
+		self.questions
+			.iter()
+			.map(|question| super::Question {
+				id: question.id.clone(),
+				status: match question.status {
+					QuestionStatus::Decided => format!(
+						"{}`{}`",
+						super::QUEUE_FOLD_PREFIX,
+						question.folded_into.as_deref().unwrap_or_default()
+					),
+					other => other.label().to_string(),
+				},
+				ask: question.ask.clone(),
+			})
+			.collect()
+	}
+}
+
 /// Whether `token` is a well-formed id token: non-empty, made of ASCII
 /// alphanumerics and hyphens, and not starting or ending with a hyphen. Covers
 /// waiver ids and orphan-task tokens (which may carry an uppercase `-incA`

@@ -622,7 +622,7 @@ fn build_in_progress_loop(
 	// must not read `records[0].risk_class` and possibly report `converged` here: it
 	// reports the non-converged `RiskClassConflict` state instead, keeping the forward
 	// `converged` verdict and the backward `no-shortfall` verdict in agreement.
-	let state = if records.iter().any(|round| round.risk_class != class) {
+	let state = if has_risk_class_conflict(records) {
 		LoopState::RiskClassConflict
 	} else {
 		derive_in_progress_state(records, peak, required, total_rounds, round_cap)
@@ -639,10 +639,22 @@ fn build_in_progress_loop(
 	assemble(step.phase, state, Some(class), peak, facts, context)
 }
 
+/// Whether an increment's round records disagree on `risk_class`, leaving its required
+/// streak undefined. This is the SAME predicate the line-625 guard and W3
+/// (`workflow::w3_problems`) apply, single-sourced here so the forward `next` verdict and
+/// the backward W3 verdict cannot drift on the data-fault condition. `records` is non-empty.
+fn has_risk_class_conflict(records: &[&Round]) -> bool {
+	let class = records[0].risk_class;
+	records.iter().any(|round| round.risk_class != class)
+}
+
 /// Pick the active increment among an in-progress step's increments: the first
-/// unconverged one (peak below its required streak), in id order; else, when every
-/// increment has converged, the increment of the latest round record. `None` when the
-/// step has no round records at all. Returns the increment key borrowed from the map.
+/// conflicted-or-unconverged one, in id order; else, when every increment has converged,
+/// the increment of the latest round record. A `risk_class`-conflicted increment is never
+/// treated as converged (W3 flags it as a shortfall), so it is returned as active ahead of
+/// letting a later clean increment read as converged; the `RiskClassConflict` guard in
+/// `build_in_progress_loop` then fires on it. `None` when the step has no round records at
+/// all. Returns the increment key borrowed from the map.
 fn select_active_increment<'a>(
 	increments: &BTreeMap<&'a str, Vec<&'a Round>>,
 	matching: &[&'a Round],
@@ -651,9 +663,12 @@ fn select_active_increment<'a>(
 	if increments.is_empty() {
 		return None;
 	}
-	// `BTreeMap` iterates in id order, so the first unconverged increment is chosen
-	// deterministically.
+	// `BTreeMap` iterates in id order, so the first conflicted-or-unconverged increment is
+	// chosen deterministically.
 	for (increment, records) in increments {
+		if has_risk_class_conflict(records) {
+			return Some(increment);
+		}
 		let required = spec.required_streak(records[0].risk_class);
 		if peak_consecutive_clean(records) < required {
 			return Some(increment);
@@ -1208,6 +1223,19 @@ mod tests {
 		assert_differential(vec![
 			round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc"),
 			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
+		]);
+		// Multi-increment case: a step with two increments where inc1's rounds disagree on
+		// risk_class (conflicted) and inc2 is genuinely clean and owns the latest-line round.
+		// Without the conflict pre-check in `select_active_increment`, inc1 clears its
+		// `records[0]` bar (LowRisk needs 1, peak is 1) and is skipped as converged, the
+		// all-converged fallback returns the latest-line clean inc2, and `next` would read
+		// `Converged` while W3 still flags inc1's inconsistency: a step-level false green. The
+		// pre-check returns the conflicted inc1 as the active loop instead, so `next` reports
+		// RiskClassConflict and agrees with W3. This fixture fails if that pre-check regresses.
+		assert_differential(vec![
+			round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "inc1"),
+			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "inc1"),
+			round(3, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "inc2"),
 		]);
 	}
 

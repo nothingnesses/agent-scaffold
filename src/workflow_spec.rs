@@ -106,6 +106,7 @@ impl WorkflowSpec {
 /// section or field, or a wrong-typed value, fails the parse (there is no default),
 /// so a malformed spec is reported rather than silently falling back.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WorkflowSpecToml {
 	convergence: Convergence,
 	rounds: Rounds,
@@ -114,6 +115,7 @@ struct WorkflowSpecToml {
 
 /// The `[convergence]` table: the required clean-round streak per risk class.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Convergence {
 	low_risk: u64,
 	risky: u64,
@@ -121,6 +123,7 @@ struct Convergence {
 
 /// The `[rounds]` table: the total-round cap.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Rounds {
 	cap: u64,
 }
@@ -128,6 +131,7 @@ struct Rounds {
 /// The `[backstop]` table: the severity threshold, parsed into the typed `Severity`
 /// (so an out-of-set spelling fails the parse).
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Backstop {
 	severity: Severity,
 }
@@ -201,6 +205,17 @@ mod tests {
 		// An out-of-set severity spelling also fails.
 		let result = WorkflowSpec::parse(
 			"[convergence]\nlow_risk = 1\nrisky = 2\n\n[rounds]\ncap = 5\n\n[backstop]\nseverity = \"extreme\"\n",
+		);
+		assert!(matches!(result, Err(WorkflowSpecError::Parse(_))));
+	}
+
+	#[test]
+	fn a_typoed_or_extra_key_fails_to_parse() {
+		// `deny_unknown_fields` makes a typo'd or extra key a hard parse error rather
+		// than a silent no-op, so an edit that misspells a constant cannot quietly
+		// leave the convergence bar at its old value.
+		let result = WorkflowSpec::parse(
+			"[convergence]\nlow_risk = 1\nrisky = 2\nmedium_risk = 3\n\n[rounds]\ncap = 5\n\n[backstop]\nseverity = \"high\"\n",
 		);
 		assert!(matches!(result, Err(WorkflowSpecError::Parse(_))));
 	}

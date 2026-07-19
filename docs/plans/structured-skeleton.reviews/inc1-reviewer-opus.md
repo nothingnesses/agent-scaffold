@@ -1,7 +1,6 @@
 # Inc 1 (structured-skeleton) reviewer findings: soundness and correctness
 
-Reviewer lens: soundness/correctness. Change under review: commit `aa42412` on base `a780541`.
-Files: `src/plan/source.rs` (new), `src/plan.rs`, `src/main.rs`, `src/metrics.rs`, `src/workflow.rs`, `src/plan/testdata/skeleton.plan.toml`.
+Reviewer lens: soundness/correctness. Change under review: commit `aa42412` on base `a780541`. Files: `src/plan/source.rs` (new), `src/plan.rs`, `src/main.rs`, `src/metrics.rs`, `src/workflow.rs`, `src/plan/testdata/skeleton.plan.toml`.
 
 Verification run from the worktree (`.claude/worktrees/structured-skeleton-inc1`), treated read-only:
 
@@ -53,6 +52,7 @@ Suggested direction: add waiver-id uniqueness (scope: per-step or plan-wide, pic
 `src/plan/source.rs:402-404` (`toml::from_str`, no `deny_unknown_fields`). Required-field typos ARE caught (the field goes missing -> parse error), so a mistyped `status`/`slug`/`title` fails loudly. But a typo in an OPTIONAL key is silently ignored and the field defaults. Reproduced: a step written with `blockd_by = ["ghost"]` (typo for `blocked_by`) validates clean, exit 0; the intended blocking edge is silently dropped AND the dangling `ghost` is never seen. The same hazard applies to `folds`, `orphan_tasks`, `superseded_by`, `receipt`, `note`, `evidence`, `increment`, and the `[meta.sidecars]` keys.
 
 This is the open question the implementer flagged (forward-compat vs typo-catching). Both sides:
+
 - Keep permissive (current): forward-compatible with schema growth; matches the JSONL log's stance. But the JSONL records are validated field-by-field with explicit presence checks, so a typo there still shows up as a missing required field; the TOML's `#[serde(default)]` optionals have no such backstop, so a typo silently loses data in a hand-authored file.
 - Add `#[serde(deny_unknown_fields)]`: a mistyped key becomes a loud parse error, which for a hand-authored skeleton is the safer failure direction (a dropped `blocked_by` is a correctness bug, not a compatibility feature). Cost: future additive keys require touching the structs, but this schema is versioned in-repo and Inc 3-6 will edit it anyway, so the forward-compat argument is weak here.
 

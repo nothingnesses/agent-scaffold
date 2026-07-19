@@ -35,7 +35,6 @@ use {
 	crate::{
 		metrics::{
 			self,
-			question_id_index,
 			Baseline,
 			Decision,
 			Escalation,
@@ -46,12 +45,13 @@ use {
 			Waiver,
 			WaiverReason,
 			WaiverUnit,
+			question_id_index,
 		},
 		plan::{
 			self,
+			QUEUE_FOLD_PREFIX,
 			Question,
 			Step,
-			QUEUE_FOLD_PREFIX,
 		},
 	},
 	std::collections::{

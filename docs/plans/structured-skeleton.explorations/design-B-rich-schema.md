@@ -290,7 +290,7 @@ Status: in progress; 41 of 51 steps complete, 1 next, 2 not started, 4 optional/
 ## Project Principles
 
 1. clean long-term architecture. Optimise for the cleanest long-term shape ...
-8. structured source, derived views. A structured file ...
+2. structured source, derived views. A structured file ...
 
 ## Documentation Protocol
 
@@ -310,10 +310,10 @@ Status: in progress; 41 of 51 steps complete, 1 next, 2 not started, 4 optional/
 ## Roadmap
 
 | Step | Status | Notes |
-| ---- | ------ | ----- |
-| `round-log-core` | complete | |
+| --- | --- | --- |
+| `round-log-core` | complete |  |
 | `optional-modules` | complete | waived: increment optional-modules-inc2cii accepted-at-escalation (record-backed) |
-| `structured-skeleton` | next | |
+| `structured-skeleton` | next |  |
 
 ## Step Details
 

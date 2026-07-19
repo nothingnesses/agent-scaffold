@@ -19,6 +19,7 @@ The three findings are one issue in one code region (`src/plan/source.rs:491-513
 Verdict: VALID, severity medium. The medium driver is a literal contract miss: plan line 684 lists `folded_into` among the cross-references that must "resolve" (unconditionally), and the module doc (`src/plan/source.rs:423-426`) claims `validate_source` catches the dangling cases, yet a dangling `folded_into` on a non-`decided` question is neither resolved nor rejected. This is exactly the class of authoring error the validator exists to catch (Principle 13/14). The `superseded_by`-presence and forbid-unless-status rules are not named in the contract, so they are the low-severity illegal-states (Principle 13) portion folded into the same fix; they do not raise the ceiling above medium (nothing consumes these fields in Inc 1 and the module is unconsulted pre-cutover).
 
 Fix must achieve:
+
 1. (Required, closes the contract gap) `folded_into`, when present, resolves to a real step regardless of question status, so a dangling target is always flagged. Mirror the unconditional treatment already given to `superseded_by`.
 2. (Recommended, illegal-states) Enforce status <-> field consistency: `superseded` implies a resolving `superseded_by`; `folded_into` is present only when `decided`; `superseded_by` is present only when `superseded`. Decide and document the chosen rule set.
 
@@ -57,6 +58,7 @@ Recommendation (non-binding): add `#[serde(deny_unknown_fields)]`. The skeleton 
 `src/plan/source.rs:473-488`. Confirmed: `o5.toml` (step `a` with `blocked_by = ["a"]` and `folds = ["a"]`) validates clean.
 
 Split verdict:
+
 - Self-reference: VALID, low. A step that blocks itself can never unblock and a step that folds itself is self-contradictory; both are illegal states (Principle 13). The contract says "resolve" and a self-edge technically resolves (the target exists), so this is a Principle-13 extension rather than a literal contract miss, hence low.
 - Cycle detection (multi-step `blocked_by` cycles): DISMISSED as out of scope for Inc 1. The contract says "resolve", not "acyclic", and a topological/ordering pass belongs to whichever later increment orders steps. Raising it here would be scope expansion (Principle 8).
 
@@ -139,13 +141,13 @@ Both reviewers' "cleared"/"ruled out" sections are sound and independently spot-
 ## Tally
 
 Valid findings by severity:
+
 - critical: 0
 - high: 0
 - medium: 2 (question status/field integrity [O1+O2+S7]; waiver-id uniqueness [O3/S2])
 - low: 8 (principle.n uniqueness [O3]; self-reference in blocked_by/folds [O5]; orphan_tasks uniqueness/collision [O6]; W5 refactor keep-and-document [S1]; parse_toml return-type contract text [S3]; uppercase in slugs/increment ids [S5]; fixture status-variant coverage [S6]; dangling-folded_into test [S8])
 
-Dismissed: 1 (S4, meta.sidecars sub-table; in-scope design choice, no defect).
-Deferred to human: 1 (O4, deny_unknown_fields; reproduction correct, real silent-data-loss path, non-binding recommendation to add deny_unknown_fields).
+Dismissed: 1 (S4, meta.sidecars sub-table; in-scope design choice, no defect). Deferred to human: 1 (O4, deny_unknown_fields; reproduction correct, real silent-data-loss path, non-binding recommendation to add deny_unknown_fields).
 
 ## Remediation list (what each valid fix must achieve)
 

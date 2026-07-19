@@ -1,8 +1,6 @@
 # Inc 2 review: structured step/increment id on JSONL records
 
-Reviewer: sonnet (independent)
-Diff: `git diff a780541 e395d44`
-Date: 2026-07-19
+Reviewer: sonnet (independent) Diff: `git diff a780541 e395d44` Date: 2026-07-19
 
 ## Verification results
 
@@ -65,6 +63,7 @@ These prefer the escalation's structured `increment`/`step` id (Inc 2) and fall 
 **File**: `src/metrics.rs` (tests block, around line 1490 in the review commit)
 
 **Evidence**: The Inc 2 tests added are:
+
 - `a_round_with_structured_step_and_increment_ids_is_accepted` - both fields present
 - `a_round_with_an_empty_structured_step_is_reported` - empty `step`, no `increment`
 - `an_escalation_with_structured_ids_is_accepted` - both fields present

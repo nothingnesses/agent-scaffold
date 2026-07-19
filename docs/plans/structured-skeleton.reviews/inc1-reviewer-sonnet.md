@@ -1,9 +1,6 @@
 # Inc 1 review: structured-skeleton-inc1
 
-Reviewer: sonnet (independent).
-Change range: `a780541..aa42412`.
-Files changed: `src/plan/source.rs` (new), `src/plan/testdata/skeleton.plan.toml` (new), `src/plan.rs`, `src/main.rs`, `src/metrics.rs`, `src/workflow.rs`.
-Tests run: 229 passed, 0 failed (matches claim). Clippy: clean (matches claim).
+Reviewer: sonnet (independent). Change range: `a780541..aa42412`. Files changed: `src/plan/source.rs` (new), `src/plan/testdata/skeleton.plan.toml` (new), `src/plan.rs`, `src/main.rs`, `src/metrics.rs`, `src/workflow.rs`. Tests run: 229 passed, 0 failed (matches claim). Clippy: clean (matches claim).
 
 ## Summary
 

@@ -175,7 +175,7 @@ Steps in implementation order, with status. The Roadmap is the single source of 
 | `escalation-exempt`      | deferred    |
 | `decision-receipt`       | complete    |
 | `waiver-model`           | complete    |
-| `structured-skeleton`    | next        |
+| `structured-skeleton`    | in progress |
 | `state-queries`          | not started |
 | `reviewer-harness-field` | complete    |
 | `reviewer-diversity`     | complete    |

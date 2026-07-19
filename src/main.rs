@@ -377,7 +377,7 @@ struct ValidateArgs {
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error.
 	#[arg(long)]
 	workflow: bool,
 }
@@ -833,8 +833,19 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					&mut problems,
 				);
 			}
+			// No usable plan source resolved: neither a TOML-primary --source nor a
+			// readable --plan (a typo'd/missing --source, a Markdown-primary --source with
+			// no --plan, or no source at all). --workflow was explicitly requested, so
+			// skipping would green-pass while checking nothing; make it a hard problem
+			// instead. Independent of the metrics log.
+			(None, None, _) => problems.push(
+				"--workflow requested but no plan source resolved: pass a TOML-primary --source or a Markdown --plan"
+					.to_string(),
+			),
+			// A plan source is present but the metrics log is missing: keep the
+			// pre-existing stderr skip (the rounds/decisions log is what is absent).
 			_ => eprintln!(
-				"--workflow needs a metrics log and either a TOML source or a Markdown plan present; skipping the workflow check"
+				"--workflow has a plan source but the metrics log is missing; skipping the workflow check"
 			),
 		}
 	}

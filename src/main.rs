@@ -11,6 +11,7 @@
 
 mod checks;
 mod manifest;
+#[macro_use]
 mod metrics;
 mod pack;
 mod plan;

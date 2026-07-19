@@ -32,11 +32,11 @@ pub struct LineError {
 /// truth). `VARIANTS` is the ordered list of accepted strings (used verbatim in
 /// error messages) and `parse` turns an accepted string into the typed variant.
 macro_rules! enum_field {
-	($(#[$meta:meta])* $vis:vis $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+	($(#[$meta:meta])* $vis:vis $name:ident { $($(#[$vmeta:meta])* $variant:ident => $text:literal),+ $(,)? }) => {
 		$(#[$meta])*
 		#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 		$vis enum $name {
-			$(#[serde(rename = $text)] $variant),+
+			$($(#[$vmeta])* #[serde(rename = $text)] $variant),+
 		}
 
 		impl $name {
@@ -44,7 +44,11 @@ macro_rules! enum_field {
 			const VARIANTS: &'static [&'static str] = &[$($text),+];
 
 			/// Parse an accepted spelling into its variant, or `None` when the
-			/// string is not one of the accepted set.
+			/// string is not one of the accepted set. `allow` (not `expect`) because
+			/// enums whose value arrives already-typed (for example via serde on the
+			/// TOML schema) reuse this macro for its `VARIANTS`/drift guard without
+			/// ever calling `parse`, so it is legitimately unused for those.
+			#[allow(dead_code)]
 			$vis fn parse(text: &str) -> Option<Self> {
 				match text {
 					$($text => Some(Self::$variant),)+

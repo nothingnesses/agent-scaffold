@@ -26,9 +26,24 @@ use {
 /// and `plan::validate_source`, beside the Markdown-plan functions here.
 pub(crate) mod source;
 
-pub(crate) use source::{
-	parse_toml,
-	validate_source,
+/// The `render` engine (Inc 3, Q-45/Q-46 design B): the strict pure
+/// `(plan.toml, sidecars) -> <task>.md` projection and its `render --check` guard.
+/// A pure addition; nothing else calls it yet (the live plan stays Markdown-sourced
+/// until the Inc 5 cutover). Re-exported so the entry points are reached as
+/// `plan::render_plan` and friends, beside the schema and Markdown-plan functions.
+pub(crate) mod render;
+
+pub(crate) use {
+	render::{
+		CheckOutcome,
+		check_render,
+		render_plan,
+		rendered_path,
+	},
+	source::{
+		parse_toml,
+		validate_source,
+	},
 };
 
 /// One Roadmap step: a stable slug and its status string, one per data row of the
@@ -68,13 +83,21 @@ pub struct Question {
 /// waiver) rather than two special-case Roadmap statuses. W3 exempts a `complete`
 /// step via a covering waiver, not a distinct status. `skipped` STAYS a distinct
 /// status: it answers "is this step done?" with "no", which is not an exemption.
-const ROADMAP_STATUSES: &[&str] =
+///
+/// Exposed to the crate so the render engine (`plan::render`) generates the plan's
+/// human-readable status vocabulary from this one constant rather than a hand-copied
+/// prose list, closing the B3 drift (the vocabulary is generated, not maintained).
+pub(crate) const ROADMAP_STATUSES: &[&str] =
 	&["not started", "in progress", "complete", "skipped", "next", "optional", "deferred"];
 
 /// The parametric Roadmap status prefix: `blocked on <slug>` names the blocking
 /// step. Kept as a named constant so the validator and the drift guard share one
 /// spelling (Principle 16). The trailing space is significant: the slug follows it.
-const ROADMAP_BLOCKED_PREFIX: &str = "blocked on ";
+///
+/// Exposed to the crate so the render engine renders a step's `blocked_by` slug as
+/// `blocked on <slug>` and lists this parametric form in the generated vocabulary,
+/// both from this one spelling (Principle 16).
+pub(crate) const ROADMAP_BLOCKED_PREFIX: &str = "blocked on ";
 
 /// The exact-match Open Questions statuses: the non-parametric queue vocabulary.
 /// These match exactly (a near-miss such as `openfoo` is rejected), unlike the

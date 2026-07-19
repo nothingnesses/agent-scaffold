@@ -169,6 +169,36 @@ pub(crate) enum StepStatus {
 	Deferred,
 }
 
+impl StepStatus {
+	/// Every variant in a fixed canonical order, so the render engine's derived
+	/// status distribution is deterministic (Principle 16, one ordering).
+	pub(crate) const ALL: [StepStatus; 7] = [
+		StepStatus::NotStarted,
+		StepStatus::InProgress,
+		StepStatus::Complete,
+		StepStatus::Skipped,
+		StepStatus::Next,
+		StepStatus::Optional,
+		StepStatus::Deferred,
+	];
+
+	/// The human-readable Roadmap label, the space form the Markdown Roadmap uses
+	/// (`not started`, `in progress`, ...). Every value here is a member of
+	/// `plan::ROADMAP_STATUSES` (a test pins that), so the TOML enum and the Markdown
+	/// vocabulary constant cannot drift (Principle 16).
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			StepStatus::NotStarted => "not started",
+			StepStatus::InProgress => "in progress",
+			StepStatus::Complete => "complete",
+			StepStatus::Skipped => "skipped",
+			StepStatus::Next => "next",
+			StepStatus::Optional => "optional",
+			StepStatus::Deferred => "deferred",
+		}
+	}
+}
+
 /// One increment of a step (`[[step.increment]]`): a structured id and its
 /// convergence risk class. The id retires the lexical `-inc<x>` strip (Inc 2), so
 /// a round record can join to this id directly instead of by prefix.
@@ -247,6 +277,29 @@ pub(crate) enum QuestionStatus {
 	Decided,
 	/// Superseded (replaced by a later item, named by `superseded_by`).
 	Superseded,
+}
+
+impl QuestionStatus {
+	/// Every variant in a fixed canonical order, so the render engine's generated
+	/// queue-status vocabulary fragment is deterministic.
+	pub(crate) const ALL: [QuestionStatus; 4] = [
+		QuestionStatus::Open,
+		QuestionStatus::Exploring,
+		QuestionStatus::Decided,
+		QuestionStatus::Superseded,
+	];
+
+	/// The human-readable queue label (`open`, `exploring`, `decided`, `superseded`).
+	/// The parametric target (`folded_into` / `superseded_by`) is appended by render,
+	/// not carried here.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			QuestionStatus::Open => "open",
+			QuestionStatus::Exploring => "exploring",
+			QuestionStatus::Decided => "decided",
+			QuestionStatus::Superseded => "superseded",
+		}
+	}
 }
 
 /// One project principle (`[[principle]]`): its number, name, and text.

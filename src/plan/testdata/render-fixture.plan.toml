@@ -1,0 +1,88 @@
+# Fixture <task>.plan.toml for the render engine (Inc 3). This is NOT a live plan;
+# it drives the render golden and the render/check tests. It exercises every
+# generated fragment: a derived Status line (four step statuses, one open question,
+# two waivers), the generated status vocabulary, a Roadmap with a blocked_by marker
+# and inline waivers, a decided/superseded question queue, numbered principles, and
+# the front/step/question/tail prose sidecars spliced verbatim. It validates clean.
+
+[meta]
+title = "Render fixture"
+primary = "toml"
+render_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[meta.sidecars]
+front = ["render-fixture.intro.md", "render-fixture.motivations.md", "render-fixture.repo-layout.md"]
+tail = "render-fixture.success-criteria.md"
+
+[[step]]
+slug = "alpha"
+title = "The first step"
+status = "complete"
+order = 1
+
+[[step.increment]]
+id = "alpha-inc1"
+risk_class = "risky"
+
+[[step.waiver]]
+id = "alpha-w1"
+unit = "increment"
+increment = "alpha-inc1"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "alpha-inc1"
+note = "Accepted below its streak at a human escalation."
+
+[[step]]
+slug = "beta"
+title = "The second step"
+status = "in-progress"
+order = 2
+blocked_by = ["alpha"]
+
+[[step.waiver]]
+id = "beta-w1"
+unit = "step"
+reason = "predates-logging"
+evidence_tier = "self-declared"
+
+[[step]]
+slug = "gamma"
+title = "The third step"
+status = "next"
+order = 3
+blocked_by = ["beta"]
+
+[[step]]
+slug = "delta"
+title = "The fourth step"
+status = "not-started"
+order = 4
+
+[[question]]
+id = "Q-1"
+status = "open"
+ask = "An open ask still awaiting a decision."
+
+[[question]]
+id = "Q-2"
+status = "decided"
+ask = "A decided ask folded into alpha."
+folded_into = "alpha"
+receipt = "Q-2"
+
+[[question]]
+id = "Q-3"
+status = "superseded"
+ask = "A superseded ask, replaced by a later item."
+superseded_by = "Q-1"
+
+[[principle]]
+n = 1
+name = "Ask clarifying questions before forging ahead"
+text = "Confirm intent before writing code, and give recommendations with reasoning."
+
+[[principle]]
+n = 8
+name = "No silent scope expansion"
+text = "Do what was asked and flag anything else rather than quietly doing it."

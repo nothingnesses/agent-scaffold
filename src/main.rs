@@ -314,6 +314,8 @@ enum Command {
 	Status(StatusArgs),
 	/// Run the project's `.agents/checks.toml` lint and format checks in a temporary, isolated git worktree of the current tracked working-tree state, so a relative-path check cannot mutate the live tree (this is isolation, not a security sandbox: a check that writes an absolute path or mutates git metadata is trusted-config self-harm and out of contract). Exits 0 iff every check that ran passed.
 	Checks(ChecksArgs),
+	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
+	Render(RenderArgs),
 }
 
 /// Arguments for the `scaffold` subcommand.
@@ -393,6 +395,19 @@ struct StatusArgs {
 	json: bool,
 }
 
+/// Arguments for the `render` subcommand.
+#[derive(Args)]
+struct RenderArgs {
+	/// Path to the `<task>.plan.toml` skeleton to render. Its sidecars are resolved relative to its directory, and the output is `<task>.md` beside it.
+	plan: PathBuf,
+	/// Re-render in memory and compare against the committed `<task>.md` instead of writing it. Warns on a mismatch by default (exit 0); pair with --strict to fail.
+	#[arg(long)]
+	check: bool,
+	/// With --check, exit non-zero on a mismatch (for CI or a pre-commit hook) rather than only warning. Meaningless without --check.
+	#[arg(long, requires = "check")]
+	strict: bool,
+}
+
 /// Arguments for the `checks` subcommand.
 #[derive(Args)]
 struct ChecksArgs {
@@ -440,6 +455,103 @@ fn main() -> io::Result<()> {
 		Command::Validate(args) => run_validate(args),
 		Command::Status(args) => run_status(args),
 		Command::Checks(args) => run_checks(args),
+		Command::Render(args) => run_render(args),
+	}
+}
+
+/// Render a `<task>.plan.toml` into its generated `<task>.md`, or (with `--check`)
+/// compare a fresh render against the committed file without writing.
+///
+/// The render is STRICT and writes exactly one file: on any schema violation,
+/// unresolved cross-reference, or missing sidecar it prints the problems to stderr
+/// and exits 1, writing nothing (a broken source never yields a partial plan). A
+/// successful `render` writes `<task>.md` beside the source.
+///
+/// `--check` re-renders in memory and byte-compares against the committed `<task>.md`
+/// (the golden), catching both a hand-edit of the generated file and a stale render
+/// after a source edit. Severity follows the shipped "warn loudly, fail hard only
+/// when asked" stance: a mismatch is a stderr WARNING and exit 0 by default, and a
+/// hard failure (exit 1) under `--strict` (for CI or the pre-commit hook). A render
+/// failure under `--check` still exits 1, since there is no golden to check a broken
+/// source against.
+fn run_render(args: RenderArgs) -> io::Result<()> {
+	if args.check {
+		match plan::check_render(&args.plan) {
+			Ok(plan::CheckOutcome::Match) => {
+				println!("{}: up to date", args.plan.display());
+				Ok(())
+			}
+			Ok(
+				outcome @ plan::CheckOutcome::Mismatch {
+					..
+				},
+			) => {
+				let committed_exists = matches!(
+					outcome,
+					plan::CheckOutcome::Mismatch {
+						committed_exists: true,
+						..
+					}
+				);
+				let out = plan::rendered_path(&args.plan)
+					.map(|path| path.display().to_string())
+					.unwrap_or_else(|_| "<task>.md".to_string());
+				let detail = if committed_exists {
+					let where_ = outcome
+						.difference_summary()
+						.map(|summary| format!(" ({summary})"))
+						.unwrap_or_default();
+					format!(
+						"{out} differs from a fresh render (a hand-edit, or a stale render after a \
+						 source edit){where_}"
+					)
+				} else {
+					format!(
+						"{out} does not exist; run `agent-scaffold render {}` to generate it",
+						args.plan.display()
+					)
+				};
+				if args.strict {
+					eprintln!("error: {detail}");
+					std::process::exit(1);
+				} else {
+					eprintln!(
+						"warning: {detail}; re-render with `agent-scaffold render {}`",
+						args.plan.display()
+					);
+					Ok(())
+				}
+			}
+			Err(problems) => {
+				for problem in &problems {
+					eprintln!("{}: {problem}", args.plan.display());
+				}
+				std::process::exit(1);
+			}
+		}
+	} else {
+		match plan::render_plan(&args.plan) {
+			Ok(rendered) => {
+				let out = match plan::rendered_path(&args.plan) {
+					Ok(path) => path,
+					Err(problems) => {
+						for problem in &problems {
+							eprintln!("{}: {problem}", args.plan.display());
+						}
+						std::process::exit(1);
+					}
+				};
+				fs::write(&out, rendered)?;
+				println!("rendered {}", out.display());
+				Ok(())
+			}
+			Err(problems) => {
+				for problem in &problems {
+					eprintln!("{}: {problem}", args.plan.display());
+				}
+				std::process::exit(1);
+			}
+		}
 	}
 }
 

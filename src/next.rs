@@ -7,12 +7,17 @@
 //! run. It writes nothing and creates no worktree or container; the isolation tier
 //! is echoed, not resolved.
 //!
-//! The forward projection here and the backward `validate --workflow` (W3) check run
-//! the SAME convergence arithmetic: both call `workflow::peak_consecutive_clean` over
-//! the same records grouped by the same `round_increment_id`/`round_step_slug` join
-//! accessors, so a step that `next` reports `converged` is exactly a step W3 finds no
-//! shortfall on (the differential property, pinned by `next_agrees_with_w3` below).
-//! This is decision B-a: one streak helper, two directions, provably identical.
+//! The forward projection here and the backward `validate --workflow` (W3) check keep
+//! their converged-vs-not verdicts in agreement on the same records, in two respects.
+//! First, both run the SAME convergence arithmetic: both call
+//! `workflow::peak_consecutive_clean` over the same records grouped by the same
+//! `round_increment_id`/`round_step_slug` join accessors. Second, both treat a
+//! within-increment `risk_class` inconsistency as a non-convergence: W3 reports it as a
+//! shortfall and `continue`s, and `next` reports the `risk-class-conflict` state, never
+//! `converged`. So a step that `next` reports `converged` is exactly a step W3 finds no
+//! shortfall on (the differential property, pinned by `next_agrees_with_w3` below). This
+//! is decision B-a: one streak helper, two directions, the same arithmetic and the same
+//! data-fault handling.
 //!
 //! Stage 1 boundary (accepted): the mid-round `awaiting-triage` sub-state is not
 //! derivable from the round log (a `round` record is written only after triage), so
@@ -161,6 +166,13 @@ pub(crate) enum LoopState {
 	Converged,
 	/// The round cap was reached without converging: escalate to a human.
 	Escalate,
+	/// The active increment's round records carry inconsistent `risk_class` values, so
+	/// the required streak is undefined: a data-integrity fault owed to a human before the
+	/// loop can converge. This is the SAME condition W3 flags and `continue`s on, so
+	/// reporting it as a non-converged state (never `converged`) keeps the forward and
+	/// backward verdicts in agreement (Principle 12 fail-loud, Principle 15 explicit
+	/// failure).
+	RiskClassConflict,
 	/// A complete step: nothing to do, move on. In Stage 1 an all-complete plan is
 	/// reported as "no active loop" (the build plan's selection rule 3), so the
 	/// projection path never constructs this variant; it is a transition-table row
@@ -181,6 +193,7 @@ impl LoopState {
 			LoopState::AwaitingReviewers => "awaiting-reviewers",
 			LoopState::Converged => "converged",
 			LoopState::Escalate => "escalate",
+			LoopState::RiskClassConflict => "risk-class-conflict",
 			LoopState::Done => "done",
 		}
 	}
@@ -194,6 +207,7 @@ impl LoopState {
 			LoopState::Blocked
 			| LoopState::Converged
 			| LoopState::Escalate
+			| LoopState::RiskClassConflict
 			| LoopState::Done => "orchestrator",
 		}
 	}
@@ -209,6 +223,7 @@ impl LoopState {
 				&["record-round-clean", "record-round-new-valid", "escalate"],
 			LoopState::Converged => &["mark-step-complete"],
 			LoopState::Escalate => &["escalate-to-human"],
+			LoopState::RiskClassConflict => &["fix-risk-class-records"],
 			LoopState::Done => &[],
 		};
 		raw.iter().map(|transition| (*transition).to_string()).collect()
@@ -225,6 +240,8 @@ impl LoopState {
 			LoopState::AwaitingReviewers => "spawn a fresh reviewer (diversify the model)",
 			LoopState::Converged => "mark the step complete, re-render, and commit",
 			LoopState::Escalate => "escalate to a human and present the human-input contract",
+			LoopState::RiskClassConflict =>
+				"correct the inconsistent risk_class round records before the loop can converge (no spawn)",
 			LoopState::Done => "move to the next step",
 		}
 	}
@@ -273,6 +290,10 @@ impl LoopState {
 			LoopState::Escalate => &[
 				"Human-input contract (see AGENTS.md): present the options, their trade-offs, an explicit recommendation, and the reasoning judged against the numbered Project Principles (name the Principle numbers), scaled to the stakes. The human decides; advise, never decide for them.",
 				"Principle 12: escalate loudly at the round cap rather than continuing the loop.",
+			],
+			LoopState::RiskClassConflict => &[
+				"Principle 12: fail loud on the data fault; do not derive a convergence verdict from an ambiguous risk class.",
+				"Principle 15: the increment's round records disagree on risk_class; correct them so a single required streak is defined before the loop can converge.",
 			],
 			LoopState::Done => &[
 				"Principle 8: the step is complete; move to the next step rather than expanding scope here.",
@@ -596,7 +617,16 @@ fn build_in_progress_loop(
 	let peak = peak_consecutive_clean(records);
 	let total_rounds = records.len() as u64;
 	let round_cap = spec.round_cap();
-	let state = derive_in_progress_state(records, peak, required, total_rounds, round_cap);
+	// A within-increment `risk_class` inconsistency leaves the required streak undefined.
+	// W3 flags exactly this and `continue`s (never a no-shortfall increment), so `next`
+	// must not read `records[0].risk_class` and possibly report `converged` here: it
+	// reports the non-converged `RiskClassConflict` state instead, keeping the forward
+	// `converged` verdict and the backward `no-shortfall` verdict in agreement.
+	let state = if records.iter().any(|round| round.risk_class != class) {
+		LoopState::RiskClassConflict
+	} else {
+		derive_in_progress_state(records, peak, required, total_rounds, round_cap)
+	};
 	let facts = LoopFacts {
 		step: step.slug.clone(),
 		increment: Some(active.to_string()),
@@ -743,6 +773,7 @@ fn build_context(
 		LoopState::ReadyToPlan
 		| LoopState::Converged
 		| LoopState::Escalate
+		| LoopState::RiskClassConflict
 		| LoopState::Done => {}
 	}
 	slots
@@ -788,6 +819,10 @@ fn filled_prompt_summary(
 		LoopState::Escalate => format!(
 			"step `{}`{increment} reached the round cap ({}/{}) without converging; escalate to a human per the contract.",
 			facts.step, facts.total_rounds, facts.round_cap
+		),
+		LoopState::RiskClassConflict => format!(
+			"step `{}`{increment} logs inconsistent risk_class values; correct the round records so a single required streak is defined before the loop can converge.",
+			facts.step
 		),
 		LoopState::Done => format!("step `{}` is complete; move to the next step.", facts.step),
 	}
@@ -1085,6 +1120,23 @@ mod tests {
 	}
 
 	#[test]
+	fn risk_class_conflict_row() {
+		// One increment whose rounds disagree on risk_class: the required streak is
+		// undefined, so `next` reports the data-integrity fault rather than a verdict.
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [
+			round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc"),
+			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
+		];
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::RiskClassConflict);
+		assert_eq!(loop_.valid_transitions, vec!["fix-risk-class-records"]);
+		assert_eq!(loop_.next_instruction.role, "orchestrator");
+		assert_eq!(loop_.state.label(), "risk-class-conflict");
+	}
+
+	#[test]
 	fn done_row_metadata() {
 		// `done` is a complete step's state; selection never picks a complete step, so the
 		// row is pinned by its state metadata directly.
@@ -1148,6 +1200,15 @@ mod tests {
 				.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
 				.collect(),
 		);
+		// Mixed-class case: one increment whose rounds disagree on risk_class. This would
+		// read as `converged` if `next` naively took `records[0].risk_class` (LowRisk needs
+		// 1, peak is 1), but W3 treats the inconsistency as a shortfall. Both directions must
+		// agree it is NOT converged, so this fixture fails if the RiskClassConflict guard
+		// regresses.
+		assert_differential(vec![
+			round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc"),
+			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
+		]);
 	}
 
 	// -- Q-54 gate reminder --
@@ -1322,14 +1383,21 @@ ACTIVE LOOP
 		assert_eq!(json, GOLDEN_JSON);
 	}
 
-	// -- Determinism / idempotence --
+	// -- Renderer idempotence --
 
+	/// The renderers are idempotent within a call: rendering the same projection twice
+	/// yields identical bytes. This guards against a renderer that reads shared mutable
+	/// state or otherwise varies between invocations; it is NOT a cross-run determinism
+	/// check (that is owned structurally, by the `BTreeMap` context ordering and the
+	/// wall-clock-free paths, and by the `golden_human_text` / `golden_json` byte-compares).
 	#[test]
-	fn identical_inputs_give_identical_bytes() {
-		let one = serde_json::to_string_pretty(&golden_projection()).unwrap();
-		let two = serde_json::to_string_pretty(&golden_projection()).unwrap();
-		assert_eq!(one, two);
-		assert_eq!(render_human(&golden_projection()), render_human(&golden_projection()));
+	fn the_renderers_are_idempotent_within_a_call() {
+		let projection = golden_projection();
+		assert_eq!(
+			serde_json::to_string_pretty(&projection).unwrap(),
+			serde_json::to_string_pretty(&projection).unwrap()
+		);
+		assert_eq!(render_human(&projection), render_human(&projection));
 	}
 
 	// -- Dual-source parity --

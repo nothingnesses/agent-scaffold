@@ -4,7 +4,7 @@ Copy this, fill in the bracketed parts, and paste it to the agent to start a new
 
 ---
 
-Act as the orchestrator described in `.agents/prompts/orchestrator.md`. Read `AGENTS.md` first (the workflow and the project's principles), then the current plan under `docs/plans/`; if there is no plan for this task yet, start one from `docs/plans/TEMPLATE.md`. Before starting the work, run the preflight defined in `AGENTS.md` (restate the process and disciplines, state the writer-isolation tier available here, and confirm with me how you will adhere).
+Act as the orchestrator described in `.agents/prompts/orchestrator.md`. Read `AGENTS.md` first (the workflow and the project's principles), then the current plan under `docs/plans/`; if there is no plan for this task yet, start one from the TOML plan skeleton `docs/plans/TEMPLATE.plan.toml` and its sidecars (the plan-authoring and render flow is in `AGENTS.md`). Before starting the work, run the preflight defined in `AGENTS.md` (restate the process and disciplines, state the writer-isolation tier available here, and confirm with me how you will adhere).
 
 Task: [describe what you want done].
 

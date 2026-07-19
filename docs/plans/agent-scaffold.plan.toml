@@ -712,6 +712,16 @@ folds = []
 increment = []
 waiver = []
 
+[[step]]
+slug = "human-input-gate-reinforce"
+title = "reinforce the human-input contract at the orchestrator's point of action (`Q-54`)"
+status = "not-started"
+order = 56
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1035,6 +1045,13 @@ status = "decided"
 folded_into = "task-entry-regrounding"
 receipt = "Q-53"
 ask = """whether to add a task-entry re-grounding and human alignment check before starting a step: DECIDED (Socratic, human, 2026-07-19) add a LIGHT, stakes-scaled task-entry RE-GROUNDING run before starting a step and on resume, sourced from the DURABLE artifacts (plan Step Detail by slug, ledger RESUME STATE, decision receipts by q_id, findings by path, code by file:line/commit) and NOT conversation history (a fact found only in ephemeral history is a durability bug to flush into the artifacts, not to cite; out-of-VCS history pointers were rejected as moving the fragility rather than fixing it): the orchestrator writes a short brief (what the task is, why it exists, the cited evidence including the decision receipt with the human's recorded choice, and what it is about to do) and pushes it for a go/no-go via the human-input contract, scaled to stakes. Also ADOPT structured PER-STEP PROVENANCE links (a step -> the decisions/findings/commits that justify it, mirroring questions' `folded_into`/`receipt`) that `render` can present as "why this step exists". Chosen over no-regrounding and over out-of-VCS history pointers. Decision and reasoning in `task-entry-regrounding`."""
+
+[[question]]
+id = "Q-54"
+status = "decided"
+folded_into = "human-input-gate-reinforce"
+receipt = "Q-54"
+ask = """the human-input contract (present options with their trade-offs, a recommendation, and reasoning judged against the numbered Project Principles, and let the human decide) lives once in `pack/AGENTS.md`, but the orchestrator drifted off it after a compaction and presented several decision gates as options-with-trade-offs while omitting the explicit recommendation and Principle-judged reasoning; how to prevent recurrence. This is control-drift (an agent forgot a rule that applies right here), not a missing rule, so the fix is point-of-action reinforcement. DECIDED (human, 2026-07-19): reinforce at the point of action via (a) strengthening `pack/prompts/orchestrator.md` so the human-input contract is an explicit per-gate checklist the orchestrator applies at EVERY decision presentation (referencing, not restating, the AGENTS.md contract, per Principle 8), built first as its own low-risk step; and (b) adding an awaiting-human-decision reminder to the Stage-1 driver `next` output (folded into the `workflow-driver` Stage 1 scope), which is the point-of-action anti-drift value the driver is designed to deliver, so this incident is live evidence for it (Principle 6). Chosen over folding the whole fix into Stage 1 (delays the recurrence-preventer), a note-only capture, and a deterministic check (the presence of a recommendation is not reliably machine-checkable). Decision and reasoning in `human-input-gate-reinforce`."""
 
 [[principle]]
 n = 1

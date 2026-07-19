@@ -85,11 +85,7 @@ fn outcome_of(
 			},
 		Ownership::Working =>
 			if exists {
-				if force {
-					Outcome::Overwritten
-				} else {
-					Outcome::SkippedExisting
-				}
+				if force { Outcome::Overwritten } else { Outcome::SkippedExisting }
 			} else {
 				Outcome::Created
 			},

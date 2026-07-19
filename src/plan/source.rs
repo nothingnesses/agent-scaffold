@@ -27,11 +27,11 @@
 
 use {
 	crate::metrics::{
-		question_id_index,
 		EvidenceTier,
 		RiskClass,
 		WaiverReason,
 		WaiverUnit,
+		question_id_index,
 	},
 	serde::{
 		Deserialize,

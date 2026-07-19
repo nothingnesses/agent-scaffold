@@ -541,7 +541,7 @@ fn run_render(args: RenderArgs) -> io::Result<()> {
 						std::process::exit(1);
 					}
 				};
-				fs::write(&out, rendered)?;
+				plan::write_rendered(&out, &rendered)?;
 				println!("rendered {}", out.display());
 				Ok(())
 			}

@@ -39,6 +39,7 @@ pub(crate) use {
 		check_render,
 		render_plan,
 		rendered_path,
+		write_rendered,
 	},
 	source::{
 		parse_toml,

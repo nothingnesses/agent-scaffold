@@ -51,6 +51,7 @@ use {
 	std::{
 		fmt::Write as _,
 		fs,
+		io,
 		path::{
 			Path,
 			PathBuf,
@@ -217,12 +218,25 @@ impl CheckOutcome {
 				));
 			}
 		}
-		// No differing line up to the shorter length: one side has extra trailing lines.
-		Some(format!(
-			"the committed file has {} line(s); a fresh render has {}",
-			committed.lines().count(),
-			expected.lines().count()
-		))
+		// No differing line up to the shorter length. Either one side has extra trailing
+		// lines, or the two differ ONLY in trailing whitespace / a trailing newline, which
+		// `str::lines()` drops (so both the line-by-line and the count-by-count compare look
+		// equal). A byte compare distinguishes the two, so the summary is not the degenerate
+		// "the committed file has N line(s); a fresh render has N".
+		let committed_lines = committed.lines().count();
+		let expected_lines = expected.lines().count();
+		if committed_lines != expected_lines {
+			Some(format!(
+				"the committed file has {committed_lines} line(s); a fresh render has {expected_lines}"
+			))
+		} else {
+			Some(format!(
+				"the files differ only in trailing whitespace or a trailing newline (committed {} \
+				 bytes, a fresh render {} bytes)",
+				committed.len(),
+				expected.len()
+			))
+		}
 	}
 }
 
@@ -249,11 +263,18 @@ pub(crate) fn check_render(plan_path: &Path) -> Result<CheckOutcome, Vec<String>
 			committed,
 			committed_exists: true,
 		}),
-		Err(_) => Ok(CheckOutcome::Mismatch {
+		// Only a genuine absence (`NotFound`) reports the committed file as never-rendered.
+		Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(CheckOutcome::Mismatch {
 			expected,
 			committed: String::new(),
 			committed_exists: false,
 		}),
+		// Any other read failure (invalid UTF-8, a permission error) is a present-but-
+		// unreadable file, reported as its own error rather than miscounted as absent.
+		Err(error) => Err(vec![format!(
+			"{}: committed file present but unreadable: {error}",
+			out_path.display()
+		)]),
 	}
 }
 
@@ -288,6 +309,7 @@ fn assemble(
 	sections.push(questions_section(question_blobs));
 	sections.push(roadmap_section(step_blobs));
 	sections.push(step_details_section(step_blobs));
+	sections.push(question_details_section(question_blobs));
 
 	if let Some(tail) = tail_blob {
 		let trimmed = tail.trim_end();
@@ -330,19 +352,24 @@ fn status_line(plan: &PlanToml) -> String {
 	let distribution =
 		if distribution.is_empty() { "no steps".to_string() } else { distribution.join(", ") };
 
-	let open_questions =
-		plan.questions.iter().filter(|question| question.status == QuestionStatus::Open).count();
+	// Both `open` and `exploring` are UNRESOLVED (a decision is still owed; `exploring`
+	// is a documented sub-state of open, per AGENTS.md and the schema), so the derived
+	// count of outstanding questions includes both. `decided` and `superseded` are
+	// resolved and excluded.
+	let open_questions = plan
+		.questions
+		.iter()
+		.filter(|question| {
+			matches!(question.status, QuestionStatus::Open | QuestionStatus::Exploring)
+		})
+		.count();
 
 	let waivers: Vec<&Waiver> = plan.steps.iter().flat_map(|step| &step.waivers).collect();
 	let waiver_summary = if waivers.is_empty() {
 		"0 waivers".to_string()
 	} else {
 		let mut by_reason: Vec<String> = Vec::new();
-		for reason in [
-			WaiverReason::PredatesLogging,
-			WaiverReason::ReviewSkipped,
-			WaiverReason::AcceptedAtEscalation,
-		] {
+		for reason in WaiverReason::ALL {
 			let count = waivers.iter().filter(|waiver| waiver.reason == reason).count();
 			if count > 0 {
 				by_reason.push(format!("{count} {}", reason.label()));
@@ -378,28 +405,27 @@ fn vocabulary_section() -> String {
 	let queue =
 		QuestionStatus::ALL.iter().map(|status| status.label()).collect::<Vec<_>>().join(", ");
 	format!(
-		"## Documentation Protocol\n\nGenerated status vocabulary (from the code constants, so it \
+		"## Roadmap Status Vocabulary\n\nGenerated status vocabulary (from the code constants, so it \
 		 cannot drift):\n\n- Roadmap statuses: {roadmap}, {ROADMAP_BLOCKED_PREFIX}<slug>.\n- Queue \
 		 statuses: {queue}."
 	)
 }
 
-/// The Open-Questions queue, one line per item (id, status, ask, and the resolving
-/// cross-reference / receipt shown appropriately), each followed by its opaque body
-/// sidecar inlined verbatim. Items are already ordered by `Q-<n>` index by the caller.
+/// The Open-Questions queue: strictly ONE line per item (id, status, ask, and the
+/// resolving `folded_into` / `superseded_by` / `receipt` pointers shown
+/// appropriately), so the queue stays scannable. The opaque body sidecars are
+/// relocated to `## Question Details` (mirroring `## Step Details`), not inlined here,
+/// so a blank line before a body never fragments the Markdown list. Items are already
+/// ordered by `Q-<n>` index by the caller.
 fn questions_section(question_blobs: &[(&Question, String)]) -> String {
 	let mut out = String::from("## Open Questions, Decisions, Issues and Blockers\n");
-	for (question, body) in question_blobs {
+	for (question, _) in question_blobs {
 		let status = question_status_display(question);
 		let receipt = match &question.receipt {
 			Some(receipt) => format!(" Receipt: `{receipt}`."),
 			None => String::new(),
 		};
 		let _ = write!(out, "\n- `{}` ({status}) {}{receipt}", question.id, question.ask);
-		let trimmed = body.trim_end();
-		if !trimmed.is_empty() {
-			let _ = write!(out, "\n\n{trimmed}");
-		}
 	}
 	out
 }
@@ -470,11 +496,13 @@ fn waiver_note(waiver: &Waiver) -> String {
 	note
 }
 
-/// Escape a generated Markdown table cell so a stray `|` cannot break the table and a
-/// newline cannot split the row. Applies only to generated cell text (the Roadmap
+/// Escape a generated Markdown table cell so a stray `|` cannot break the table and no
+/// line ending can split the row. CommonMark treats a lone `\r`, a lone `\n`, and a
+/// `\r\n` all as line endings, so every form is neutralised to a space (a `\r\n` pair
+/// collapses to a single space). Applies only to generated cell text (the Roadmap
 /// Notes), not to opaque sidecar prose, which is never placed in a table.
 fn escape_cell(text: &str) -> String {
-	text.replace('|', "\\|").replace('\n', " ")
+	text.replace('|', "\\|").replace("\r\n", " ").replace(['\n', '\r'], " ")
 }
 
 /// The Step Details section: each step's opaque body sidecar inlined verbatim, in the
@@ -488,6 +516,54 @@ fn step_details_section(step_blobs: &[(&Step, String)]) -> String {
 		}
 	}
 	out
+}
+
+/// The Question Details section: each question's opaque body sidecar inlined verbatim,
+/// in the caller's fixed `Q-<n>` order (each sidecar carries its own prose). Mirrors
+/// `step_details_section` so the Open-Questions queue stays one line per item; a
+/// question with no body prose contributes no entry.
+fn question_details_section(question_blobs: &[(&Question, String)]) -> String {
+	let mut out = String::from("## Question Details");
+	for (_, body) in question_blobs {
+		let trimmed = body.trim_end();
+		if !trimmed.is_empty() {
+			let _ = write!(out, "\n\n{trimmed}");
+		}
+	}
+	out
+}
+
+/// Atomically write the rendered `<task>.md`: write the bytes to a temp file in the
+/// SAME directory, then `fs::rename` it into place. `fs::rename` within a directory is
+/// atomic on the platforms this runs on, so an interrupted write (disk full, a kill,
+/// a permission change mid-write) leaves a previously-valid `<task>.md` intact rather
+/// than truncated or partial, extending the increment's "never a partial plan" intent
+/// to the success path. Public so the CLI writes through the same atomic path.
+pub(crate) fn write_rendered(
+	out_path: &Path,
+	rendered: &str,
+) -> io::Result<()> {
+	let dir = out_path.parent().filter(|parent| !parent.as_os_str().is_empty());
+	let file_name = out_path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
+		io::Error::other(format!("{}: not a writable file name", out_path.display()))
+	})?;
+	// A same-directory temp sibling, so the final `rename` stays on one filesystem (a
+	// cross-device rename is not atomic and would fail). The pid keeps concurrent renders
+	// from colliding on the temp name.
+	let temp_name = format!(".{file_name}.{}.tmp", std::process::id());
+	let temp_path = match dir {
+		Some(parent) => parent.join(&temp_name),
+		None => PathBuf::from(&temp_name),
+	};
+	fs::write(&temp_path, rendered)?;
+	match fs::rename(&temp_path, out_path) {
+		Ok(()) => Ok(()),
+		Err(error) => {
+			// Do not leave the temp sibling behind if the rename fails.
+			let _ = fs::remove_file(&temp_path);
+			Err(error)
+		}
+	}
 }
 
 #[cfg(test)]
@@ -574,15 +650,20 @@ mod tests {
 		assert!(out.contains("render-fixture.plan.toml"), "banner names the TOML source");
 		// The title heading from `[meta].title`.
 		assert!(out.contains("# Render fixture plan"), "{out}");
-		// The derived Status line: the distribution, open-question count, waiver counts.
+		// The derived Status line: the full distribution (all seven statuses), the open +
+		// exploring unresolved-question count (Q-1 open, Q-9 exploring, Q-10 open = 3), and
+		// the waiver counts.
 		assert!(
 			out.contains(
-				"Status: 4 steps (1 not started, 1 in progress, 1 complete, 1 next); 1 open questions; \
-				 2 waivers (1 predates-logging, 1 accepted-at-escalation)."
+				"Status: 7 steps (1 not started, 1 in progress, 1 complete, 1 skipped, 1 next, 1 \
+				 optional, 1 deferred); 3 open questions; 2 waivers (1 predates-logging, 1 \
+				 accepted-at-escalation)."
 			),
 			"{out}"
 		);
-		// The generated vocabulary fragment from the code constants (B3).
+		// The generated vocabulary fragment, under its own heading (renamed off the live
+		// plan's `## Documentation Protocol`), from the code constants (B3).
+		assert!(out.contains("## Roadmap Status Vocabulary"), "{out}");
 		assert!(out.contains("Roadmap statuses: not started, in progress, complete"), "{out}");
 		assert!(out.contains("blocked on <slug>."), "{out}");
 		assert!(out.contains("Queue statuses: open, exploring, decided, superseded."), "{out}");
@@ -607,6 +688,14 @@ mod tests {
 		assert!(out.contains("This is the render fixture intro prose."), "{out}");
 		assert!(out.contains("### `alpha`: The first step"), "{out}");
 		assert!(out.contains("## Success Criteria"), "{out}");
+		// F1: question bodies live in a dedicated `## Question Details` section, not inline
+		// in the queue, so the queue stays one line per item. The Q-1 body sits AFTER the
+		// section heading, which itself sits after the queue.
+		let queue_at = out.find("## Open Questions").expect("queue heading");
+		let details_at = out.find("## Question Details").expect("question details heading");
+		let q1_body_at = out.find("The Q-1 body.").expect("Q-1 body prose");
+		assert!(queue_at < details_at, "the queue precedes Question Details");
+		assert!(details_at < q1_body_at, "the Q-1 body sits under Question Details, not the queue");
 	}
 
 	#[test]
@@ -614,17 +703,65 @@ mod tests {
 		let dir = scratch("write-one");
 		copy_fixture_sources(&dir);
 		let plan = dir.join("render-fixture.plan.toml");
-		let rendered = render_plan(&plan).expect("renders");
-		let out_path = rendered_path(&plan).expect("path");
-		fs::write(&out_path, &rendered).unwrap();
-		// Exactly one file was produced, `<task>.md`, and no sidecar or the TOML changed.
+		// Snapshot every source file's bytes BEFORE the render, so the no-clobber invariant
+		// (the increment's principal guarantee: the sources are never rewritten) is asserted,
+		// not just commented.
+		let before = snapshot_dir(&dir);
+		let out_path = write_rendered_via_engine(&plan);
+		// Exactly one file was produced, `<task>.md`.
 		assert_eq!(out_path, dir.join("render-fixture.md"));
 		assert!(out_path.exists());
+		// Every pre-existing source is byte-identical after the render.
+		let after = snapshot_dir(&dir);
+		for (path, bytes) in &before {
+			assert_eq!(
+				after.get(path).map(Vec::as_slice),
+				Some(bytes.as_slice()),
+				"render clobbered a source file: {}",
+				path.display()
+			);
+		}
+		// The only new file is `<task>.md`; no temp sibling or extra file is left behind.
+		let created: Vec<&PathBuf> =
+			after.keys().filter(|path| !before.contains_key(*path)).collect();
+		assert_eq!(
+			created,
+			vec![&out_path],
+			"render created a file other than <task>.md: {created:?}"
+		);
 		match check_render(&plan).expect("check") {
 			CheckOutcome::Match => {}
 			other => panic!("a freshly written render must check clean, got {other:?}"),
 		}
 		let _ = fs::remove_dir_all(&dir);
+	}
+
+	/// Render `plan` and write it through the engine's atomic `write_rendered`, returning
+	/// the output path. Used by the no-clobber test so it exercises the real write path.
+	fn write_rendered_via_engine(plan: &Path) -> PathBuf {
+		let rendered = render_plan(plan).expect("renders");
+		let out_path = rendered_path(plan).expect("path");
+		write_rendered(&out_path, &rendered).expect("write");
+		out_path
+	}
+
+	/// Snapshot every regular file under `dir` (recursively) as a path -> bytes map, so a
+	/// test can assert which files a render touched or created.
+	fn snapshot_dir(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+		let mut out = std::collections::BTreeMap::new();
+		let mut stack = vec![dir.to_path_buf()];
+		while let Some(current) = stack.pop() {
+			for entry in fs::read_dir(&current).unwrap() {
+				let path = entry.unwrap().path();
+				if path.is_dir() {
+					stack.push(path);
+				} else {
+					let bytes = fs::read(&path).unwrap();
+					out.insert(path, bytes);
+				}
+			}
+		}
+		out
 	}
 
 	#[test]
@@ -764,6 +901,97 @@ mod tests {
 		assert!(
 			problems.iter().any(|problem| problem.contains(".plan.toml")),
 			"the naming requirement must be reported: {problems:?}"
+		);
+	}
+
+	#[test]
+	fn the_status_line_counts_open_and_exploring_but_not_decided_or_superseded() {
+		// C1: `open` and `exploring` are both unresolved (a decision is still owed);
+		// `decided` and `superseded` are resolved. The derived count is 2, not 1 or 4.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"open\"\nask = \"o\"\n",
+			"[[question]]\nid = \"Q-2\"\nstatus = \"exploring\"\nask = \"e\"\n",
+			"[[question]]\nid = \"Q-3\"\nstatus = \"decided\"\nask = \"d\"\nfolded_into = \"a\"\n",
+			"[[question]]\nid = \"Q-4\"\nstatus = \"superseded\"\nask = \"s\"\nsuperseded_by = \"Q-1\"\n",
+		);
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
+		let plan = parse_toml(source).expect("parses");
+		let line = status_line(&plan);
+		assert!(
+			line.contains("2 open questions"),
+			"open + exploring are counted, not decided/superseded: {line}"
+		);
+	}
+
+	#[test]
+	fn a_trailing_newline_only_mismatch_reports_a_trailing_newline_difference() {
+		// C2: `str::lines()` drops a final newline, so a trailing-`\n`-only mismatch has
+		// equal lines AND equal counts; the summary must word it from a byte compare, not
+		// the degenerate "N line(s) vs N".
+		let outcome = CheckOutcome::Mismatch {
+			expected: "one\ntwo\n".to_string(),
+			committed: "one\ntwo".to_string(),
+			committed_exists: true,
+		};
+		let summary = outcome.difference_summary().expect("a mismatch has a summary");
+		assert!(
+			summary.contains("trailing"),
+			"the trailing-newline case is worded explicitly: {summary}"
+		);
+		assert!(
+			!summary.contains("has 2 line(s); a fresh render has 2"),
+			"not the degenerate N-vs-N message: {summary}"
+		);
+	}
+
+	#[test]
+	fn a_present_but_unreadable_committed_file_is_an_error_not_absent() {
+		// C3: invalid UTF-8 is present on disk but unreadable as text; it must be its own
+		// error, not collapsed into `committed_exists: false` ("does not exist").
+		let dir = scratch("unreadable");
+		copy_fixture_sources(&dir);
+		let plan = dir.join("render-fixture.plan.toml");
+		let out_path = rendered_path(&plan).expect("path");
+		fs::write(&out_path, [0xff, 0xfe, 0x00]).unwrap();
+		let problems = check_render(&plan)
+			.expect_err("a present-but-unreadable committed file must be an error");
+		assert!(
+			problems.iter().any(|problem| problem.contains("unreadable")),
+			"the present-but-unreadable file must be reported as such: {problems:?}"
+		);
+		let _ = fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn escape_cell_neutralizes_carriage_returns_and_newlines() {
+		// R2: a lone `\r`, a lone `\n`, and a `\r\n` are all CommonMark line endings; none
+		// may pass into a table cell. A `|` stays escaped.
+		assert_eq!(escape_cell("a\rb"), "a b");
+		assert_eq!(escape_cell("a\r\nb"), "a b");
+		assert_eq!(escape_cell("a\nb"), "a b");
+		assert_eq!(escape_cell("a|b"), "a\\|b");
+	}
+
+	#[test]
+	fn ordering_is_numeric_for_questions_and_slug_tiebroken_for_equal_order_steps() {
+		// C5: pin the increment's central ordering claims against a lexical-sort regression.
+		let out = render_plan(&fixture_plan()).expect("renders");
+		// Numeric question order: Q-1, Q-9, Q-10 (a lexical sort would put Q-10 after Q-1).
+		let q1 = out.find("- `Q-1`").expect("Q-1 in queue");
+		let q9 = out.find("- `Q-9`").expect("Q-9 in queue");
+		let q10 = out.find("- `Q-10`").expect("Q-10 in queue");
+		assert!(q1 < q9 && q9 < q10, "questions sort numerically (Q-1, Q-9, Q-10): {out}");
+		// Equal-order steps break the tie by slug: `epsilon` before `zeta` (both order 5),
+		// though the TOML declares `zeta` first, so a stable sort without the tiebreak fails.
+		let epsilon = out.find("| `epsilon` |").expect("epsilon row");
+		let zeta = out.find("| `zeta` |").expect("zeta row");
+		assert!(epsilon < zeta, "equal-order steps sort by slug (epsilon before zeta): {out}");
+		// The skipped / optional / deferred Status-line buckets are exercised.
+		assert!(
+			out.contains("1 skipped") && out.contains("1 optional") && out.contains("1 deferred"),
+			"{out}"
 		);
 	}
 

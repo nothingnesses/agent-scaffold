@@ -1,14 +1,16 @@
 # Fixture <task>.plan.toml for the render engine (Inc 3). This is NOT a live plan;
 # it drives the render golden and the render/check tests. It exercises every
-# generated fragment: a derived Status line (four step statuses, one open question,
-# two waivers), the generated status vocabulary, a Roadmap with a blocked_by marker
-# and inline waivers, a decided/superseded question queue, numbered principles, and
-# the front/step/question/tail prose sidecars spliced verbatim. It validates clean.
+# generated fragment: a derived Status line (all seven step statuses represented,
+# the open + exploring unresolved-question count, two waivers), the generated status
+# vocabulary, a Roadmap with a blocked_by marker and inline waivers, a
+# decided/superseded question queue, numbered principles, and the
+# front/step/question/tail prose sidecars spliced verbatim. It also pins the
+# ordering claims: two steps share order 5 to exercise the slug tiebreak, and Q-9 /
+# Q-10 pin the numeric (not lexical) question sort. It validates clean.
 
 [meta]
 title = "Render fixture"
 primary = "toml"
-render_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [meta.sidecars]
 front = ["render-fixture.intro.md", "render-fixture.motivations.md", "render-fixture.repo-layout.md"]
@@ -59,6 +61,27 @@ title = "The fourth step"
 status = "not-started"
 order = 4
 
+# `zeta` and `epsilon` share order 5. `zeta` is declared FIRST here, so the sort's
+# slug tiebreak (not insertion order) is what puts `epsilon` before `zeta` in the
+# Roadmap: a regression that drops the tiebreak would leave `zeta` first.
+[[step]]
+slug = "zeta"
+title = "The optional step"
+status = "optional"
+order = 5
+
+[[step]]
+slug = "epsilon"
+title = "The skipped step"
+status = "skipped"
+order = 5
+
+[[step]]
+slug = "eta"
+title = "The deferred step"
+status = "deferred"
+order = 6
+
 [[question]]
 id = "Q-1"
 status = "open"
@@ -76,6 +99,19 @@ id = "Q-3"
 status = "superseded"
 ask = "A superseded ask, replaced by a later item."
 superseded_by = "Q-1"
+
+# Q-9 and Q-10 pin the NUMERIC question order: Q-10 must sort AFTER Q-9 (a lexical
+# sort would place Q-10 right after Q-1). Q-9 is `exploring`, an unresolved sub-state
+# of open, so the derived Status line counts it (Q-1, Q-9, Q-10 = 3 open questions).
+[[question]]
+id = "Q-9"
+status = "exploring"
+ask = "An exploring ask, still owed a design pass."
+
+[[question]]
+id = "Q-10"
+status = "open"
+ask = "A tenth open ask, to pin numeric ordering past Q-9."
 
 [[principle]]
 n = 1

@@ -191,6 +191,16 @@ enum_field! {
 }
 
 impl WaiverReason {
+	/// Every variant in declaration order, so an exhaustive iteration (for example the
+	/// render engine's waiver-reason breakdown) is compiler-checked to include a future
+	/// variant rather than silently dropping it from a hand-written literal array
+	/// (Principle 16, one source of truth). A new variant is a compile-time inclusion.
+	pub(crate) const ALL: [WaiverReason; 3] = [
+		WaiverReason::PredatesLogging,
+		WaiverReason::ReviewSkipped,
+		WaiverReason::AcceptedAtEscalation,
+	];
+
 	/// The on-disk spelling of this reason, for W5 problem messages.
 	pub(crate) fn label(self) -> &'static str {
 		match self {

@@ -37,7 +37,13 @@ use {
 		Deserialize,
 		Serialize,
 	},
-	std::collections::BTreeSet,
+	std::{
+		collections::BTreeSet,
+		path::{
+			Component,
+			Path,
+		},
+	},
 };
 
 /// A parsed `<task>.plan.toml` document: the `[meta]` block, the `[[step]]`,
@@ -349,6 +355,23 @@ fn is_kebab_case_token(token: &str) -> bool {
 	is_well_formed_token(token) && !token.bytes().any(|b| b.is_ascii_uppercase())
 }
 
+/// Whether a `[meta].sidecars` front/tail reference is safe to join onto the plan
+/// directory: a task-relative path with no absolute root and no `..` (parent-dir)
+/// component. The render engine joins these free-string refs straight onto the base
+/// directory, so an absolute ref would discard the base and a `..`-bearing ref would
+/// escape it, letting a crafted `.plan.toml` read a file OUTSIDE the plan directory and
+/// splice its bytes into `<task>.md`. Rejecting both at the boundary (Principle 21,
+/// validate external input where it enters; Principle 18, least authority) does not
+/// depend on the referenced file existing, so `render`, `render --check`, and
+/// `validate --source` all refuse the same thing.
+fn is_safe_sidecar_ref(reference: &str) -> bool {
+	let path = Path::new(reference);
+	!path.is_absolute()
+		&& path
+			.components()
+			.all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
+
 /// Validate a `<task>.plan.toml`'s schema (types and enums, via `parse_toml`) and
 /// its internal cross-references, returning one human-readable problem per
 /// violation (an empty vector means the source is well-formed). A malformed source
@@ -532,6 +555,24 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 	if let Some(cutoff) = &plan.meta.w4_baseline {
 		if question_id_index(cutoff).is_none() {
 			problems.push(format!("meta.w4_baseline `{cutoff}` is not a `Q-<n>` id"));
+		}
+	}
+
+	// The `[meta].sidecars` front/tail refs are joined onto the plan directory by the
+	// render engine, so an absolute or `..`-bearing ref would read a file outside it.
+	// Reject both at the boundary (Principle 21) rather than at the render read.
+	for reference in &plan.meta.sidecars.front {
+		if !is_safe_sidecar_ref(reference) {
+			problems.push(format!(
+				"meta sidecar front ref `{reference}` must be a task-relative path (no absolute path, no `..` component)"
+			));
+		}
+	}
+	if let Some(reference) = &plan.meta.sidecars.tail {
+		if !is_safe_sidecar_ref(reference) {
+			problems.push(format!(
+				"meta sidecar tail ref `{reference}` must be a task-relative path (no absolute path, no `..` component)"
+			));
 		}
 	}
 
@@ -796,6 +837,47 @@ mod tests {
 			"superseded_by = \"Q-99\"\n",
 		);
 		assert_flags(source, "superseded_by `Q-99`, which is not a question");
+	}
+
+	#[test]
+	fn a_traversal_sidecar_front_ref_is_flagged() {
+		// A `..`-bearing front ref would escape the plan directory when render joins it,
+		// reading a file outside the plan dir; validate rejects it at the boundary.
+		let source =
+			concat!("[meta]\ntitle = \"t\"\n", "[meta.sidecars]\nfront = [\"../outside.md\"]\n",);
+		assert_flags(source, "meta sidecar front ref `../outside.md` must be a task-relative path");
+	}
+
+	#[test]
+	fn an_absolute_sidecar_tail_ref_is_flagged() {
+		// An absolute tail ref would discard the plan directory entirely when joined.
+		let source =
+			concat!("[meta]\ntitle = \"t\"\n", "[meta.sidecars]\ntail = \"/etc/passwd\"\n",);
+		assert_flags(source, "meta sidecar tail ref `/etc/passwd` must be a task-relative path");
+	}
+
+	#[test]
+	fn a_nested_traversal_sidecar_ref_is_flagged() {
+		// A `..` component anywhere in the ref (not only at the front) is rejected.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[meta.sidecars]\nfront = [\"sub/../../escape.md\"]\n",
+		);
+		assert_flags(source, "must be a task-relative path");
+	}
+
+	#[test]
+	fn a_task_relative_sidecar_ref_validates_clean() {
+		// A plain task-relative ref (and a `./`-prefixed one) is safe and not flagged.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[meta.sidecars]\nfront = [\"intro.md\", \"./motivations.md\"]\ntail = \"success.md\"\n",
+		);
+		let problems = validate_source(source);
+		assert!(
+			!problems.iter().any(|problem| problem.contains("task-relative path")),
+			"a task-relative ref must not be flagged: {problems:?}"
+		);
 	}
 
 	#[test]

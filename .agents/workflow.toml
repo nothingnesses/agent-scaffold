@@ -1,0 +1,33 @@
+# The workflow's deterministic CONTROL CONSTANTS: the numbers the tool counts
+# and thresholds against, single-sourced here so a workflow VALUE change is a
+# data edit (reviewed like a plan edit) rather than a code change. This file
+# holds ONLY constants, no logic and no orderings: the transition arithmetic (the
+# streak/cap computation) stays in the tool. It is a tool-owned reference asset,
+# the same for every scaffolded project; agent-scaffold's own repo dogfoods its
+# scaffolded copy at `.agents/workflow.toml`.
+#
+# `WorkflowSpec::builtin()` mirrors these values exactly, and a drift-guard test
+# parses this file and asserts equality, so the shipped asset and the built-in
+# default cannot diverge.
+
+# The consecutive-clean review-round streak an artifact must reach to converge,
+# keyed by the risk class the orchestrator assigns the increment at loop-open:
+# one clean round for `low_risk`, two for `risky`. This is the bar W3 checks a
+# `complete` step's rounds against.
+[convergence]
+low_risk = 1
+risky = 2
+
+[rounds]
+# The total-round cap: the number of rounds after which the loop escalates to the
+# human. ADVISORY today: it is the human-escalation threshold the workflow prose
+# names, NOT a machine-enforced W3 gate. Exposed on the spec but not wired into
+# any enforcement at this stage.
+cap = 5
+
+[backstop]
+# The severity at or above which a dismissed finding triggers a re-check (the
+# backstop). ADVISORY today: it names the threshold the workflow prose uses, NOT
+# a machine-enforced W3 gate. Exposed on the spec but not wired into any
+# enforcement at this stage.
+severity = "high"

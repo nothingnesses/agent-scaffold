@@ -602,6 +602,7 @@ mod tests {
 				".agents/prompts/implementer.md",
 				".agents/principles.toml",
 				".agents/LEDGER.template.md",
+				".agents/workflow.toml",
 				".agents/user-prompts/kickoff.md",
 				".agents/user-prompts/explore.md",
 				".agents/user-prompts/review.md",

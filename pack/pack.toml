@@ -146,6 +146,15 @@ source = "LEDGER.template.md"
 dest = ".agents/LEDGER.template.md"
 ownership = "reference"
 
+# The workflow control-constants spec: the tool-owned convergence/round-cap/
+# backstop constants the workflow counts against, single-sourced here so a value
+# change is a data edit. Copied verbatim (no render); a drift-guard test pins it
+# to `WorkflowSpec::builtin()`.
+[[asset]]
+source = "workflow.toml"
+dest = ".agents/workflow.toml"
+ownership = "reference"
+
 # Human-invoked prompts (a human copies, fills in, and pastes these to drive the
 # workflow), kept separate from the role prompts under `.agents/prompts/`.
 [[asset]]

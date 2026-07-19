@@ -53,6 +53,7 @@ use {
 			Step,
 			source::PlanToml,
 		},
+		workflow_spec::WorkflowSpec,
 	},
 	std::collections::{
 		BTreeMap,
@@ -150,10 +151,12 @@ fn escalation_increment_id(escalation: &Escalation) -> &str {
 /// input source differs (Principle 16). A repo with no `<task>.plan.toml`, or one whose
 /// `[meta].primary` is `markdown`, uses this path and is byte-for-byte unaffected.
 pub(crate) fn check_workflow(
+	spec: &WorkflowSpec,
 	plan_markdown: &str,
 	log_contents: &str,
 ) -> Vec<String> {
 	run_checks(
+		spec,
 		&plan::parse_roadmap(plan_markdown),
 		&plan::parse_questions(plan_markdown),
 		&metrics::parse_rounds(log_contents),
@@ -175,10 +178,12 @@ pub(crate) fn check_workflow(
 /// question inputs are re-sourced, so the pause.md catch and the un-launderable
 /// two-tier property hold identically across substrates.
 pub(crate) fn check_workflow_toml(
+	spec: &WorkflowSpec,
 	plan: &PlanToml,
 	log_contents: &str,
 ) -> Vec<String> {
 	run_checks(
+		spec,
 		&plan.step_views(),
 		&plan.question_views(),
 		&metrics::parse_rounds(log_contents),
@@ -194,7 +199,12 @@ pub(crate) fn check_workflow_toml(
 /// implementation): the round-log internal-consistency check (over every round
 /// record), W3 (step convergence OR a covering waiver), W4 (decided-item decision
 /// receipts), and W5 (waiver integrity, incl. the cross-substrate escalation join).
+#[expect(
+	clippy::too_many_arguments,
+	reason = "the single check funnel takes each already-sourced input plus the control spec; grouping them into a struct would only relocate the same fields"
+)]
 fn run_checks(
+	spec: &WorkflowSpec,
 	steps: &[Step],
 	questions: &[Question],
 	rounds: &[Round],
@@ -204,7 +214,7 @@ fn run_checks(
 	escalations: &[Escalation],
 ) -> Vec<String> {
 	let mut problems = round_log_consistency_problems(rounds);
-	problems.extend(w3_problems(steps, rounds, waivers));
+	problems.extend(w3_problems(spec, steps, rounds, waivers));
 	problems.extend(w4_problems(questions, decisions, baselines));
 	problems.extend(w5_problems(waivers, steps, escalations));
 	problems
@@ -411,6 +421,7 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 /// checks stay orthogonal. The `risk_class`-inconsistency error within an increment
 /// is a data-integrity fault and is NOT suppressed by any waiver.
 fn w3_problems(
+	spec: &WorkflowSpec,
 	steps: &[Step],
 	rounds: &[Round],
 	waivers: &[Waiver],
@@ -454,7 +465,7 @@ fn w3_problems(
 				));
 				continue;
 			}
-			let required = class.required_streak();
+			let required = spec.required_streak(class);
 			// The streak is per loop (per increment), not per artifact:
 			// `consecutive_clean` is one running counter across the different
 			// artifacts the increment's rounds name, so take the peak
@@ -755,7 +766,12 @@ mod tests {
 
 	#[test]
 	fn a_skipped_step_is_exempt() {
-		let problems = w3_problems(&steps(&one_step_plan("dropped", "skipped")), &[], &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("dropped", "skipped")),
+			&[],
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -765,7 +781,12 @@ mod tests {
 		// (the retired `grandfathered`/`trivial` cases, now one waiver notion). W3 keys
 		// only on the unit and the step identity, not the waiver's reason or tier.
 		let waivers = waivers(&step_waiver_line("legacy", "predates-logging", "self-declared"));
-		let problems = w3_problems(&steps(&one_step_plan("legacy", "complete")), &[], &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("legacy", "complete")),
+			&[],
+			&waivers,
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -775,7 +796,12 @@ mod tests {
 		// covering step-waiver still fails. A waiver for a DIFFERENT step does not cover
 		// it, so the exemption stays scoped to the named step.
 		let waivers = waivers(&step_waiver_line("other", "predates-logging", "self-declared"));
-		let problems = w3_problems(&steps(&one_step_plan("no-review", "complete")), &[], &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("no-review", "complete")),
+			&[],
+			&waivers,
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains(
@@ -799,8 +825,12 @@ mod tests {
 			round_line("round-log-core-incB", "src/metrics.rs", "clean", 2, "risky"),
 		]
 		.join("\n");
-		let problems =
-			w3_problems(&steps(&one_step_plan("round-log-core", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("round-log-core", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -812,7 +842,12 @@ mod tests {
 			round_line("stall-incA", "AGENTS.md", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("stall", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("reached a consecutive-clean streak of 1")
@@ -833,8 +868,12 @@ mod tests {
 		]
 		.join("\n");
 		let waivers = waivers(&increment_waiver_line("stall", "stall-incA", "stall-incA"));
-		let problems =
-			w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("stall", "complete")),
+			&rounds(&log),
+			&waivers,
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -848,8 +887,12 @@ mod tests {
 		]
 		.join("\n");
 		let waivers = waivers(&step_waiver_line("stall", "predates-logging", "self-declared"));
-		let problems =
-			w3_problems(&steps(&one_step_plan("stall", "complete")), &rounds(&log), &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("stall", "complete")),
+			&rounds(&log),
+			&waivers,
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("reached a consecutive-clean streak of 1"), "{}", problems[0]);
 	}
@@ -864,8 +907,12 @@ mod tests {
 		]
 		.join("\n");
 		let waivers = waivers(&increment_waiver_line("mixup", "mixup-incA", "mixup-incA"));
-		let problems =
-			w3_problems(&steps(&one_step_plan("mixup", "complete")), &rounds(&log), &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("mixup", "complete")),
+			&rounds(&log),
+			&waivers,
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("inconsistent risk_class"), "{}", problems[0]);
 	}
@@ -884,8 +931,12 @@ mod tests {
 			round_line("converge", "converge verification", "clean", 2, "risky"),
 		]
 		.join("\n");
-		let problems =
-			w3_problems(&steps(&one_step_plan("converge", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("converge", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -899,7 +950,12 @@ mod tests {
 			round_line("short", "short fixes", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("short", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("short", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("reached a consecutive-clean streak of 1")
@@ -915,9 +971,65 @@ mod tests {
 		// caught, and the message must carry the `low_risk` label so a rename of the
 		// on-disk spelling cannot diverge from `RiskClass::label` silently.
 		let log = round_line("lr", "lr change", "new_valid", 0, "low_risk");
-		let problems = w3_problems(&steps(&one_step_plan("lr", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("lr", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("`low_risk` risk class needs 1"), "{}", problems[0]);
+	}
+
+	/// A `workflow.toml` spec that raises the `low_risk` streak to 2, used by the
+	/// spec-driven-bar tests to prove the convergence constant is genuinely read from
+	/// the spec rather than hardcoded.
+	fn low_risk_needs_two_spec() -> WorkflowSpec {
+		WorkflowSpec::parse(
+			"[convergence]\nlow_risk = 2\nrisky = 2\n\n[rounds]\ncap = 5\n\n[backstop]\nseverity = \"high\"\n",
+		)
+		.unwrap()
+	}
+
+	#[test]
+	fn an_altered_required_streak_raises_the_bar_w3_applies() {
+		// A `low_risk` increment with a single clean round (peak 1) converges under the
+		// built-in spec (needs 1) but FLAGS under a spec whose `low_risk` streak is
+		// raised to 2, proving W3's bar is genuinely spec-driven, not hardcoded.
+		let log = round_line("lr", "lr change", "clean", 1, "low_risk");
+		let plan = one_step_plan("lr", "complete");
+
+		// Built-in bar: one clean round converges the low_risk increment.
+		assert!(
+			w3_problems(&WorkflowSpec::builtin(), &steps(&plan), &rounds(&log), &[]).is_empty(),
+			"one clean round should converge low_risk under the built-in spec"
+		);
+
+		// Raised bar: the same single clean round now falls short of 2.
+		let problems = w3_problems(&low_risk_needs_two_spec(), &steps(&plan), &rounds(&log), &[]);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("reached a consecutive-clean streak of 1")
+				&& problems[0].contains("`low_risk` risk class needs 2"),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn check_workflow_threads_the_spec_end_to_end() {
+		// The full Markdown check honours the spec threaded through it: a low_risk
+		// increment that converges at the built-in bar flags under the raised bar, so
+		// the `--workflow-spec` plumbing genuinely reaches W3.
+		let log = round_line("lr", "lr change", "clean", 1, "low_risk");
+		let plan = one_step_plan("lr", "complete");
+		assert!(
+			check_workflow(&WorkflowSpec::builtin(), &plan, &log).is_empty(),
+			"the built-in spec converges the low_risk increment"
+		);
+		let problems = check_workflow(&low_risk_needs_two_spec(), &plan, &log);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(problems[0].contains("`low_risk` risk class needs 2"), "{}", problems[0]);
 	}
 
 	#[test]
@@ -926,8 +1038,12 @@ mod tests {
 		// progress`) is not checked even with matching rounds in the log. This pins
 		// the guard against a future status-list refactor.
 		let log = round_line("wip", "wip change", "new_valid", 0, "risky");
-		let problems =
-			w3_problems(&steps(&one_step_plan("wip", "in progress")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("wip", "in progress")),
+			&rounds(&log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -940,7 +1056,12 @@ mod tests {
 			round_line("mixup-incA", "AGENTS.md", "clean", 1, "risky"),
 		]
 		.join("\n");
-		let problems = w3_problems(&steps(&one_step_plan("mixup", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("mixup", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("inconsistent risk_class"), "{}", problems[0]);
 	}
@@ -1089,7 +1210,7 @@ mod tests {
 			round_line("round-log-core-incB", "src/metrics.rs", "clean", 2, "risky"),
 		]
 		.join("\n");
-		let problems = check_workflow(plan, &log);
+		let problems = check_workflow(&WorkflowSpec::builtin(), plan, &log);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("`pause` is `complete` but has no round records"),
@@ -1223,7 +1344,7 @@ mod tests {
 			),
 		]
 		.join("\n");
-		let problems = check_workflow(plan, &log);
+		let problems = check_workflow(&WorkflowSpec::builtin(), plan, &log);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -1343,7 +1464,7 @@ mod tests {
 		]
 		.join("\n");
 		let waivers = waivers(&increment_waiver_line("alpha", "beta-incB", "beta-incB"));
-		let problems = w3_problems(&steps(plan), &rounds(&log), &waivers);
+		let problems = w3_problems(&WorkflowSpec::builtin(), &steps(plan), &rounds(&log), &waivers);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("reached a consecutive-clean streak of 1"), "{}", problems[0]);
 	}
@@ -1360,8 +1481,12 @@ mod tests {
 		]
 		.join("\n");
 		let waivers = waivers(&increment_waiver_line("bare-step", "bare-step", "bare-step"));
-		let problems =
-			w3_problems(&steps(&one_step_plan("bare-step", "complete")), &rounds(&log), &waivers);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("bare-step", "complete")),
+			&rounds(&log),
+			&waivers,
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -1380,8 +1505,12 @@ mod tests {
 			1,
 			"low_risk",
 		);
-		let problems =
-			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("foo-incidental", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -1392,8 +1521,12 @@ mod tests {
 		// `leading_slug`, which strips it to `foo`, so the `complete` `foo-incidental`
 		// step sees no matching rounds and is caught by the pause.md catch.
 		let log = round_line("foo-incidental", "a", "clean", 1, "low_risk");
-		let problems =
-			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("foo-incidental", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("has no round records and no covering waiver"),
@@ -1408,8 +1541,12 @@ mod tests {
 		// structured ids) for `state-schema-inc1` still joins to the `complete`
 		// `state-schema` step via the `leading_slug` shim and converges.
 		let log = round_line("state-schema-inc1", "a", "clean", 1, "low_risk");
-		let problems =
-			w3_problems(&steps(&one_step_plan("state-schema", "complete")), &rounds(&log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("state-schema", "complete")),
+			&rounds(&log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -1425,8 +1562,12 @@ mod tests {
 		// does nothing for the step axis; the axes fall back independently.
 		assert_eq!(leading_slug("foo-incidental"), "foo", "the shim over-strips this task");
 		let log = r#"{"type":"round","task":"foo-incidental","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk","increment":"foo-incidental"}"#;
-		let problems =
-			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("foo-incidental", "complete")),
+			&rounds(log),
+			&[],
+		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("has no round records and no covering waiver"),
@@ -1446,8 +1587,12 @@ mod tests {
 		// the structured id while the unfilled axis independently uses the `task`
 		// shim, with no coupling between the two.
 		let log = r#"{"type":"round","task":"foo-incidental","artifact":"a","outcome":"clean","consecutive_clean":1,"risk_class":"low_risk","step":"foo-incidental"}"#;
-		let problems =
-			w3_problems(&steps(&one_step_plan("foo-incidental", "complete")), &rounds(log), &[]);
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("foo-incidental", "complete")),
+			&rounds(log),
+			&[],
+		);
 		assert!(problems.is_empty(), "{problems:?}");
 	}
 
@@ -1501,7 +1646,7 @@ mod tests {
 			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
 			"[[step]]\nslug = \"pause\"\ntitle = \"P\"\nstatus = \"complete\"\norder = 1\n",
 		);
-		let problems = check_workflow_toml(&toml_plan(source), "");
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "");
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0]
@@ -1521,7 +1666,7 @@ mod tests {
 			"[[step.increment]]\nid = \"done-inc1\"\nrisk_class = \"low_risk\"\n",
 		);
 		let log = round_line("done-inc1", "a", "clean", 1, "low_risk");
-		assert!(check_workflow_toml(&toml_plan(source), &log).is_empty());
+		assert!(check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log).is_empty());
 	}
 
 	#[test]
@@ -1545,9 +1690,9 @@ mod tests {
 		]
 		.join("\n");
 		assert!(
-			check_workflow_toml(&toml_plan(source), &log).is_empty(),
+			check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log).is_empty(),
 			"{:?}",
-			check_workflow_toml(&toml_plan(source), &log)
+			check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log)
 		);
 	}
 
@@ -1572,9 +1717,9 @@ mod tests {
 		]
 		.join("\n");
 		assert!(
-			check_workflow_toml(&toml_plan(source), &log).is_empty(),
+			check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log).is_empty(),
 			"{:?}",
-			check_workflow_toml(&toml_plan(source), &log)
+			check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log)
 		);
 	}
 
@@ -1593,7 +1738,7 @@ mod tests {
 			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\n",
 			"reason = \"predates-logging\"\nevidence_tier = \"record-backed\"\nevidence = \"x\"\n",
 		);
-		let problems = check_workflow_toml(&toml_plan(source), "");
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "");
 		assert!(
 			problems.iter().any(|problem| problem.contains("TOML waiver `w`")
 				&& problem.contains(
@@ -1617,7 +1762,7 @@ mod tests {
 			"reason = \"accepted-at-escalation\"\nevidence_tier = \"record-backed\"\nevidence = \"unrelated-task\"\n",
 		);
 		let log = escalation_line("unrelated-task");
-		let problems = check_workflow_toml(&toml_plan(source), &log);
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log);
 		assert!(
 			problems.iter().any(|problem| problem.contains("TOML waiver `w`")
 				&& problem.contains("cites evidence `unrelated-task`")
@@ -1637,7 +1782,7 @@ mod tests {
 			"[[question]]\nid = \"Q-44\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"s\"\n",
 			"[[question]]\nid = \"Q-45\"\nstatus = \"decided\"\nask = \"b\"\nfolded_into = \"s\"\n",
 		);
-		let problems = check_workflow_toml(&toml_plan(source), "");
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "");
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("`Q-45` is decided")
@@ -1658,7 +1803,7 @@ mod tests {
 			"[[question]]\nid = \"Q-45\"\nstatus = \"decided\"\nask = \"b\"\nfolded_into = \"s\"\nreceipt = \"Q-45\"\n",
 		);
 		let log = decision_line("Q-45");
-		assert!(check_workflow_toml(&toml_plan(source), &log).is_empty());
+		assert!(check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), &log).is_empty());
 	}
 
 	#[test]
@@ -1670,7 +1815,7 @@ mod tests {
 			"[[step]]\nslug = \"s\"\ntitle = \"S\"\nstatus = \"in-progress\"\norder = 1\n",
 			"[[question]]\nid = \"Q-1\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"s\"\n",
 		);
-		let problems = check_workflow_toml(&toml_plan(source), "");
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "");
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("`Q-1` is decided"), "{}", problems[0]);
 	}
@@ -1688,7 +1833,7 @@ mod tests {
 			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\nincrement = \"s-inc1\"\n",
 			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
 		);
-		let problems = check_workflow_toml(&toml_plan(source), "");
+		let problems = check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "");
 		assert!(
 			problems.iter().any(|problem| problem
 				.contains("`s` is `complete` but has no round records and no covering waiver")),
@@ -1707,6 +1852,6 @@ mod tests {
 			"[[step.waiver]]\nid = \"w\"\nunit = \"step\"\n",
 			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
 		);
-		assert!(check_workflow_toml(&toml_plan(source), "").is_empty());
+		assert!(check_workflow_toml(&WorkflowSpec::builtin(), &toml_plan(source), "").is_empty());
 	}
 }

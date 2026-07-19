@@ -17,6 +17,7 @@ mod pack;
 mod plan;
 mod tui;
 mod workflow;
+mod workflow_spec;
 
 use {
 	clap::{
@@ -380,6 +381,9 @@ struct ValidateArgs {
 	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error.
 	#[arg(long)]
 	workflow: bool,
+	/// Path to a `workflow.toml` control-constants spec supplying the convergence streaks, round cap, and backstop severity the --workflow check reads. When omitted, the built-in default (today's constants) is used, so the check is unchanged. A malformed spec is a hard error (non-zero exit).
+	#[arg(long)]
+	workflow_spec: Option<PathBuf>,
 }
 
 /// Arguments for the `status` subcommand.
@@ -800,6 +804,23 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	// Markdown plan + the JSONL waiver/baseline records, unchanged. Problems are reported
 	// into the same list, prefixed with the source and the log a violation spans.
 	if args.workflow {
+		// Resolve the workflow control-constants spec: the built-in default (today's
+		// constants, so the check is byte-for-byte unchanged) unless --workflow-spec
+		// points at a file to parse. A parse error is a hard input error (non-zero
+		// exit), not a skipped check that would green-pass.
+		let workflow_spec = match &args.workflow_spec {
+			Some(path) => {
+				let contents = fs::read_to_string(path)?;
+				match workflow_spec::WorkflowSpec::parse(&contents) {
+					Ok(spec) => spec,
+					Err(error) => {
+						eprintln!("{}: {error}", path.display());
+						std::process::exit(1);
+					}
+				}
+			}
+			None => workflow_spec::WorkflowSpec::builtin(),
+		};
 		let toml_primary = source_plan.as_ref().filter(|source| source.is_toml_primary());
 		match (toml_primary, &plan_contents, &metrics_contents) {
 			// TOML-sourced: the plan is read from the TOML source, so `plan_contents` is
@@ -812,7 +833,7 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					.as_ref()
 					.map_or_else(|| "source".to_string(), |path| path.display().to_string());
 				report_workflow(
-					workflow::check_workflow_toml(source, metrics_text),
+					workflow::check_workflow_toml(&workflow_spec, source, metrics_text),
 					&source_display,
 					&metrics_path.display().to_string(),
 					&mut summaries,
@@ -826,7 +847,7 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					.as_ref()
 					.map_or_else(|| "plan".to_string(), |path| path.display().to_string());
 				report_workflow(
-					workflow::check_workflow(plan_text, metrics_text),
+					workflow::check_workflow(&workflow_spec, plan_text, metrics_text),
 					&plan_display,
 					&metrics_path.display().to_string(),
 					&mut summaries,

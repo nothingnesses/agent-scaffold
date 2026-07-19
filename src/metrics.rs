@@ -124,16 +124,6 @@ enum_field! {
 }
 
 impl RiskClass {
-	/// The consecutive-clean streak an artifact of this risk class must reach to
-	/// converge: one clean round for `low_risk`, two for `risky`. This is the
-	/// count `workflow.rs` checks a `complete` step's rounds against.
-	pub(crate) fn required_streak(self) -> u64 {
-		match self {
-			RiskClass::LowRisk => 1,
-			RiskClass::Risky => 2,
-		}
-	}
-
 	/// The on-disk spelling of this risk class, for problem messages.
 	pub(crate) fn label(self) -> &'static str {
 		match self {
@@ -144,8 +134,9 @@ impl RiskClass {
 }
 
 enum_field! {
-	/// A finding severity on the four-level scale.
-	Severity {
+	/// A finding severity on the four-level scale. Exposed to the crate because
+	/// `WorkflowSpec` carries the backstop severity threshold as this typed value.
+	pub(crate) Severity {
 		Low => "low",
 		Medium => "medium",
 		High => "high",

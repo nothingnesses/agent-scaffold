@@ -1,7 +1,6 @@
 # structured-skeleton Inc 5 PREP - independent reviewer
 
-Commit under review: `5b45506` on base `707532a`, branch `impl/structured-skeleton-inc5`.
-Role: independent reviewer (did not author the code). Read via `git show`/`git diff`; ran read-only in the worktree.
+Commit under review: `5b45506` on base `707532a`, branch `impl/structured-skeleton-inc5`. Role: independent reviewer (did not author the code). Read via `git show`/`git diff`; ran read-only in the worktree.
 
 ## VERDICT: SAFE TO CUT OVER (no blocking defects)
 
@@ -22,7 +21,7 @@ Evidence counts:
 Method (independent, not the implementer's tests):
 
 - Extracted the `## Step Details` body from the live plan and from a scratch render, dropped blank lines, sorted, diffed: 0 differences. Any dropped, truncated, reworded, or summarised line would appear on exactly one side; none did. The reorder is render emitting steps in Roadmap `order` rather than the live document's curated grouping order; content is preserved. The umbrella preamble ("Durability, recovery, isolation, and user prompts ...") renders immediately before its attached step (`file-safety-rules`), so the attach-to-next-step logic is correct.
-- Extracted every `- \`Q-...\`` queue line from both; 46 == 46; stripped the leading status parenthetical and any trailing `Receipt: \`Q-n\``; sorted; diffed the ask bodies: 0 differences. Every question's prose is verbatim.
+- Extracted every `- \`Q-...\``queue line from both; 46 == 46; stripped the leading status parenthetical and any trailing`Receipt: \`Q-n\``; sorted; diffed the ask bodies: 0 differences. Every question's prose is verbatim.
 - Compared each front/tail sidecar to its live section (heading included): verbatim for all four meta prose blocks and Success Criteria.
 - Compared the status-narrative sidecar to the live preamble (H1 removed, ends trimmed): verbatim.
 - Compared the principles alnum stream: identical (only separators/numbering canonicalised).

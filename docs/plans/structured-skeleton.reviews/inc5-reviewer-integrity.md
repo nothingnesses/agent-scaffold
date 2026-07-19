@@ -37,7 +37,9 @@ cargo run -- validate --metrics docs/metrics/workflow.jsonl \
   --plan docs/plans/agent-scaffold.md --workflow \
   --source docs/plans/agent-scaffold.plan.toml
 ```
+
 prints, exit 0:
+
 ```
 docs/metrics/workflow.jsonl: 111 records, valid
 docs/plans/agent-scaffold.plan.toml: 51 steps, 46 questions, valid
@@ -66,9 +68,9 @@ Non-vacuity / un-launderability probes (run on scratch copies of the TOML, read-
 `src/main.rs`: `--source` is now parsed before the `--plan` validation block, and `plan_is_projection = source_plan.as_ref().is_some_and(plan::PlanToml::is_toml_primary)`. `validate_plan(--plan)` is skipped ONLY when `plan_is_projection` is true (source present AND `[meta].primary == "toml"`, per `src/plan/source.rs:370`). In every other branch (no `--source`, a Markdown-primary source, or an unparseable source, since `is_some_and` is false when `source_plan` is `None`) the original block runs unchanged: read the md, `validate_plan`, and either push the "N steps, M open-questions items, valid" summary or the per-problem messages. `plan_contents` is still returned as `Some(contents)` in both branches, so nothing downstream regresses.
 
 `tests/validate_toml_primary_skips_markdown_plan.rs` pins both directions, non-vacuously:
+
 - TOML-primary run (`--source` toml + `--plan` md) on a `--plan` md whose queue item uses the rendered form `(superseded by `Q-1`)` (which the standalone Markdown validator rejects) -> asserts exit 0, "workflow invariants hold", and "skipping the Markdown plan validator".
-- Markdown-mode run (no `--source`) on the SAME md -> asserts exit 1 and stderr containing "unknown status" and "Q-2".
-The Markdown-mode assertion is what makes the skip non-vacuous: it proves the md genuinely fails the standalone validator, so the TOML-primary pass is a real skip, not a vacuously-clean md. Test passes.
+- Markdown-mode run (no `--source`) on the SAME md -> asserts exit 1 and stderr containing "unknown status" and "Q-2". The Markdown-mode assertion is what makes the skip non-vacuous: it proves the md genuinely fails the standalone validator, so the TOML-primary pass is a real skip, not a vacuously-clean md. Test passes.
 
 Nothing of value is lost by skipping `validate_plan` in TOML mode: `validate --source` validates the TOML schema and cross-refs, and `render --check docs/plans/agent-scaffold.plan.toml --strict` pins the committed md to a fresh render (verified: prints "docs/plans/agent-scaffold.plan.toml: up to date", exit 0). The gate is declared in `.agents/checks.toml` (`[[check]] name = "render-check" kind = "lint"`). The commit message's stated rationale (the projection writes `(superseded by `Q-x`)`, a form the Markdown queue-status vocabulary lacks) matches the test fixture and the observed behavior.
 

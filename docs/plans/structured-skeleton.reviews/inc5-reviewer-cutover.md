@@ -107,6 +107,7 @@ command = "agent-scaffold render --check docs/plans/agent-scaffold.plan.toml --s
 ```
 
 The entry is well-formed for the checks module schema:
+
 - `name`: unique (only entry in the file).
 - `kind = "lint"`: correct. `render --check` is read-only (writes nothing), so `lint` is the right kind. A `format` kind would invoke a `check` sub-command, not appropriate here.
 - `command`: the `--strict` flag causes `render --check` to exit non-zero on any mismatch, which is the required behavior for a CI gate.

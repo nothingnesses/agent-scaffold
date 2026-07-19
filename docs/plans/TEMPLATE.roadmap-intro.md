@@ -1,0 +1,1 @@
+<Lead-in for the Roadmap below. Render generates the Roadmap table and the Step Details from the `[[step]]` entries and the `<task>.steps/` body sidecars; this prose introduces them. Delete if not needed.>

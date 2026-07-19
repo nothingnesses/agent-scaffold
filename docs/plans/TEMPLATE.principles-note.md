@@ -1,0 +1,1 @@
+<Optional note framing the Project Principles below (for example, which are inherited from AGENTS.md and which are project-specific). Render generates the numbered list itself from the `[[principle]]` entries. Delete this note if not needed.>

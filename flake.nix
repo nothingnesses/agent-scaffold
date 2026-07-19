@@ -41,7 +41,13 @@
             # The render golden fixtures are byte-exact `agent-scaffold render`
             # output (Markdown + TOML + prose sidecars), not formatter output, so
             # prettier/taplo must not touch them or `render --check` would diverge.
-            settings.global.excludes = [ "src/plan/testdata/render-fixture*" ];
+            # This project's own plan is now a render artifact too (generated from
+            # `agent-scaffold.plan.toml` + sidecars, do-not-hand-edit), so prettier
+            # must not reflow it or `render --check` on this repo would diverge.
+            settings.global.excludes = [
+              "src/plan/testdata/render-fixture*"
+              "docs/plans/agent-scaffold.md"
+            ];
             programs = {
               nixfmt.enable = true;
               rustfmt = {

@@ -1,7 +1,7 @@
 [meta]
 title = "agent-scaffold"
 w4_baseline = "Q-44"
-primary = "markdown"
+primary = "toml"
 orphan_tasks = [
   "consolidate-plan",
   "metrics-fields",

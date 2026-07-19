@@ -1,0 +1,18 @@
+# Deterministic checks for this project (the checks module schema: `[[check]]`).
+#
+# This project's plan is now a render artifact: `docs/plans/agent-scaffold.md` is
+# GENERATED from `docs/plans/agent-scaffold.plan.toml` plus its Markdown sidecars
+# (do-not-hand-edit). The render-check gate below fails hard (`--strict`) when the
+# committed `.md` diverges from a fresh render, so a hand-edit of the generated
+# plan, or a stale render after a source edit, cannot be committed. It is a lint
+# (read-only detection): `render --check` writes nothing.
+#
+# This is a narrow, hand-curated checks file, not full checks-module self-adoption
+# (that dogfood, an active ripgrep ASCII row and the rest, is tracked separately);
+# it declares only the render gate for now. Add more `[[check]]` rows as the
+# project adopts the module.
+
+[[check]]
+name = "render-check"
+kind = "lint"
+command = "agent-scaffold render --check docs/plans/agent-scaffold.plan.toml --strict"

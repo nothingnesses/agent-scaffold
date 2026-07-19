@@ -43,10 +43,14 @@
             # prettier/taplo must not touch them or `render --check` would diverge.
             # This project's own plan is now a render artifact too (generated from
             # `agent-scaffold.plan.toml` + sidecars, do-not-hand-edit), so prettier
-            # must not reflow it or `render --check` on this repo would diverge.
+            # must not reflow it or `render --check` on this repo would diverge. The
+            # scaffolded `docs/plans/TEMPLATE.md` is likewise a generated render
+            # artifact (the initial `render` the `scaffold` command runs), so it is
+            # excluded too, keeping `scaffold-self` a stable fixed point.
             settings.global.excludes = [
               "src/plan/testdata/render-fixture*"
               "docs/plans/agent-scaffold.md"
+              "docs/plans/TEMPLATE.md"
             ];
             programs = {
               nixfmt.enable = true;

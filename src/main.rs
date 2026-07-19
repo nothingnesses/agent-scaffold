@@ -13,6 +13,7 @@ mod checks;
 mod manifest;
 #[macro_use]
 mod metrics;
+mod next;
 mod pack;
 mod plan;
 mod tui;
@@ -322,8 +323,10 @@ enum Command {
 	Scaffold(ScaffoldArgs),
 	/// Validate the workflow's metrics log against the record schema, (with --plan) the plan's structured regions, and (with --workflow) the plan status against the round log; exits non-zero on any violation.
 	Validate(ValidateArgs),
-	/// Project the workflow state: emit a derived summary of the plan's Roadmap steps and open questions plus a metrics-record count. Best-effort; a missing file yields a partial projection.
+	/// Project the workflow state: emit a derived summary of the plan's Roadmap steps and open questions plus a metrics-record count. Best-effort; a missing file yields a partial projection. With --resume, print the ledger's `## RESUME STATE` block verbatim instead.
 	Status(StatusArgs),
+	/// Advisory: for the single active review loop, recompute its state from the durable files, report the state plus valid transitions, and emit one filled instruction prompt for the next role. Read-only and stateless; writes nothing and creates no worktree or container (the isolation tier is echoed, not resolved). Human text, or --json.
+	Next(NextArgs),
 	/// Run the project's `.agents/checks.toml` lint and format checks in a temporary, isolated git worktree of the current tracked working-tree state, so a relative-path check cannot mutate the live tree (this is isolation, not a security sandbox: a check that writes an absolute path or mutates git metadata is trusted-config self-harm and out of contract). Exits 0 iff every check that ran passed.
 	Checks(ChecksArgs),
 	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
@@ -411,6 +414,59 @@ struct StatusArgs {
 	/// Emit the projection as JSON instead of a short human-readable summary.
 	#[arg(long)]
 	json: bool,
+	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `docs/plans/<task>.ledger.md` derived from the plan source) instead of the state projection. Exits 0 with a note when the ledger or the section is absent.
+	#[arg(long)]
+	resume: bool,
+	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename.
+	#[arg(long)]
+	ledger_fragment: Option<PathBuf>,
+}
+
+/// Arguments for the `next` subcommand. Mirrors `StatusArgs`'s plan-source and metrics
+/// flags, plus the ledger fragment and the echoed isolation tier.
+#[derive(Args)]
+struct NextArgs {
+	/// Path to a Markdown plan to project (its Roadmap steps). When omitted, and no TOML-primary --source is given, there is no plan source and the active loop is empty.
+	#[arg(long)]
+	plan: Option<PathBuf>,
+	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the steps are read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
+	#[arg(long)]
+	source: Option<PathBuf>,
+	/// Path to the JSONL metrics log the round evidence is read from.
+	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
+	metrics: PathBuf,
+	/// Path to the ledger fragment whose `## RESUME STATE` block is echoed verbatim. Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename.
+	#[arg(long)]
+	ledger_fragment: Option<PathBuf>,
+	/// The isolation tier to echo into the instruction (`worktree`, `container`, or `file-safety`). When omitted, the tier is reported as `unknown` with a reminder to resolve it per the AGENTS.md tier policy. The tool never emits a worktree path or a branch name.
+	#[arg(long, value_enum)]
+	isolation_tier: Option<IsolationTier>,
+	/// Emit the projection as JSON instead of the human-readable text.
+	#[arg(long)]
+	json: bool,
+}
+
+/// The isolation tier `next` echoes into an instruction. A closed set (Principle 13,
+/// make illegal states unrepresentable); an absent flag becomes `unknown`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum IsolationTier {
+	/// A git worktree.
+	Worktree,
+	/// A container.
+	Container,
+	/// File-safety isolation (path-scoped, no separate tree).
+	FileSafety,
+}
+
+impl IsolationTier {
+	/// The on-CLI spelling, echoed verbatim into the projection.
+	fn label(self) -> &'static str {
+		match self {
+			IsolationTier::Worktree => "worktree",
+			IsolationTier::Container => "container",
+			IsolationTier::FileSafety => "file-safety",
+		}
+	}
 }
 
 /// Arguments for the `render` subcommand.
@@ -472,6 +528,7 @@ fn main() -> io::Result<()> {
 		Command::Scaffold(args) => run_scaffold(args),
 		Command::Validate(args) => run_validate(args),
 		Command::Status(args) => run_status(args),
+		Command::Next(args) => run_next(args),
 		Command::Checks(args) => run_checks(args),
 		Command::Render(args) => run_render(args),
 	}
@@ -937,6 +994,13 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// part of the projection empty. With `--json` the projection is printed as
 /// pretty JSON; otherwise a short human-readable summary is printed.
 fn run_status(args: StatusArgs) -> io::Result<()> {
+	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
+	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
+	// A missing ledger or absent section is a note and exit 0, not a failure (`status` is
+	// best-effort).
+	if args.resume {
+		return run_resume(&args);
+	}
 	// The Inc 4 gate: when a `--source` is a `<task>.plan.toml` declaring
 	// `[meta].primary = "toml"`, project the plan from it; otherwise fall back to the
 	// Markdown `--plan`, so a Markdown-primary or absent source is unaffected.
@@ -996,6 +1060,105 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 			Some(metrics) => println!("metrics: {} records", metrics.records),
 			None => println!("metrics: no log found"),
 		}
+	}
+	Ok(())
+}
+
+/// The default ledger path for a task, by the `docs/plans/<task>.ledger.md` convention.
+/// The transient review ledger lives beside the plan and is deleted when the task
+/// closes; `next` and `status --resume` read its `## RESUME STATE` block.
+fn default_ledger_path(task: &str) -> PathBuf {
+	PathBuf::from(format!("docs/plans/{task}.ledger.md"))
+}
+
+/// The `status --resume` slice: print the ledger's `## RESUME STATE` block verbatim,
+/// reusing the shared `next::extract_resume_state`. The ledger path is `--ledger-fragment`
+/// or the `docs/plans/<task>.ledger.md` default (with `<task>` derived from the plan
+/// source filename). A missing ledger or absent section prints a note and exits 0, since
+/// `status` is a best-effort projection, not a validator.
+fn run_resume(args: &StatusArgs) -> io::Result<()> {
+	let task = next::derive_task(&args.source, &args.plan);
+	let ledger_path =
+		args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	if !ledger_path.exists() {
+		println!("no ledger at {}; nothing to resume", ledger_path.display());
+		return Ok(());
+	}
+	let contents = fs::read_to_string(&ledger_path)?;
+	match next::extract_resume_state(&contents) {
+		Some(resume_state) => println!("{resume_state}"),
+		None => println!(
+			"{}: no `## RESUME STATE` block found",
+			ledger_path.display()
+		),
+	}
+	Ok(())
+}
+
+/// The `next` subcommand: gather the plan source, the round log, and the ledger's
+/// `## RESUME STATE` block from the durable files, project the single active review loop,
+/// and print the human text (or `--json`). Read-only and best-effort: a missing plan or
+/// log simply leaves that part empty, mirroring `status`.
+fn run_next(args: NextArgs) -> io::Result<()> {
+	let task = next::derive_task(&args.source, &args.plan);
+
+	// Resolve the plan source the same way `status` does: a TOML-primary `--source` wins,
+	// else the Markdown `--plan`. `source` is echoed verbatim for determinism.
+	let (steps, source) = if let Some(source_plan) = toml_source(&args.source)? {
+		let label = args
+			.source
+			.as_ref()
+			.map_or_else(|| "source".to_string(), |path| path.display().to_string());
+		(next::steps_from_toml(&source_plan), label)
+	} else {
+		match &args.plan {
+			Some(path) if path.exists() => {
+				let contents = fs::read_to_string(path)?;
+				(next::steps_from_markdown(&plan::parse_roadmap(&contents)), path.display().to_string())
+			}
+			_ => (Vec::new(), "no plan source".to_string()),
+		}
+	};
+
+	let (rounds, metrics_records) = if args.metrics.exists() {
+		let contents = fs::read_to_string(&args.metrics)?;
+		(metrics::parse_rounds(&contents), Some(metrics::count_records(&contents)))
+	} else {
+		(Vec::new(), None)
+	};
+
+	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let resume_state = if ledger_path.exists() {
+		next::extract_resume_state(&fs::read_to_string(&ledger_path)?)
+	} else {
+		None
+	};
+
+	let isolation_tier =
+		args.isolation_tier.map_or_else(|| "unknown".to_string(), |tier| tier.label().to_string());
+
+	// `next` uses the built-in workflow constants (there is no `--workflow-spec` flag on
+	// `next`), so its forward projection reads the same cap/streak defaults `validate
+	// --workflow` reads for an un-specced project.
+	let spec = WorkflowSpec::builtin();
+
+	let projection = next::project(next::NextInputs {
+		task,
+		source,
+		steps: &steps,
+		rounds: &rounds,
+		spec: &spec,
+		metrics_records,
+		ledger_path: ledger_path.display().to_string(),
+		resume_state,
+		isolation_tier,
+	});
+
+	if args.json {
+		let json = serde_json::to_string_pretty(&projection).map_err(io::Error::other)?;
+		println!("{json}");
+	} else {
+		println!("{}", next::render_human(&projection));
 	}
 	Ok(())
 }

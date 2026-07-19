@@ -1,0 +1,1381 @@
+//! The advisory `agent-scaffold next` projection (workflow-driver Stage 1).
+//!
+//! `next` is read-only and stateless: for the single active review loop it
+//! recomputes the loop state from the durable files (the plan source, the round
+//! log, and the ledger's `## RESUME STATE` block), reports the state plus the
+//! valid transitions, and emits ONE filled instruction prompt for the next role to
+//! run. It writes nothing and creates no worktree or container; the isolation tier
+//! is echoed, not resolved.
+//!
+//! The forward projection here and the backward `validate --workflow` (W3) check run
+//! the SAME convergence arithmetic: both call `workflow::peak_consecutive_clean` over
+//! the same records grouped by the same `round_increment_id`/`round_step_slug` join
+//! accessors, so a step that `next` reports `converged` is exactly a step W3 finds no
+//! shortfall on (the differential property, pinned by `next_agrees_with_w3` below).
+//! This is decision B-a: one streak helper, two directions, provably identical.
+//!
+//! Stage 1 boundary (accepted): the mid-round `awaiting-triage` sub-state is not
+//! derivable from the round log (a `round` record is written only after triage), so
+//! the states here are derived from completed round records plus the step status; the
+//! in-flight sub-state is carried only by the verbatim `## RESUME STATE` block.
+
+use {
+	crate::{
+		metrics::{
+			RiskClass,
+			Round,
+			RoundOutcome,
+		},
+		plan::{
+			self,
+			source::{
+				PlanToml,
+				StepStatus as TomlStepStatus,
+			},
+		},
+		workflow::{
+			peak_consecutive_clean,
+			round_increment_id,
+			round_step_slug,
+		},
+		workflow_spec::WorkflowSpec,
+	},
+	serde::Serialize,
+	std::{
+		collections::BTreeMap,
+		path::PathBuf,
+	},
+};
+
+/// The isolation-tier reminder appended to a writer-spawning instruction when the tier
+/// was not supplied on the CLI. The tool never emits a worktree path or a branch name;
+/// it points the orchestrator at the policy instead (Principle 18, least authority).
+const TIER_REMINDER: &str =
+	"Resolve the isolation tier per the AGENTS.md tier policy before spawning the writer.";
+
+/// The whole `next` projection, serialised by `--json`. Every derived part is optional
+/// so a missing plan or log yields a partial projection rather than a failure (mirrors
+/// `status`'s `Projection`); nothing here is a source of truth.
+#[derive(Debug, Serialize)]
+pub(crate) struct NextProjection {
+	/// The task slug (the `<task>` in `<task>.plan.toml` / `<task>.ledger.md`),
+	/// derived from the plan source filename.
+	pub(crate) task: String,
+	/// The plan source path echoed verbatim (relative, never canonicalised), so the
+	/// output is identical on any machine.
+	pub(crate) source: String,
+	/// The round-log summary, present only when the metrics log was readable.
+	pub(crate) metrics: Option<MetricsSummary>,
+	/// The single active review loop, or `None` when there is nothing to act on (all
+	/// steps complete, every pending step blocked, or no plan source).
+	pub(crate) active_loop: Option<ActiveLoop>,
+	/// The ledger's `## RESUME STATE` block, extracted verbatim, or `None` when the
+	/// ledger is absent or carries no such section.
+	pub(crate) resume_state: Option<String>,
+	/// Why there is no active loop, for the human renderer. Not serialised (the JSON
+	/// contract is exactly the fields above); recomputed each call, never stored.
+	#[serde(skip)]
+	pub(crate) no_active_loop_reason: Option<String>,
+}
+
+/// The round-log half of the projection: a record count, matching `status`.
+#[derive(Debug, Serialize)]
+pub(crate) struct MetricsSummary {
+	/// The number of records (non-blank lines) in the metrics log.
+	pub(crate) records: usize,
+}
+
+/// The single active review loop: the step (and increment) under review, its derived
+/// state, the convergence evidence, and the one filled instruction for the next role.
+#[derive(Debug, Serialize)]
+pub(crate) struct ActiveLoop {
+	/// The active step slug.
+	pub(crate) step: String,
+	/// The active increment id, when the loop has round records to key it off; `None`
+	/// before the first round (`awaiting-first-review`) or for a not-yet-started step.
+	pub(crate) increment: Option<String>,
+	/// The step's lifecycle status label (`in progress`, `not started`, ...), distinct
+	/// from `state` (the review-loop sub-state).
+	pub(crate) phase: String,
+	/// The derived review-loop state (the transition-table row).
+	pub(crate) state: LoopState,
+	/// The convergence risk class the required streak is read against, from the round
+	/// records; `None` before the first round.
+	pub(crate) risk_class: Option<RiskClass>,
+	/// The peak consecutive-clean streak reached (the convergence-relevant value W3
+	/// checks), `0` before the first round.
+	pub(crate) consecutive_clean: u64,
+	/// The streak the class requires to converge; `None` before the first round.
+	pub(crate) required_streak: Option<u64>,
+	/// The count of the active increment's round records.
+	pub(crate) total_rounds: u64,
+	/// The advisory total-round cap (from the workflow spec); forward guidance, not
+	/// enforced (consistent with advisory mode).
+	pub(crate) round_cap: u64,
+	/// The transitions valid from this state (the next-action vocabulary).
+	pub(crate) valid_transitions: Vec<String>,
+	/// The isolation tier echoed from the CLI (`worktree`/`container`/`file-safety`),
+	/// or `unknown`.
+	pub(crate) isolation_tier: String,
+	/// The one filled instruction for the role that acts next.
+	pub(crate) next_instruction: Instruction,
+}
+
+/// One filled instruction prompt: which role runs next, its prompt file, the
+/// convention-derived context slots, the phase-keyed principle reminders, and a
+/// one-line human summary. The slots are filled from EXISTING conventions (the
+/// `.agents/prompts/<role>.md` and `docs/plans/<task>...` path shapes), not from a
+/// spec extension; the reminders are control pointers, never manufactured verdicts.
+#[derive(Debug, Serialize)]
+pub(crate) struct Instruction {
+	/// The role that acts next (`planner`, `reviewer`, `implementer`, `orchestrator`).
+	pub(crate) role: String,
+	/// The role's prompt file, by the `.agents/prompts/<role>.md` convention.
+	pub(crate) prompt_path: String,
+	/// The convention-derived context slots (a `BTreeMap` so the order is deterministic).
+	pub(crate) context: BTreeMap<String, String>,
+	/// The phase-keyed reminders, citing Project Principles by number; fixed order.
+	pub(crate) principle_reminders: Vec<String>,
+	/// A one-line human summary of the filled instruction.
+	pub(crate) filled_prompt_summary: String,
+}
+
+/// The review-loop state, one variant per transition-table row. Kebab-cased on the
+/// wire (`ready-to-plan`, `awaiting-first-review`, ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum LoopState {
+	/// A ready, unblocked not-started/next step: spawn a planner.
+	ReadyToPlan,
+	/// A pending step whose blockers are not all complete: resolve them first.
+	Blocked,
+	/// An in-progress step with no round records yet: spawn the first reviewer.
+	AwaitingFirstReview,
+	/// The last round produced a new valid finding and the streak has not converged:
+	/// address the findings.
+	AwaitingFixes,
+	/// The last round was clean but the streak has not yet reached the required count:
+	/// spawn a fresh reviewer.
+	AwaitingReviewers,
+	/// The peak streak reached the required count: mark the step complete.
+	Converged,
+	/// The round cap was reached without converging: escalate to a human.
+	Escalate,
+	/// A complete step: nothing to do, move on. In Stage 1 an all-complete plan is
+	/// reported as "no active loop" (the build plan's selection rule 3), so the
+	/// projection path never constructs this variant; it is a transition-table row
+	/// pinned by `done_row_metadata`. `allow` (not `expect`) because it is constructed
+	/// under `cfg(test)` but not in the release build (a cfg-split, test-only use).
+	#[cfg_attr(not(test), allow(dead_code))]
+	Done,
+}
+
+impl LoopState {
+	/// The kebab-case label, identical to the serialised spelling, for the human text.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			LoopState::ReadyToPlan => "ready-to-plan",
+			LoopState::Blocked => "blocked",
+			LoopState::AwaitingFirstReview => "awaiting-first-review",
+			LoopState::AwaitingFixes => "awaiting-fixes",
+			LoopState::AwaitingReviewers => "awaiting-reviewers",
+			LoopState::Converged => "converged",
+			LoopState::Escalate => "escalate",
+			LoopState::Done => "done",
+		}
+	}
+
+	/// The role that acts next in this state.
+	pub(crate) fn role(self) -> &'static str {
+		match self {
+			LoopState::ReadyToPlan => "planner",
+			LoopState::AwaitingFirstReview | LoopState::AwaitingReviewers => "reviewer",
+			LoopState::AwaitingFixes => "implementer",
+			LoopState::Blocked
+			| LoopState::Converged
+			| LoopState::Escalate
+			| LoopState::Done => "orchestrator",
+		}
+	}
+
+	/// The transitions valid from this state (the transition table's middle column).
+	pub(crate) fn valid_transitions(self) -> Vec<String> {
+		let raw: &[&str] = match self {
+			LoopState::ReadyToPlan => &["start-plan"],
+			LoopState::Blocked => &[],
+			LoopState::AwaitingFirstReview => &["record-round"],
+			LoopState::AwaitingFixes => &["address-findings"],
+			LoopState::AwaitingReviewers =>
+				&["record-round-clean", "record-round-new-valid", "escalate"],
+			LoopState::Converged => &["mark-step-complete"],
+			LoopState::Escalate => &["escalate-to-human"],
+			LoopState::Done => &[],
+		};
+		raw.iter().map(|transition| (*transition).to_string()).collect()
+	}
+
+	/// The recommended next action (the transition table's rightmost column).
+	pub(crate) fn next_action(self) -> &'static str {
+		match self {
+			LoopState::ReadyToPlan => "spawn a planner to draft the step plan",
+			LoopState::Blocked => "resolve the unmet blockers before starting (no spawn)",
+			LoopState::AwaitingFirstReview => "spawn a reviewer for the first review round",
+			LoopState::AwaitingFixes =>
+				"spawn an implementer to address the findings, then a fresh reviewer round",
+			LoopState::AwaitingReviewers => "spawn a fresh reviewer (diversify the model)",
+			LoopState::Converged => "mark the step complete, re-render, and commit",
+			LoopState::Escalate => "escalate to a human and present the human-input contract",
+			LoopState::Done => "move to the next step",
+		}
+	}
+
+	/// Whether this state spawns a WRITER (a role that edits files), which is what makes
+	/// the isolation tier relevant. Read-only actions (marking complete, escalating,
+	/// resolving blockers) do not spawn a writer.
+	fn spawns_writer(self) -> bool {
+		matches!(
+			self,
+			LoopState::ReadyToPlan
+				| LoopState::AwaitingFirstReview
+				| LoopState::AwaitingFixes
+				| LoopState::AwaitingReviewers
+		)
+	}
+
+	/// The phase-keyed reminders for this state, citing Project Principles by number
+	/// (the AGENTS.md numbering). Control pointers, never manufactured verdicts. The
+	/// `escalate` state, and ONLY it, carries the Q-54 human-input-contract reminder.
+	fn base_reminders(self) -> &'static [&'static str] {
+		match self {
+			LoopState::ReadyToPlan => &[
+				"Principle 2: raise and resolve the open questions before implementing.",
+				"Principle 1: give a recommendation with reasoning; confirm intent before forging ahead.",
+			],
+			LoopState::Blocked => &[
+				"Principle 12: do not proceed past an unmet dependency; resolve the named blockers first.",
+			],
+			LoopState::AwaitingFirstReview => &[
+				"Principle 5: the reviewer is independent; a writer never reviews its own work.",
+				"Principle 7: cite the file and line for each finding rather than asserting from memory.",
+			],
+			LoopState::AwaitingFixes => &[
+				"Principle 4: keep the fix small and reviewable.",
+				"Principle 8: address the findings only; flag any other change rather than folding it in.",
+			],
+			LoopState::AwaitingReviewers => &[
+				"Principle 5: staff a fresh, independent reviewer and diversify the model.",
+				"Principle 7: cite the file and line for each finding.",
+			],
+			LoopState::Converged => &[
+				"Principle 6: verify by running the tests and checks before marking the step complete.",
+				"Principle 16: edit the step status in the plan source and re-render; never hand-edit the generated view.",
+			],
+			LoopState::Escalate => &[
+				"Human-input contract (see AGENTS.md): present the options, their trade-offs, an explicit recommendation, and the reasoning judged against the numbered Project Principles (name the Principle numbers), scaled to the stakes. The human decides; advise, never decide for them.",
+				"Principle 12: escalate loudly at the round cap rather than continuing the loop.",
+			],
+			LoopState::Done => &[
+				"Principle 8: the step is complete; move to the next step rather than expanding scope here.",
+			],
+		}
+	}
+}
+
+/// A step's lifecycle phase, normalised so the Markdown parametric `blocked on <slug>`
+/// status and the TOML `blocked_by` list resolve to the SAME `(NotStarted, blockers)`
+/// pair, letting the two substrates give an identical verdict (the parity property).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StepPhase {
+	NotStarted,
+	InProgress,
+	Complete,
+	Skipped,
+	Next,
+	Optional,
+	Deferred,
+}
+
+impl StepPhase {
+	/// The human-readable status label (the space form the Roadmap uses), for the
+	/// `phase` field.
+	fn label(self) -> &'static str {
+		match self {
+			StepPhase::NotStarted => "not started",
+			StepPhase::InProgress => "in progress",
+			StepPhase::Complete => "complete",
+			StepPhase::Skipped => "skipped",
+			StepPhase::Next => "next",
+			StepPhase::Optional => "optional",
+			StepPhase::Deferred => "deferred",
+		}
+	}
+
+	/// Whether a step in this phase is a candidate for the ready frontier (a not-started
+	/// or queued-next step that a planner could start).
+	fn is_pending(self) -> bool {
+		matches!(self, StepPhase::NotStarted | StepPhase::Next)
+	}
+
+	/// Whether a step in this phase is terminal (nothing further is owed on it), used to
+	/// tell an all-complete plan from one with real remaining work.
+	fn is_terminal(self) -> bool {
+		matches!(
+			self,
+			StepPhase::Complete | StepPhase::Skipped | StepPhase::Optional | StepPhase::Deferred
+		)
+	}
+}
+
+/// The normalised view of one step the projection reads, built from either substrate.
+/// Holds only what the active-loop selection needs: the slug, the order, the phase, and
+/// the resolved blockers.
+///
+/// The declared `[[step.increment]].risk_class` is deliberately NOT carried: the
+/// convergence class comes from the round records (`records[0].risk_class`), the SAME
+/// value W3 reads, so the forward and backward verdicts cannot diverge on the threshold
+/// (the differential property), and the Markdown substrate (which declares no increments)
+/// produces an identical projection to the TOML one (the parity property). This departs
+/// from the build plan's "declared class when present" wording in favour of those two
+/// structural guarantees.
+#[derive(Debug, Clone)]
+pub(crate) struct StepInfo {
+	slug: String,
+	order: u64,
+	phase: StepPhase,
+	blocked_by: Vec<String>,
+}
+
+/// Normalise the TOML steps into the projection's `StepInfo` view: the order and the
+/// typed `blocked_by` carry over directly, and the typed `StepStatus` maps to the
+/// matching phase.
+pub(crate) fn steps_from_toml(plan: &PlanToml) -> Vec<StepInfo> {
+	plan.steps
+		.iter()
+		.map(|step| StepInfo {
+			slug: step.slug.clone(),
+			order: step.order,
+			phase: phase_from_toml_status(step.status),
+			blocked_by: step.blocked_by.clone(),
+		})
+		.collect()
+}
+
+/// Normalise the Markdown Roadmap steps into the projection's `StepInfo` view. The order
+/// is the table position (the Markdown Roadmap has no explicit order field); the
+/// parametric `blocked on <slug>` status resolves to `NotStarted` plus that blocker, so
+/// a blocked Markdown step matches the equivalent TOML `not-started` + `blocked_by` step
+/// (the parity property). The Markdown substrate declares no increments.
+pub(crate) fn steps_from_markdown(steps: &[plan::Step]) -> Vec<StepInfo> {
+	steps
+		.iter()
+		.enumerate()
+		.map(|(index, step)| {
+			let (phase, blocked_by) = phase_from_markdown_status(&step.status);
+			StepInfo {
+				slug: step.slug.clone(),
+				order: index as u64,
+				phase,
+				blocked_by,
+			}
+		})
+		.collect()
+}
+
+/// Map a typed TOML `StepStatus` to the projection's phase. The TOML schema retired the
+/// `blocked` status (blockedness is the typed `blocked_by` list), so there is no blocked
+/// arm here.
+fn phase_from_toml_status(status: TomlStepStatus) -> StepPhase {
+	match status {
+		TomlStepStatus::NotStarted => StepPhase::NotStarted,
+		TomlStepStatus::InProgress => StepPhase::InProgress,
+		TomlStepStatus::Complete => StepPhase::Complete,
+		TomlStepStatus::Skipped => StepPhase::Skipped,
+		TomlStepStatus::Next => StepPhase::Next,
+		TomlStepStatus::Optional => StepPhase::Optional,
+		TomlStepStatus::Deferred => StepPhase::Deferred,
+	}
+}
+
+/// Map a Markdown Roadmap status cell to a phase plus any blocker it names. A
+/// `blocked on <slug>` cell resolves to `NotStarted` with that slug as a blocker (with
+/// any surrounding backticks stripped), so it matches the equivalent TOML step. An
+/// unrecognised status is treated as `NotStarted` (a best-effort projection, consistent
+/// with the Markdown parsers dropping what they cannot read).
+fn phase_from_markdown_status(status: &str) -> (StepPhase, Vec<String>) {
+	if let Some(rest) = status.strip_prefix("blocked on ") {
+		let slug = rest.trim().trim_matches('`').to_string();
+		return (StepPhase::NotStarted, vec![slug]);
+	}
+	let phase = match status.trim() {
+		"in progress" => StepPhase::InProgress,
+		"complete" => StepPhase::Complete,
+		"skipped" => StepPhase::Skipped,
+		"next" => StepPhase::Next,
+		"optional" => StepPhase::Optional,
+		"deferred" => StepPhase::Deferred,
+		// "not started" and anything unrecognised.
+		_ => StepPhase::NotStarted,
+	};
+	(phase, Vec::new())
+}
+
+/// The inputs `project` reads, gathered by the caller from the durable files. Borrowing
+/// the steps/rounds/spec keeps `project` allocation-light and the caller the single
+/// owner of the parsed data.
+pub(crate) struct NextInputs<'a> {
+	pub(crate) task: String,
+	pub(crate) source: String,
+	pub(crate) steps: &'a [StepInfo],
+	pub(crate) rounds: &'a [Round],
+	pub(crate) spec: &'a WorkflowSpec,
+	pub(crate) metrics_records: Option<usize>,
+	pub(crate) ledger_path: String,
+	pub(crate) resume_state: Option<String>,
+	pub(crate) isolation_tier: String,
+}
+
+/// The instruction-assembly context threaded through the builders: the path/tier facts
+/// the filled prompt echoes.
+struct LoopContext<'a> {
+	task: &'a str,
+	ledger_path: &'a str,
+	isolation_tier: &'a str,
+}
+
+/// The loop facts the instruction and the summary read, so the many scalars are passed
+/// as one value rather than a long parameter list.
+struct LoopFacts {
+	step: String,
+	increment: Option<String>,
+	peak: u64,
+	required: Option<u64>,
+	total_rounds: u64,
+	round_cap: u64,
+	blockers: Vec<String>,
+}
+
+/// Build the whole `next` projection from the gathered inputs.
+pub(crate) fn project(inputs: NextInputs) -> NextProjection {
+	let context = LoopContext {
+		task: &inputs.task,
+		ledger_path: &inputs.ledger_path,
+		isolation_tier: &inputs.isolation_tier,
+	};
+	let active_loop = select_active_loop(inputs.steps, inputs.rounds, inputs.spec, &context);
+	let no_active_loop_reason =
+		if active_loop.is_none() { Some(no_loop_reason(inputs.steps)) } else { None };
+	NextProjection {
+		task: inputs.task,
+		source: inputs.source,
+		metrics: inputs.metrics_records.map(|records| MetricsSummary { records }),
+		active_loop,
+		resume_state: inputs.resume_state,
+		no_active_loop_reason,
+	}
+}
+
+/// Select the single active loop, deterministically and order-keyed:
+/// 1. the lowest-order in-progress step, if any (its state derives from its rounds);
+/// 2. else the lowest-order pending step whose blockers are all complete (ready-to-plan);
+/// 3. else, if any pending step exists (all are blocked), the lowest-order one (blocked);
+/// 4. else `None` (all steps terminal, or no plan source).
+fn select_active_loop(
+	steps: &[StepInfo],
+	rounds: &[Round],
+	spec: &WorkflowSpec,
+	context: &LoopContext,
+) -> Option<ActiveLoop> {
+	if let Some(step) =
+		steps.iter().filter(|step| step.phase == StepPhase::InProgress).min_by_key(|step| step.order)
+	{
+		return Some(build_in_progress_loop(step, rounds, spec, context));
+	}
+	if let Some(step) = steps
+		.iter()
+		.filter(|step| step.phase.is_pending() && blockers_met(step, steps))
+		.min_by_key(|step| step.order)
+	{
+		return Some(build_pending_loop(step, LoopState::ReadyToPlan, Vec::new(), spec, context));
+	}
+	if let Some(step) =
+		steps.iter().filter(|step| step.phase.is_pending()).min_by_key(|step| step.order)
+	{
+		let blockers = unmet_blockers(step, steps);
+		return Some(build_pending_loop(step, LoopState::Blocked, blockers, spec, context));
+	}
+	None
+}
+
+/// Whether every one of a step's blockers names a `complete` step. An unresolved blocker
+/// slug (naming no step, or a step in any non-complete phase) counts as unmet.
+fn blockers_met(
+	step: &StepInfo,
+	steps: &[StepInfo],
+) -> bool {
+	step.blocked_by.iter().all(|blocker| is_complete(blocker, steps))
+}
+
+/// The subset of a step's blockers that are not yet complete, for the blocked report.
+fn unmet_blockers(
+	step: &StepInfo,
+	steps: &[StepInfo],
+) -> Vec<String> {
+	step.blocked_by.iter().filter(|blocker| !is_complete(blocker, steps)).cloned().collect()
+}
+
+/// Whether `slug` names a `complete` step in the plan.
+fn is_complete(
+	slug: &str,
+	steps: &[StepInfo],
+) -> bool {
+	steps.iter().any(|step| step.slug == slug && step.phase == StepPhase::Complete)
+}
+
+/// Build the active loop for a not-started/next step (either `ready-to-plan` or
+/// `blocked`): no rounds, no increment, no streak.
+fn build_pending_loop(
+	step: &StepInfo,
+	state: LoopState,
+	blockers: Vec<String>,
+	spec: &WorkflowSpec,
+	context: &LoopContext,
+) -> ActiveLoop {
+	let facts = LoopFacts {
+		step: step.slug.clone(),
+		increment: None,
+		peak: 0,
+		required: None,
+		total_rounds: 0,
+		round_cap: spec.round_cap(),
+		blockers,
+	};
+	assemble(step.phase, state, None, 0, facts, context)
+}
+
+/// Build the active loop for an in-progress step: join its rounds, group them by
+/// increment, pick the active increment, and derive the state from that increment's
+/// convergence evidence.
+fn build_in_progress_loop(
+	step: &StepInfo,
+	rounds: &[Round],
+	spec: &WorkflowSpec,
+	context: &LoopContext,
+) -> ActiveLoop {
+	let matching: Vec<&Round> =
+		rounds.iter().filter(|round| round_step_slug(round) == step.slug).collect();
+	// Group the step's rounds by increment, exactly as W3 does, so the same records back
+	// the same peak. `BTreeMap` keeps the selection deterministic.
+	let mut increments: BTreeMap<&str, Vec<&Round>> = BTreeMap::new();
+	for round in &matching {
+		increments.entry(round_increment_id(round)).or_default().push(round);
+	}
+
+	let Some(active) = select_active_increment(&increments, &matching, spec) else {
+		// No round records yet: the first review round is owed.
+		let facts = LoopFacts {
+			step: step.slug.clone(),
+			increment: None,
+			peak: 0,
+			required: None,
+			total_rounds: 0,
+			round_cap: spec.round_cap(),
+			blockers: Vec::new(),
+		};
+		return assemble(step.phase, LoopState::AwaitingFirstReview, None, 0, facts, context);
+	};
+
+	let records = &increments[active];
+	// The risk class the convergence bar is read against is the round records' class,
+	// the SAME value W3 uses (`records[0].risk_class`), so the forward and backward
+	// verdicts cannot diverge on the threshold (the differential property). The declared
+	// `[[step.increment]].risk_class` is not substituted here for that reason; when it
+	// disagrees with the logged class that is a data fault W3 owns, not one `next` papers
+	// over.
+	let class = records[0].risk_class;
+	let required = spec.required_streak(class);
+	let peak = peak_consecutive_clean(records);
+	let total_rounds = records.len() as u64;
+	let round_cap = spec.round_cap();
+	let state = derive_in_progress_state(records, peak, required, total_rounds, round_cap);
+	let facts = LoopFacts {
+		step: step.slug.clone(),
+		increment: Some(active.to_string()),
+		peak,
+		required: Some(required),
+		total_rounds,
+		round_cap,
+		blockers: Vec::new(),
+	};
+	assemble(step.phase, state, Some(class), peak, facts, context)
+}
+
+/// Pick the active increment among an in-progress step's increments: the first
+/// unconverged one (peak below its required streak), in id order; else, when every
+/// increment has converged, the increment of the latest round record. `None` when the
+/// step has no round records at all. Returns the increment key borrowed from the map.
+fn select_active_increment<'a>(
+	increments: &BTreeMap<&'a str, Vec<&'a Round>>,
+	matching: &[&'a Round],
+	spec: &WorkflowSpec,
+) -> Option<&'a str> {
+	if increments.is_empty() {
+		return None;
+	}
+	// `BTreeMap` iterates in id order, so the first unconverged increment is chosen
+	// deterministically.
+	for (increment, records) in increments {
+		let required = spec.required_streak(records[0].risk_class);
+		if peak_consecutive_clean(records) < required {
+			return Some(increment);
+		}
+	}
+	// Every increment converged: report the one the latest round record covers.
+	matching.iter().max_by_key(|round| round.line).map(|round| round_increment_id(round))
+}
+
+/// Derive the state of an in-progress step's active increment from its round evidence,
+/// evaluating `converged` BEFORE `escalate` (the pack/AGENTS.md order: a round that both
+/// converges and reaches the cap converges). Below the cap, the last round's outcome
+/// splits `awaiting-fixes` (a new valid finding) from `awaiting-reviewers` (clean but not
+/// yet converged). `records` is non-empty and in file (chronological) order.
+fn derive_in_progress_state(
+	records: &[&Round],
+	peak: u64,
+	required: u64,
+	total_rounds: u64,
+	round_cap: u64,
+) -> LoopState {
+	if peak >= required {
+		return LoopState::Converged;
+	}
+	if total_rounds >= round_cap {
+		return LoopState::Escalate;
+	}
+	let last = records.last().expect("an in-progress increment has at least one round record");
+	match last.outcome {
+		RoundOutcome::NewValid => LoopState::AwaitingFixes,
+		RoundOutcome::Clean => LoopState::AwaitingReviewers,
+	}
+}
+
+/// Assemble the `ActiveLoop` from the derived state and facts.
+fn assemble(
+	phase: StepPhase,
+	state: LoopState,
+	risk_class: Option<RiskClass>,
+	consecutive_clean: u64,
+	facts: LoopFacts,
+	context: &LoopContext,
+) -> ActiveLoop {
+	let next_instruction = build_instruction(state, &facts, context);
+	ActiveLoop {
+		step: facts.step,
+		increment: facts.increment,
+		phase: phase.label().to_string(),
+		state,
+		risk_class,
+		consecutive_clean,
+		required_streak: facts.required,
+		total_rounds: facts.total_rounds,
+		round_cap: facts.round_cap,
+		valid_transitions: state.valid_transitions(),
+		isolation_tier: context.isolation_tier.to_string(),
+		next_instruction,
+	}
+}
+
+/// Build the filled instruction for a state: the role and its prompt path, the
+/// convention-derived context slots, the reminders (with the isolation-tier reminder
+/// appended when a writer is spawned and the tier was not supplied), and the one-line
+/// summary.
+fn build_instruction(
+	state: LoopState,
+	facts: &LoopFacts,
+	context: &LoopContext,
+) -> Instruction {
+	let role = state.role();
+	let mut principle_reminders: Vec<String> =
+		state.base_reminders().iter().map(|reminder| (*reminder).to_string()).collect();
+	if state.spawns_writer() && context.isolation_tier == "unknown" {
+		principle_reminders.push(TIER_REMINDER.to_string());
+	}
+	Instruction {
+		role: role.to_string(),
+		prompt_path: format!(".agents/prompts/{role}.md"),
+		context: build_context(state, facts, context),
+		principle_reminders,
+		filled_prompt_summary: filled_prompt_summary(state, facts),
+	}
+}
+
+/// The convention-derived context slots for a state. Always the ledger path and the
+/// isolation tier; plus the review findings-file templates for the review states, the
+/// triage findings path for the fix state, and the unmet blockers for the blocked state.
+/// The concrete reviewer `<disambiguator>` is left as a template token for the
+/// orchestrator to assign (writers never collide on findings-file names). The
+/// `artifact`/`diff` slots are NOT populated: no structured marker exists in the ledger
+/// yet (deferred to Stage 2 per decision A-b), so the orchestrator reads the verbatim
+/// `resume_state` instead of a heuristically parsed slot (Principle 12, fail loud).
+fn build_context(
+	state: LoopState,
+	facts: &LoopFacts,
+	context: &LoopContext,
+) -> BTreeMap<String, String> {
+	let mut slots = BTreeMap::new();
+	slots.insert("ledger".to_string(), context.ledger_path.to_string());
+	slots.insert("isolation_tier".to_string(), context.isolation_tier.to_string());
+	let review_findings = format!(
+		"docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md",
+		context.task, facts.step
+	);
+	let triage_findings = format!("docs/plans/{}.reviews/{}-triage.md", context.task, facts.step);
+	match state {
+		LoopState::AwaitingFirstReview | LoopState::AwaitingReviewers => {
+			slots.insert("review_findings".to_string(), review_findings);
+			slots.insert("triage_findings".to_string(), triage_findings);
+		}
+		LoopState::AwaitingFixes => {
+			slots.insert("triage_findings".to_string(), triage_findings);
+		}
+		LoopState::Blocked => {
+			slots.insert("blocked_by".to_string(), facts.blockers.join(", "));
+		}
+		LoopState::ReadyToPlan
+		| LoopState::Converged
+		| LoopState::Escalate
+		| LoopState::Done => {}
+	}
+	slots
+}
+
+/// A one-line human summary of the filled instruction.
+fn filled_prompt_summary(
+	state: LoopState,
+	facts: &LoopFacts,
+) -> String {
+	let increment = facts
+		.increment
+		.as_ref()
+		.map(|increment| format!(" increment `{increment}`"))
+		.unwrap_or_default();
+	let required = facts.required.map_or_else(|| "?".to_string(), |required| required.to_string());
+	match state {
+		LoopState::ReadyToPlan => format!(
+			"plan step `{}`: draft the plan, resolve the open questions, and state the Success Criteria.",
+			facts.step
+		),
+		LoopState::Blocked => format!(
+			"step `{}` is blocked on: {}. Resolve the blockers before starting.",
+			facts.step,
+			facts.blockers.join(", ")
+		),
+		LoopState::AwaitingFirstReview => format!(
+			"first review round on step `{}`{increment}: independent reviewer, cite file and line.",
+			facts.step
+		),
+		LoopState::AwaitingFixes => format!(
+			"address the triaged findings on step `{}`{increment}, then request a fresh review round.",
+			facts.step
+		),
+		LoopState::AwaitingReviewers => format!(
+			"fresh review round on step `{}`{increment} (streak {}/{required}).",
+			facts.step, facts.peak
+		),
+		LoopState::Converged => format!(
+			"step `{}`{increment} converged (streak {}/{required}); mark the step complete, re-render, and commit.",
+			facts.step, facts.peak
+		),
+		LoopState::Escalate => format!(
+			"step `{}`{increment} reached the round cap ({}/{}) without converging; escalate to a human per the contract.",
+			facts.step, facts.total_rounds, facts.round_cap
+		),
+		LoopState::Done => format!("step `{}` is complete; move to the next step.", facts.step),
+	}
+}
+
+/// The reason there is no active loop, for the human renderer.
+fn no_loop_reason(steps: &[StepInfo]) -> String {
+	if steps.is_empty() {
+		"no plan steps found".to_string()
+	} else if steps.iter().all(|step| step.phase.is_terminal()) {
+		"all steps complete".to_string()
+	} else {
+		"no in-progress or ready step".to_string()
+	}
+}
+
+/// Extract the ledger's `## RESUME STATE` section VERBATIM: from its heading line
+/// (which starts with `## RESUME STATE`, allowing a trailing parenthetical) through the
+/// line before the next level-2 `## ` heading or the end of the document, with trailing
+/// blank lines trimmed. `None` when the section is absent (Principle 15, absence is
+/// explicit). Only a level-2 `## ` heading terminates the section, so a nested `### `
+/// heading inside it does not; this mirrors `plan::section_lines`.
+pub(crate) fn extract_resume_state(fragment: &str) -> Option<String> {
+	let mut in_section = false;
+	let mut block: Vec<&str> = Vec::new();
+	for line in fragment.lines() {
+		if in_section {
+			if line.starts_with("## ") {
+				break;
+			}
+			block.push(line);
+		} else if line.starts_with("## RESUME STATE") {
+			in_section = true;
+			block.push(line);
+		}
+	}
+	if in_section {
+		Some(block.join("\n").trim_end().to_string())
+	} else {
+		None
+	}
+}
+
+/// Derive the task slug from the plan source filename: the `<task>` in
+/// `<task>.plan.toml`, `<task>.md`, or `<task>.toml`. Prefers `--source`, then `--plan`;
+/// a `next` with neither plan source falls back to `task`.
+pub(crate) fn derive_task(
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> String {
+	source
+		.as_ref()
+		.or(plan.as_ref())
+		.and_then(|path| path.file_name())
+		.and_then(|name| name.to_str())
+		.map_or_else(|| "task".to_string(), task_from_filename)
+}
+
+/// Strip the plan-source extension off a filename to recover the task slug.
+fn task_from_filename(name: &str) -> String {
+	name.strip_suffix(".plan.toml")
+		.or_else(|| name.strip_suffix(".md"))
+		.or_else(|| name.strip_suffix(".toml"))
+		.unwrap_or(name)
+		.to_string()
+}
+
+/// Render the projection as the deterministic human-readable text: a `task`/`source`/
+/// `metrics` header, then either the `ACTIVE LOOP` block or a `no active review loop`
+/// line. No trailing newline (the caller adds one); no timestamps; paths echoed verbatim.
+pub(crate) fn render_human(projection: &NextProjection) -> String {
+	let mut out = String::new();
+	out.push_str(&format!("task: {}\n", projection.task));
+	out.push_str(&format!("source: {}\n", projection.source));
+	match &projection.metrics {
+		Some(metrics) => out.push_str(&format!("metrics: {} records\n", metrics.records)),
+		None => out.push_str("metrics: no log found\n"),
+	}
+	out.push('\n');
+	match &projection.active_loop {
+		None => {
+			let reason = projection
+				.no_active_loop_reason
+				.as_deref()
+				.unwrap_or("no in-progress or ready step");
+			out.push_str(&format!("no active review loop ({reason})\n"));
+		}
+		Some(active) => render_active_loop(&mut out, active),
+	}
+	if let Some(resume) = &projection.resume_state {
+		out.push('\n');
+		out.push_str("RESUME STATE (verbatim from the ledger):\n");
+		out.push_str(resume);
+		out.push('\n');
+	}
+	out.trim_end_matches('\n').to_string()
+}
+
+/// Render the `ACTIVE LOOP` block into `out`.
+fn render_active_loop(
+	out: &mut String,
+	active: &ActiveLoop,
+) {
+	let unit = match &active.increment {
+		Some(increment) => format!("{} / {}", active.step, increment),
+		None => active.step.clone(),
+	};
+	let transition = active.valid_transitions.first().map_or("-", String::as_str);
+	let required =
+		active.required_streak.map_or_else(|| "?".to_string(), |required| required.to_string());
+	out.push_str("ACTIVE LOOP\n");
+	out.push_str(&format!("  {unit}  {} -> {transition}\n", active.phase));
+	out.push_str(&format!("  state: {}\n", active.state.label()));
+	out.push_str(&format!("  streak: {}/{required}\n", active.consecutive_clean));
+	out.push_str(&format!("  rounds: {}/{}\n", active.total_rounds, active.round_cap));
+	out.push_str(&format!("  isolation: {}\n", active.isolation_tier));
+	out.push_str(&format!("  next: {}\n", active.state.next_action()));
+	out.push_str(&format!("  role: {}\n", active.next_instruction.role));
+	out.push_str(&format!("  prompt: {}\n", active.next_instruction.prompt_path));
+	out.push_str("  context:\n");
+	for (key, value) in &active.next_instruction.context {
+		out.push_str(&format!("    {key}: {value}\n"));
+	}
+	out.push_str("  reminders:\n");
+	for reminder in &active.next_instruction.principle_reminders {
+		out.push_str(&format!("    - {reminder}\n"));
+	}
+	out.push_str(&format!("  summary: {}\n", active.next_instruction.filled_prompt_summary));
+}
+
+#[cfg(test)]
+mod tests {
+	use {
+		super::*,
+		crate::metrics::{
+			Round,
+			RoundOutcome,
+		},
+	};
+
+	/// Build a `round` record fixture with the fields the projection reads.
+	fn round(
+		line: usize,
+		outcome: RoundOutcome,
+		consecutive_clean: u64,
+		risk_class: RiskClass,
+		step: &str,
+		increment: &str,
+	) -> Round {
+		Round {
+			line,
+			task: step.to_string(),
+			artifact: "a".to_string(),
+			outcome,
+			consecutive_clean,
+			risk_class,
+			step: Some(step.to_string()),
+			increment: Some(increment.to_string()),
+		}
+	}
+
+	/// Build a `StepInfo` fixture directly (the fields are module-private).
+	fn test_step(
+		slug: &str,
+		order: u64,
+		phase: StepPhase,
+		blocked_by: &[&str],
+	) -> StepInfo {
+		StepInfo {
+			slug: slug.to_string(),
+			order,
+			phase,
+			blocked_by: blocked_by.iter().map(|blocker| (*blocker).to_string()).collect(),
+		}
+	}
+
+	/// Project a fixture with the given steps, rounds, and echoed isolation tier.
+	fn project_fixture(
+		steps: &[StepInfo],
+		rounds: &[Round],
+		isolation_tier: &str,
+	) -> NextProjection {
+		let spec = WorkflowSpec::builtin();
+		project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps,
+			rounds,
+			spec: &spec,
+			metrics_records: Some(rounds.len()),
+			ledger_path: "docs/plans/demo.ledger.md".to_string(),
+			resume_state: None,
+			isolation_tier: isolation_tier.to_string(),
+		})
+	}
+
+	/// The active loop of a fixture projection, panicking when there is none.
+	fn active(projection: &NextProjection) -> &ActiveLoop {
+		projection.active_loop.as_ref().expect("fixture has an active loop")
+	}
+
+	// -- Transition-table coverage (one test per row) --
+
+	#[test]
+	fn ready_to_plan_row() {
+		let steps = [test_step("a", 0, StepPhase::NotStarted, &[])];
+		let projection = project_fixture(&steps, &[], "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::ReadyToPlan);
+		assert_eq!(loop_.valid_transitions, vec!["start-plan"]);
+		assert_eq!(loop_.next_instruction.role, "planner");
+		assert_eq!(loop_.phase, "not started");
+		assert_eq!(loop_.increment, None);
+	}
+
+	#[test]
+	fn blocked_row() {
+		// The only pending step is blocked by `dep`, which does not resolve to a complete
+		// step, so no ready step exists and the blocked step is reported.
+		let steps = [test_step("a", 0, StepPhase::NotStarted, &["dep"])];
+		let projection = project_fixture(&steps, &[], "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::Blocked);
+		assert!(loop_.valid_transitions.is_empty());
+		assert_eq!(loop_.next_instruction.role, "orchestrator");
+		assert_eq!(loop_.next_instruction.context.get("blocked_by").map(String::as_str), Some("dep"));
+	}
+
+	#[test]
+	fn awaiting_first_review_row() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let projection = project_fixture(&steps, &[], "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::AwaitingFirstReview);
+		assert_eq!(loop_.valid_transitions, vec!["record-round"]);
+		assert_eq!(loop_.next_instruction.role, "reviewer");
+		assert_eq!(loop_.increment, None);
+		assert_eq!(loop_.consecutive_clean, 0);
+		assert_eq!(loop_.required_streak, None);
+	}
+
+	#[test]
+	fn awaiting_fixes_row() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")];
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::AwaitingFixes);
+		assert_eq!(loop_.valid_transitions, vec!["address-findings"]);
+		assert_eq!(loop_.next_instruction.role, "implementer");
+		assert_eq!(loop_.increment.as_deref(), Some("a-inc"));
+	}
+
+	#[test]
+	fn awaiting_reviewers_row() {
+		// Risky needs 2 clean; a single clean round is short, so a fresh reviewer is owed.
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")];
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::AwaitingReviewers);
+		assert_eq!(
+			loop_.valid_transitions,
+			vec!["record-round-clean", "record-round-new-valid", "escalate"]
+		);
+		assert_eq!(loop_.next_instruction.role, "reviewer");
+		assert_eq!(loop_.consecutive_clean, 1);
+		assert_eq!(loop_.required_streak, Some(2));
+	}
+
+	#[test]
+	fn converged_row() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc")];
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::Converged);
+		assert_eq!(loop_.valid_transitions, vec!["mark-step-complete"]);
+		assert_eq!(loop_.next_instruction.role, "orchestrator");
+	}
+
+	#[test]
+	fn escalate_row() {
+		// Five new-valid rounds reach the built-in cap (5) without ever converging.
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds: Vec<Round> = (1 ..= 5)
+			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+			.collect();
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let loop_ = active(&projection);
+		assert_eq!(loop_.state, LoopState::Escalate);
+		assert_eq!(loop_.valid_transitions, vec!["escalate-to-human"]);
+		assert_eq!(loop_.total_rounds, 5);
+		assert_eq!(loop_.round_cap, 5);
+	}
+
+	#[test]
+	fn done_row_metadata() {
+		// `done` is a complete step's state; selection never picks a complete step, so the
+		// row is pinned by its state metadata directly.
+		assert_eq!(LoopState::Done.label(), "done");
+		assert!(LoopState::Done.valid_transitions().is_empty());
+		assert_eq!(LoopState::Done.role(), "orchestrator");
+		assert_eq!(LoopState::Done.next_action(), "move to the next step");
+	}
+
+	// -- Convergence check evaluated before the escalate cap --
+
+	#[test]
+	fn a_converging_round_at_the_cap_converges_not_escalates() {
+		// Low-risk converges at 1; a fifth round that is the converging clean round hits the
+		// cap and converges (convergence checked BEFORE escalate).
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let mut rounds: Vec<Round> = (1 ..= 4)
+			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+			.collect();
+		rounds.push(round(5, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc"));
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		assert_eq!(active(&projection).state, LoopState::Converged);
+	}
+
+	// -- The differential (key acceptance) test --
+
+	/// For a set of rounds on one in-progress increment, `next`'s forward `converged`
+	/// verdict must agree with `w3_problems`' backward "no shortfall" verdict on the same
+	/// records (both call the shared `peak_consecutive_clean` + join accessors).
+	fn assert_differential(rounds: Vec<Round>) {
+		let spec = WorkflowSpec::builtin();
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let projection = project_fixture(&steps, &rounds, "worktree");
+		let next_converged =
+			projection.active_loop.as_ref().is_some_and(|loop_| loop_.state == LoopState::Converged);
+
+		// W3 checks a COMPLETE step; feed it the same records and the same built-in spec.
+		let w3_steps = [crate::plan::Step {
+			slug: "a".to_string(),
+			status: "complete".to_string(),
+		}];
+		let w3_clean = crate::workflow::w3_problems(&spec, &w3_steps, &rounds, &[]).is_empty();
+
+		assert_eq!(next_converged, w3_clean, "rounds: {rounds:?}");
+	}
+
+	#[test]
+	fn next_agrees_with_w3() {
+		// Converged cases: next says converged, W3 finds no shortfall.
+		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc")]);
+		assert_differential(vec![
+			round(1, RoundOutcome::NewValid, 0, RiskClass::Risky, "a", "a-inc"),
+			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
+			round(3, RoundOutcome::Clean, 2, RiskClass::Risky, "a", "a-inc"),
+		]);
+		// Shortfall cases: next says not-converged, W3 reports a shortfall.
+		assert_differential(vec![round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")]);
+		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")]);
+		assert_differential(
+			(1 ..= 5)
+				.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+				.collect(),
+		);
+	}
+
+	// -- Q-54 gate reminder --
+
+	fn reminders_cite_the_contract(loop_: &ActiveLoop) -> bool {
+		loop_
+			.next_instruction
+			.principle_reminders
+			.iter()
+			.any(|reminder| reminder.to_lowercase().contains("human-input contract"))
+	}
+
+	#[test]
+	fn the_human_input_contract_reminder_is_present_only_at_escalate() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+
+		let escalate_rounds: Vec<Round> = (1 ..= 5)
+			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+			.collect();
+		let escalate = project_fixture(&steps, &escalate_rounds, "worktree");
+		assert_eq!(active(&escalate).state, LoopState::Escalate);
+		assert!(reminders_cite_the_contract(active(&escalate)));
+
+		let review_rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")];
+		let review = project_fixture(&steps, &review_rounds, "worktree");
+		assert_eq!(active(&review).state, LoopState::AwaitingReviewers);
+		assert!(!reminders_cite_the_contract(active(&review)));
+	}
+
+	// -- The isolation-tier reminder --
+
+	#[test]
+	fn an_unknown_tier_appends_the_resolve_reminder_for_a_writer() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let projection = project_fixture(&steps, &[], "unknown");
+		let has_reminder = active(&projection)
+			.next_instruction
+			.principle_reminders
+			.iter()
+			.any(|reminder| reminder.contains("isolation tier"));
+		assert!(has_reminder);
+	}
+
+	#[test]
+	fn a_known_tier_omits_the_resolve_reminder() {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let projection = project_fixture(&steps, &[], "container");
+		let has_reminder = active(&projection)
+			.next_instruction
+			.principle_reminders
+			.iter()
+			.any(|reminder| reminder.contains("isolation tier"));
+		assert!(!has_reminder);
+	}
+
+	// -- RESUME STATE extractor --
+
+	#[test]
+	fn resume_state_is_extracted_verbatim() {
+		let fragment = "## Round 1\nnoise\n\n## RESUME STATE (checkpoint)\nline one\nline two\n\n## Next section\nother\n";
+		let extracted = extract_resume_state(fragment).expect("section present");
+		assert_eq!(extracted, "## RESUME STATE (checkpoint)\nline one\nline two");
+	}
+
+	#[test]
+	fn resume_state_absent_is_none() {
+		let fragment = "## Round 1\nnoise\n\n## Other\ntext\n";
+		assert_eq!(extract_resume_state(fragment), None);
+	}
+
+	#[test]
+	fn resume_state_terminates_at_the_next_level_two_heading_only() {
+		// A nested `### ` heading inside the block does NOT terminate it; the next `## `
+		// does.
+		let fragment = "## RESUME STATE\nbody\n### nested\nmore body\n## After\ntrailing\n";
+		let extracted = extract_resume_state(fragment).expect("section present");
+		assert_eq!(extracted, "## RESUME STATE\nbody\n### nested\nmore body");
+	}
+
+	// -- Golden output (byte-compare) --
+
+	fn golden_projection() -> NextProjection {
+		let steps = [test_step("core-assets", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "core-assets", "core-assets-inc1")];
+		let spec = WorkflowSpec::builtin();
+		project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps: &steps,
+			rounds: &rounds,
+			spec: &spec,
+			metrics_records: Some(1),
+			ledger_path: "docs/plans/demo.ledger.md".to_string(),
+			resume_state: None,
+			isolation_tier: "worktree".to_string(),
+		})
+	}
+
+	const GOLDEN_HUMAN: &str = "\
+task: demo
+source: docs/plans/demo.plan.toml
+metrics: 1 records
+
+ACTIVE LOOP
+  core-assets / core-assets-inc1  in progress -> record-round-clean
+  state: awaiting-reviewers
+  streak: 1/2
+  rounds: 1/5
+  isolation: worktree
+  next: spawn a fresh reviewer (diversify the model)
+  role: reviewer
+  prompt: .agents/prompts/reviewer.md
+  context:
+    isolation_tier: worktree
+    ledger: docs/plans/demo.ledger.md
+    review_findings: docs/plans/demo.reviews/core-assets-reviewer-<disambiguator>.md
+    triage_findings: docs/plans/demo.reviews/core-assets-triage.md
+  reminders:
+    - Principle 5: staff a fresh, independent reviewer and diversify the model.
+    - Principle 7: cite the file and line for each finding.
+  summary: fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2).";
+
+	const GOLDEN_JSON: &str = r#"{
+  "task": "demo",
+  "source": "docs/plans/demo.plan.toml",
+  "metrics": {
+    "records": 1
+  },
+  "active_loop": {
+    "step": "core-assets",
+    "increment": "core-assets-inc1",
+    "phase": "in progress",
+    "state": "awaiting-reviewers",
+    "risk_class": "risky",
+    "consecutive_clean": 1,
+    "required_streak": 2,
+    "total_rounds": 1,
+    "round_cap": 5,
+    "valid_transitions": [
+      "record-round-clean",
+      "record-round-new-valid",
+      "escalate"
+    ],
+    "isolation_tier": "worktree",
+    "next_instruction": {
+      "role": "reviewer",
+      "prompt_path": ".agents/prompts/reviewer.md",
+      "context": {
+        "isolation_tier": "worktree",
+        "ledger": "docs/plans/demo.ledger.md",
+        "review_findings": "docs/plans/demo.reviews/core-assets-reviewer-<disambiguator>.md",
+        "triage_findings": "docs/plans/demo.reviews/core-assets-triage.md"
+      },
+      "principle_reminders": [
+        "Principle 5: staff a fresh, independent reviewer and diversify the model.",
+        "Principle 7: cite the file and line for each finding."
+      ],
+      "filled_prompt_summary": "fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2)."
+    }
+  },
+  "resume_state": null
+}"#;
+
+	#[test]
+	fn golden_human_text() {
+		assert_eq!(render_human(&golden_projection()), GOLDEN_HUMAN);
+	}
+
+	#[test]
+	fn golden_json() {
+		let json = serde_json::to_string_pretty(&golden_projection()).expect("serialises");
+		assert_eq!(json, GOLDEN_JSON);
+	}
+
+	// -- Determinism / idempotence --
+
+	#[test]
+	fn identical_inputs_give_identical_bytes() {
+		let one = serde_json::to_string_pretty(&golden_projection()).unwrap();
+		let two = serde_json::to_string_pretty(&golden_projection()).unwrap();
+		assert_eq!(one, two);
+		assert_eq!(render_human(&golden_projection()), render_human(&golden_projection()));
+	}
+
+	// -- Dual-source parity --
+
+	#[test]
+	fn toml_and_markdown_sources_give_the_same_verdict() {
+		let toml = "\
+[meta]
+title = \"Demo\"
+primary = \"toml\"
+
+[[step]]
+slug = \"alpha\"
+title = \"Alpha\"
+status = \"in-progress\"
+order = 0
+
+[[step]]
+slug = \"beta\"
+title = \"Beta\"
+status = \"not-started\"
+order = 1
+";
+		let parsed = crate::plan::parse_toml(toml).expect("valid toml");
+		let toml_steps = steps_from_toml(&parsed);
+
+		let markdown = "\
+## Roadmap
+
+| Step | Status |
+| --- | --- |
+| `alpha` | in progress |
+| `beta` | not started |
+";
+		let markdown_steps = steps_from_markdown(&crate::plan::parse_roadmap(markdown));
+
+		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "alpha", "alpha-inc1")];
+
+		let from_toml = project_fixture(&toml_steps, &rounds, "worktree");
+		let from_markdown = project_fixture(&markdown_steps, &rounds, "worktree");
+
+		let toml_loop = active(&from_toml);
+		let markdown_loop = active(&from_markdown);
+		assert_eq!(toml_loop.step, markdown_loop.step);
+		assert_eq!(toml_loop.increment, markdown_loop.increment);
+		assert_eq!(toml_loop.state, markdown_loop.state);
+		assert_eq!(toml_loop.state, LoopState::Converged);
+	}
+}

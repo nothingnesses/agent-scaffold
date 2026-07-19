@@ -377,8 +377,8 @@ struct ValidateArgs {
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). --plan is still required either way.
-	#[arg(long, requires = "plan")]
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present.
+	#[arg(long)]
 	workflow: bool,
 }
 
@@ -803,8 +803,9 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 		let toml_primary = source_plan.as_ref().filter(|source| source.is_toml_primary());
 		match (toml_primary, &plan_contents, &metrics_contents) {
 			// TOML-sourced: the plan is read from the TOML source, so `plan_contents` is
-			// ignored here; --plan stays clap-required (present but unused) until the
-			// deferred relaxation. Needs the metrics log for the rounds/decisions/escalations.
+			// ignored here and no --plan is required (a TOML-only project has no Markdown
+			// plan; the clap `requires` was relaxed for exactly this case). Needs the metrics
+			// log for the rounds/decisions/escalations.
 			(Some(source), _, Some(metrics_text)) => {
 				let source_display = args
 					.source

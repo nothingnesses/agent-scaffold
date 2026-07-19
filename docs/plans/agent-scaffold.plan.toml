@@ -672,8 +672,11 @@ status = "in-progress"
 order = 52
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "workflow-driver-stage0a"
+risk_class = "risky"
 
 [[step]]
 slug = "doc-redundancy-cleanup"

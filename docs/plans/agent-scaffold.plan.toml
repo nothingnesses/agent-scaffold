@@ -715,7 +715,7 @@ waiver = []
 [[step]]
 slug = "human-input-gate-reinforce"
 title = "reinforce the human-input contract at the orchestrator's point of action (`Q-54`)"
-status = "not-started"
+status = "complete"
 order = 56
 blocked_by = []
 folds = []

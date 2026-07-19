@@ -47,6 +47,7 @@ use {
 			PathBuf,
 		},
 	},
+	workflow_spec::WorkflowSpec,
 };
 
 /// What happened to a single asset on a scaffold run.
@@ -224,11 +225,12 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 /// Build the asset set to drop from the active pack: `{{principles}}` is
 /// rendered from the current selection, `{{instrument}}` is the pack's
 /// `instrument.md` fragment when `instrument` is set (empty otherwise, or when
-/// the pack ships no such fragment), `overrides` supplies the `--var` values for
-/// any variables the pack declares, and `modules` are the `--module` selections
-/// whose tagged assets are included (core assets always are) and whose guidance
-/// partials fill the reserved `{{modules}}` slot (empty when none is enabled).
-/// Building does not write.
+/// the pack ships no such fragment), `{{workflow_control}}` is the generated
+/// statement of the workflow's convergence constants (from `WorkflowSpec`),
+/// `overrides` supplies the `--var` values for any variables the pack declares,
+/// and `modules` are the `--module` selections whose tagged assets are included
+/// (core assets always are) and whose guidance partials fill the reserved
+/// `{{modules}}` slot (empty when none is enabled). Building does not write.
 fn build_assets(
 	source: &manifest::PackSource,
 	selected: &[&pack::Principle],
@@ -244,6 +246,14 @@ fn build_assets(
 	let instrument_block =
 		if instrument { source.read("instrument.md").unwrap_or_default() } else { String::new() };
 	builtin.insert("instrument".to_string(), instrument_block);
+	// The `{{workflow_control}}` block: the generated statement of the workflow's
+	// convergence constants (required clean-round count per risk class, total-round
+	// cap, backstop severity), derived from `WorkflowSpec::builtin()`, which the
+	// shipped `pack/workflow.toml` is pinned equal to. The fragment and the arithmetic
+	// the tool runs both read the one spec, so the process prose and the process logic
+	// cannot drift; the drift-guard tests catch a hand edit of the committed fragment
+	// or a stale fragment after a `builtin()` constant edit.
+	builtin.insert("workflow_control".to_string(), WorkflowSpec::builtin().control_fragment());
 	// The `{{modules}}` block: the concatenated guidance partials of the enabled
 	// modules (the `--module` selections closed under `requires`). Empty when no
 	// module is enabled, so a pack with no modules (the built-in one) leaves the
@@ -1696,6 +1706,38 @@ mod tests {
 			!agents.contents.ends_with("\n\n"),
 			"an empty modules slot leaves no blank-line tail"
 		);
+	}
+
+	#[test]
+	fn workflow_control_slot_renders_the_generated_fragment() {
+		// The reserved `{{workflow_control}}` slot substitutes to the fragment
+		// `WorkflowSpec::builtin()` generates: the placeholder is gone from both the
+		// working root file and the reference copy, and the generated statement of the
+		// convergence constants is present. This pins the slot wiring on the pack
+		// build path (the drift guard in `workflow_spec` pins the committed output).
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let assets = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+			&[],
+		)
+		.unwrap();
+		let fragment = WorkflowSpec::builtin().control_fragment();
+		for dest in ["AGENTS.md", ".agents/AGENTS.reference.md"] {
+			let asset = assets.iter().find(|a| a.dest == dest).unwrap();
+			assert!(
+				!asset.contents.contains("{{workflow_control}}"),
+				"{dest} should substitute the workflow_control slot"
+			);
+			assert!(
+				asset.contents.contains(&fragment),
+				"{dest} should carry the generated workflow-control fragment"
+			);
+		}
 	}
 
 	#[test]

@@ -137,7 +137,7 @@ struct Manifest {
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
 /// override them with `--var`.
-const RESERVED_VARS: &[&str] = &["principles", "instrument", "modules"];
+const RESERVED_VARS: &[&str] = &["principles", "instrument", "modules", "workflow_control"];
 
 /// An error loading a pack: reading or parsing its files, or resolving the
 /// variables its assets substitute.
@@ -1200,6 +1200,36 @@ mod tests {
 		// order (`a` before `b`) without looping.
 		assert_eq!(module_guidance(&source, &["a".to_string()]).unwrap(), "A\n\nB\n\n");
 		load(&source, &HashMap::new(), &HashMap::new(), &["b".to_string()]).unwrap();
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn reserved_workflow_control_variable_is_rejected() {
+		// A pack may not declare the reserved `workflow_control` variable; it is
+		// tool-computed from the workflow spec, exactly like `instrument`.
+		let declared = fixture_pack(
+			"var-reserved-workflow-control-declared",
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[var]]\nname = \"workflow_control\"\ndefault = \"x\"\n",
+			"a.md",
+			"a\n",
+		);
+		match load(&PackSource::Directory(declared.clone()), &HashMap::new(), &HashMap::new(), &[])
+		{
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "workflow_control"),
+			other => panic!("expected ReservedVar for declaration, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&declared).unwrap();
+
+		// Nor may `--var` set it.
+		let root = var_fixture("var-reserved-workflow-control-override");
+		let mut overrides = HashMap::new();
+		overrides.insert("who".to_string(), "world".to_string());
+		overrides.insert("workflow_control".to_string(), "x".to_string());
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &overrides, &[]) {
+			Err(LoadError::ReservedVar(name)) => assert_eq!(name, "workflow_control"),
+			other => panic!("expected ReservedVar for override, got {:?}", other.map(|_| ())),
+		}
 		fs::remove_dir_all(&root).unwrap();
 	}
 

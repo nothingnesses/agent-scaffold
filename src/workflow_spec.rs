@@ -81,24 +81,46 @@ impl WorkflowSpec {
 		}
 	}
 
-	/// The total-round cap (the human-escalation threshold). ADVISORY: exposed for a
-	/// later stage; MUST NOT be wired into any enforcement at this stage.
-	// `allow`, not `expect`: this is a cfg-split read. The non-test build never calls
-	// it (Stage 0a exposes the cap as data only; a cap gate is a later stage that
-	// would change behaviour), but the tests do, so `expect(dead_code)` would be
-	// unfulfilled under `cfg(test)`.
-	#[allow(dead_code)]
+	/// The total-round cap (the human-escalation threshold). ADVISORY: read by the
+	/// generated workflow-control fragment and the tests, but NOT wired into any
+	/// enforcement at this stage (a cap gate would change behaviour and belongs to a
+	/// later stage).
 	pub(crate) fn round_cap(&self) -> u64 {
 		self.round_cap
 	}
 
-	/// The backstop severity threshold. ADVISORY: exposed for a later stage; MUST NOT
-	/// be wired into any enforcement at this stage.
-	// `allow`, not `expect`: a cfg-split read, exactly as `round_cap` above (dead in
-	// the non-test build, used by the tests).
-	#[allow(dead_code)]
+	/// The backstop severity threshold. ADVISORY: read by the generated
+	/// workflow-control fragment and the tests, but NOT wired into any enforcement at
+	/// this stage (a backstop gate would change behaviour and belongs to a later
+	/// stage).
 	pub(crate) fn backstop_severity(&self) -> Severity {
 		self.backstop_severity
+	}
+
+	/// The generated workflow-control fragment: a plain-prose statement of the three
+	/// convergence constants (the required clean-round count per risk class, the
+	/// total-round cap, and the backstop severity threshold), derived from this spec.
+	///
+	/// This is the value the pack substitutes into the `{{workflow_control}}` slot of
+	/// the scaffolded `AGENTS.md` (see `build_assets` in `main.rs`), the forward
+	/// prose-generating member of the workflow projection family: the fragment and
+	/// the arithmetic the tool runs both read the one spec, so the process prose and
+	/// the process logic cannot drift. The surrounding rationale in `AGENTS.md` (WHY
+	/// two clean rounds, WHY a cap) stays hand-authored and refers to these values
+	/// rather than restating them.
+	///
+	/// The built-in pack renders this from `WorkflowSpec::builtin()`, which the
+	/// shipped `pack/workflow.toml` is pinned equal to (see the drift-guard test), so
+	/// for the default scaffold the fragment states the same constants the shipped
+	/// spec holds.
+	pub(crate) fn control_fragment(&self) -> String {
+		format!(
+			"These control constants are generated from the workflow spec, so this statement and the arithmetic the tool runs from that spec cannot drift: converging a review loop takes {low} consecutive clean round for a trivial or low-risk artifact and {risky} for a risky or high-blast-radius one; the total-round cap that escalates the loop to a human is {cap} rounds; and the backstop re-check covers a dismissed finding whose severity is {severity} or above.",
+			low = self.required_streak(RiskClass::LowRisk),
+			risky = self.required_streak(RiskClass::Risky),
+			cap = self.round_cap(),
+			severity = self.backstop_severity().label(),
+		)
 	}
 }
 
@@ -182,6 +204,47 @@ mod tests {
 		// cannot diverge, so editing one without the other fails here.
 		let parsed = WorkflowSpec::parse(SHIPPED).expect("the shipped workflow.toml must parse");
 		assert_eq!(parsed, WorkflowSpec::builtin());
+	}
+
+	/// The committed root `AGENTS.md`, embedded so the drift-guard test reads exactly
+	/// the scaffold output the repo ships (dogfooded from the pack).
+	const COMMITTED_AGENTS: &str = include_str!("../AGENTS.md");
+
+	/// The committed `.agents/AGENTS.reference.md`, the tool-owned reference copy of
+	/// the same generated guidance.
+	const COMMITTED_REFERENCE: &str = include_str!("../.agents/AGENTS.reference.md");
+
+	#[test]
+	fn the_control_fragment_states_the_spec_constants() {
+		// The generated fragment must state the spec's values (1 clean round for
+		// low-risk, 2 for risky, a 5-round cap, backstop severity high). A change to
+		// the wording or to a `builtin()` constant fails here directly, so the
+		// fragment's content is pinned to a spec-derived string independent of the
+		// scaffold output.
+		assert_eq!(
+			WorkflowSpec::builtin().control_fragment(),
+			"These control constants are generated from the workflow spec, so this statement and the arithmetic the tool runs from that spec cannot drift: converging a review loop takes 1 consecutive clean round for a trivial or low-risk artifact and 2 for a risky or high-blast-radius one; the total-round cap that escalates the loop to a human is 5 rounds; and the backstop re-check covers a dismissed finding whose severity is high or above."
+		);
+	}
+
+	#[test]
+	fn the_committed_scaffold_carries_the_generated_fragment() {
+		// Drift guard on the PACK generation path: the committed scaffold output (the
+		// dogfooded root `AGENTS.md` and its reference copy) must carry the exact
+		// fragment `WorkflowSpec::builtin()` generates. This fails on a hand edit of
+		// the fragment in the committed output (it no longer matches) and on a stale
+		// fragment after a `builtin()` constant edit that was not re-scaffolded (the
+		// freshly generated fragment changes while the committed bytes do not). The
+		// fix in either case is `just scaffold-self`.
+		let fragment = WorkflowSpec::builtin().control_fragment();
+		assert!(
+			COMMITTED_AGENTS.contains(&fragment),
+			"root AGENTS.md is missing the current generated workflow-control fragment; run `just scaffold-self`"
+		);
+		assert!(
+			COMMITTED_REFERENCE.contains(&fragment),
+			".agents/AGENTS.reference.md is missing the current generated workflow-control fragment; run `just scaffold-self`"
+		);
 	}
 
 	#[test]

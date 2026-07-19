@@ -144,6 +144,21 @@ enum_field! {
 	}
 }
 
+impl Severity {
+	/// The on-disk spelling of this severity. Single-sources the spelling the
+	/// backstop-severity constant renders into the generated workflow-control
+	/// fragment (see `workflow_spec::WorkflowSpec::control_fragment`), so the prose
+	/// and the typed value cannot state different words.
+	pub(crate) fn label(self) -> &'static str {
+		match self {
+			Severity::Low => "low",
+			Severity::Medium => "medium",
+			Severity::High => "high",
+			Severity::Critical => "critical",
+		}
+	}
+}
+
 enum_field! {
 	/// Which unit a `waiver` record exempts from the convergence bar: a whole
 	/// Roadmap `step` (for a step that predates round-logging or whose review was

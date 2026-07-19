@@ -607,8 +607,8 @@ evidence = "structured-skeleton-inc6"
 
 [[step]]
 slug = "state-queries"
-title = "`next` and a `status --resume` slice (`Q-28`)"
-status = "not-started"
+title = "superseded by `workflow-driver` Stage 1, which built `next` + `status --resume` (`Q-28`; `skipped`)"
+status = "skipped"
 order = 46
 blocked_by = []
 folds = []
@@ -680,6 +680,10 @@ risk_class = "risky"
 
 [[step.increment]]
 id = "workflow-driver-stage0b"
+risk_class = "risky"
+
+[[step.increment]]
+id = "workflow-driver-stage1"
 risk_class = "risky"
 
 [[step]]

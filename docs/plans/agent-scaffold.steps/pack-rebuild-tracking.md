@@ -1,0 +1,7 @@
+### `pack-rebuild-tracking`: Register the embedded pack as a rebuild dependency
+
+To be done before the golden sync-test in `ledger-template` (found while implementing `convergence-accounting`; see `docs/plans/agent-scaffold.ledger.md`). `include_dir!` in `src/manifest.rs` embeds `pack/` into the binary at compile time, but the macro does NOT register those files as cargo rebuild dependencies, so after a pack file changes a plain `cargo build` can leave the binary embedding a STALE pack. `just scaffold-self` (and the future golden sync-test in `ledger-template`) then regenerate the root `AGENTS.md` and `.agents/` from that stale embedded pack. This actually happened: the bootstrap's committed `.agents/` copies were stale (missing the hardening content) until a forced `cargo clean -p agent-scaffold` + rebuild caught them up.
+
+Fix: add a `build.rs` that emits `cargo:rerun-if-changed=pack` (or the equivalent per-file directives) so any change under `pack/` forces a rebuild and re-embed. This must land before the golden sync-test in `ledger-template` is worth building, since that test would otherwise be fooled by the same staleness, and before anything relies on `scaffold-self` being current.
+
+Evidence-grounding: edit a `pack/` file, run `cargo build` with no manual `cargo clean`, and confirm the change is re-embedded and appears in a fresh scaffold; on failure fall back to the recorded next-best, and if the candidates are exhausted raise the impasse.

@@ -1,0 +1,3 @@
+### `ledger-parse`: superseded by `round-log-core` (`skipped`)
+
+Skipped. Its premise (parse the ledger's round-summary + a formalised register table, add `src/ledger.rs` and a shared `src/table.rs`, PoC a rich ledger parse) evaporated once `round-log-core` (`Q-34`) removed the ledger's structured tables and made the JSONL the single structured store. The only residual, extracting the `## RESUME STATE` section verbatim for `status --resume`, is a ~10-line section extractor that folds into `state-queries`. No `src/ledger.rs`, no `src/table.rs` (the `plan.rs` pipe-table helper has no second consumer, so it is not extracted).

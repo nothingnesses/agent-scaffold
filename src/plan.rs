@@ -33,7 +33,15 @@ pub(crate) mod source;
 /// `plan::render_plan` and friends, beside the schema and Markdown-plan functions.
 pub(crate) mod render;
 
+/// The one-directional Markdown-plan -> `<task>.plan.toml` + sidecars migration
+/// (Inc 5 PREP): read an existing hand-authored plan and the JSONL round log via the
+/// shipped parsers and emit the structured skeleton the render engine projects back.
+/// Additive and reversible; the caller keeps `[meta].primary = "markdown"` so the live
+/// checks are unaffected until the gated cutover.
+pub(crate) mod migrate;
+
 pub(crate) use {
+	migrate::migrate,
 	render::{
 		CheckOutcome,
 		check_render,

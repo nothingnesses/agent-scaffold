@@ -46,6 +46,7 @@ use {
 /// (also part of the skeleton) are not dropped; it is a strict superset of that
 /// tuple with the fields named for the region they carry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PlanToml {
 	/// The `[meta]` block: title, render/enforcement metadata, and sidecar refs.
 	pub(crate) meta: Meta,
@@ -79,6 +80,7 @@ pub(crate) enum Primary {
 /// sidecar refs (intro / motivations / repo-layout); `tail` is the Success-Criteria
 /// tail prose ref. Held here so the schema is complete now; render consumes them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Sidecars {
 	/// Ordered front-matter sidecar references, spliced before the Roadmap.
 	#[serde(default)]
@@ -91,6 +93,7 @@ pub(crate) struct Sidecars {
 /// The `[meta]` block. Scalar keys come first so a TOML re-serialisation stays
 /// valid (the `sidecars` sub-table must follow the scalar keys of its parent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Meta {
 	/// The plan/task title.
 	pub(crate) title: String,
@@ -118,6 +121,7 @@ pub(crate) struct Meta {
 /// array-of-table keys (`increment` / `waiver`) so a TOML re-serialisation stays
 /// valid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Step {
 	/// The step's kebab-case slug (its stable id, cross-referenced by others).
 	pub(crate) slug: String,
@@ -169,6 +173,7 @@ pub(crate) enum StepStatus {
 /// convergence risk class. The id retires the lexical `-inc<x>` strip (Inc 2), so
 /// a round record can join to this id directly instead of by prefix.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Increment {
 	/// The increment's structured id (for example `structured-skeleton-inc1`).
 	pub(crate) id: String,
@@ -180,6 +185,7 @@ pub(crate) struct Increment {
 /// This is the Q-46 re-home of the JSONL `type:"waiver"` record onto the TOML step;
 /// the fields mirror that record (minus `task`/`step`, which the nesting supplies).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Waiver {
 	/// The waiver's stable id.
 	pub(crate) id: String,
@@ -207,6 +213,7 @@ pub(crate) struct Waiver {
 /// live ONLY in the JSONL `type:"decision"` receipt (decided sub-question 3(c)) and
 /// are deliberately NOT carried here; `receipt` points at that receipt by `q_id`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Question {
 	/// The item's stable id (`Q-<n>`).
 	pub(crate) id: String,
@@ -244,6 +251,7 @@ pub(crate) enum QuestionStatus {
 
 /// One project principle (`[[principle]]`): its number, name, and text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Principle {
 	/// The principle number (for reference, not priority).
 	pub(crate) n: u64,
@@ -257,21 +265,35 @@ pub(crate) struct Principle {
 /// status/risk/reason/tier fields mean an out-of-set value (for example a step
 /// status of `done`) is rejected here at the boundary as a deserialisation error,
 /// and a missing required field (for example a step with no `slug`) likewise.
-/// Unknown extra fields are permitted (forward-compatible), matching the round
-/// log's schema stance in `metrics.rs`.
+/// The schema structs carry `#[serde(deny_unknown_fields)]`, so an unknown or
+/// misspelled key (for example `blockd_by` for `blocked_by`) is a loud parse error
+/// rather than a silently dropped field. This is deliberately stricter than the
+/// round log's forward-compatible JSONL stance: the plan.toml is hand-authored and
+/// versioned in-repo, so a typo that silently drops a correctness-bearing
+/// cross-reference is the worse failure to tolerate.
 pub(crate) fn parse_toml(contents: &str) -> Result<PlanToml, toml::de::Error> {
 	toml::from_str(contents)
 }
 
 /// Whether `token` is a well-formed id token: non-empty, made of ASCII
 /// alphanumerics and hyphens, and not starting or ending with a hyphen. Covers
-/// step slugs, increment ids, and orphan-task tokens (which may carry an
-/// uppercase `-incA` suffix, so this is not lowercase-only).
+/// waiver ids and orphan-task tokens (which may carry an uppercase `-incA`
+/// suffix, so this is not lowercase-only). Step slugs and increment ids are
+/// held to the stricter lowercase `is_kebab_case_token`.
 fn is_well_formed_token(token: &str) -> bool {
 	!token.is_empty()
 		&& !token.starts_with('-')
 		&& !token.ends_with('-')
 		&& token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// Whether `token` is a well-formed lowercase kebab-case token: `is_well_formed_token`
+/// with no ASCII uppercase. Step slugs and increment ids are kebab-case by contract
+/// (for example `structured-skeleton-inc1`), so they take this stricter rule; the
+/// `[meta]` orphan-task tokens keep the looser `is_well_formed_token` to allow their
+/// uppercase increment suffix (for example `round-log-core-incA`).
+fn is_kebab_case_token(token: &str) -> bool {
+	is_well_formed_token(token) && !token.bytes().any(|b| b.is_ascii_uppercase())
 }
 
 /// Validate a `<task>.plan.toml`'s schema (types and enums, via `parse_toml`) and
@@ -280,11 +302,17 @@ fn is_well_formed_token(token: &str) -> bool {
 /// that will not even parse is reported as the single parse problem; on a clean
 /// parse the cross-reference checks run:
 ///
-/// - unique step slugs, increment ids, and question ids, each well-formed;
-/// - `blocked_by` / `folds` resolve to real steps; `folded_into` resolves to a real
-///   step and is present on every `decided` question; `superseded_by` resolves to a
-///   real question; `receipt` and `w4_baseline` are well-formed `Q-<n>` ids;
-/// - the `[meta]` orphan-task list is well-formed; and
+/// - unique step slugs, increment ids, question ids, and waiver ids, each
+///   well-formed (slugs and increment ids lowercase kebab-case), and unique
+///   `principle.n` numbers;
+/// - `blocked_by` / `folds` resolve to real steps and are not self-references;
+///   `folded_into` resolves to a real step whenever present; `superseded_by`
+///   resolves to a real question whenever present; a `decided` question carries
+///   exactly a resolving `folded_into` and a `superseded` question exactly a
+///   resolving `superseded_by` (and no other status carries either); `receipt` and
+///   `w4_baseline` are well-formed `Q-<n>` ids;
+/// - the `[meta]` orphan-task list is well-formed, unique, and disjoint from the
+///   step slugs; and
 /// - the waiver field-presence and `reason` <-> `evidence_tier` pairing rules
 ///   (moved from the round log's `check_record` waiver arm and the W5 pairing).
 pub(crate) fn validate_source(contents: &str) -> Vec<String> {
@@ -297,8 +325,8 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 	// Step slugs: well-formed and unique. Collect the set for the cross-references.
 	let mut slugs: BTreeSet<&str> = BTreeSet::new();
 	for step in &plan.steps {
-		if !is_well_formed_token(&step.slug) {
-			problems.push(format!("step slug `{}` is not a well-formed id", step.slug));
+		if !is_kebab_case_token(&step.slug) {
+			problems.push(format!("step slug `{}` is not a well-formed kebab-case id", step.slug));
 		}
 		if !slugs.insert(step.slug.as_str()) {
 			problems.push(format!("step slug `{}` appears more than once", step.slug));
@@ -309,8 +337,11 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 	let mut increment_ids: BTreeSet<&str> = BTreeSet::new();
 	for step in &plan.steps {
 		for increment in &step.increments {
-			if !is_well_formed_token(&increment.id) {
-				problems.push(format!("increment id `{}` is not a well-formed id", increment.id));
+			if !is_kebab_case_token(&increment.id) {
+				problems.push(format!(
+					"increment id `{}` is not a well-formed kebab-case id",
+					increment.id
+				));
 			}
 			if !increment_ids.insert(increment.id.as_str()) {
 				problems.push(format!("increment id `{}` appears more than once", increment.id));
@@ -329,10 +360,36 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 		}
 	}
 
-	// Step cross-references: `blocked_by` and `folds` must name real steps.
+	// Waiver ids: well-formed and unique across the whole plan (Inc 4's read path
+	// joins on waiver identity, so a duplicate id would be an ambiguous join).
+	let mut waiver_ids: BTreeSet<&str> = BTreeSet::new();
+	for step in &plan.steps {
+		for waiver in &step.waivers {
+			if !is_well_formed_token(&waiver.id) {
+				problems.push(format!("waiver id `{}` is not a well-formed id", waiver.id));
+			}
+			if !waiver_ids.insert(waiver.id.as_str()) {
+				problems.push(format!("waiver id `{}` appears more than once", waiver.id));
+			}
+		}
+	}
+
+	// Principle numbers: unique across the plan.
+	let mut principle_ns: BTreeSet<u64> = BTreeSet::new();
+	for principle in &plan.principles {
+		if !principle_ns.insert(principle.n) {
+			problems.push(format!("principle `{}` appears more than once", principle.n));
+		}
+	}
+
+	// Step cross-references: `blocked_by` and `folds` must name real steps and must
+	// not name the step itself (a step cannot block or fold itself; multi-step cycle
+	// detection is deferred to the increment that orders steps).
 	for step in &plan.steps {
 		for target in &step.blocked_by {
-			if !slugs.contains(target.as_str()) {
+			if target == &step.slug {
+				problems.push(format!("step `{}` is blocked_by itself", step.slug));
+			} else if !slugs.contains(target.as_str()) {
 				problems.push(format!(
 					"step `{}` is blocked_by `{}`, which is not a step",
 					step.slug, target
@@ -340,29 +397,32 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 			}
 		}
 		for target in &step.folds {
-			if !slugs.contains(target.as_str()) {
+			if target == &step.slug {
+				problems.push(format!("step `{}` folds itself", step.slug));
+			} else if !slugs.contains(target.as_str()) {
 				problems
 					.push(format!("step `{}` folds `{}`, which is not a step", step.slug, target));
 			}
 		}
 	}
 
-	// Question cross-references and the decided-implies-folded-into rule.
+	// Question cross-references and status <-> field consistency. Cross-references
+	// resolve whenever present, regardless of status; the status-consistency rules
+	// then make the illegal states unrepresentable both ways (a `decided` question
+	// has exactly a resolving `folded_into`, a `superseded` question has exactly a
+	// resolving `superseded_by`, and no other status carries either field).
 	for question in &plan.questions {
-		match question.status {
-			QuestionStatus::Decided => match &question.folded_into {
-				None => problems.push(format!(
-					"question `{}` is `decided` but has no resolving `folded_into`",
-					question.id
-				)),
-				Some(target) if !slugs.contains(target.as_str()) => problems.push(format!(
+		// `folded_into` resolves to a real step whenever present (not only when
+		// `decided`), so a dangling target on any question is flagged.
+		if let Some(target) = &question.folded_into {
+			if !slugs.contains(target.as_str()) {
+				problems.push(format!(
 					"question `{}` folds into `{}`, which is not a step",
 					question.id, target
-				)),
-				Some(_) => {}
-			},
-			QuestionStatus::Open | QuestionStatus::Exploring | QuestionStatus::Superseded => {}
+				));
+			}
 		}
+		// `superseded_by` resolves to a real question whenever present.
 		if let Some(target) = &question.superseded_by {
 			if !question_ids.contains(target.as_str()) {
 				problems.push(format!(
@@ -370,6 +430,40 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 					question.id, target
 				));
 			}
+		}
+		// `folded_into` presence is tied to the `decided` status, both ways.
+		match question.status {
+			QuestionStatus::Decided =>
+				if question.folded_into.is_none() {
+					problems.push(format!(
+						"question `{}` is `decided` but has no resolving `folded_into`",
+						question.id
+					));
+				},
+			QuestionStatus::Open | QuestionStatus::Exploring | QuestionStatus::Superseded =>
+				if question.folded_into.is_some() {
+					problems.push(format!(
+						"question `{}` is not `decided` but carries `folded_into`",
+						question.id
+					));
+				},
+		}
+		// `superseded_by` presence is tied to the `superseded` status, both ways.
+		match question.status {
+			QuestionStatus::Superseded =>
+				if question.superseded_by.is_none() {
+					problems.push(format!(
+						"question `{}` is `superseded` but has no resolving `superseded_by`",
+						question.id
+					));
+				},
+			QuestionStatus::Open | QuestionStatus::Exploring | QuestionStatus::Decided =>
+				if question.superseded_by.is_some() {
+					problems.push(format!(
+						"question `{}` is not `superseded` but carries `superseded_by`",
+						question.id
+					));
+				},
 		}
 		if let Some(receipt) = &question.receipt {
 			if question_id_index(receipt).is_none() {
@@ -388,10 +482,21 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 		}
 	}
 
-	// The `[meta]` orphan-task list must be well-formed task tokens.
+	// The `[meta]` orphan-task list must be well-formed task tokens, unique, and
+	// genuinely orphan: an orphan token equal to a declared step slug contradicts
+	// the field's own definition (a task that owns no Roadmap step).
+	let mut orphan_tasks: BTreeSet<&str> = BTreeSet::new();
 	for task in &plan.meta.orphan_tasks {
 		if !is_well_formed_token(task) {
 			problems.push(format!("meta orphan task `{task}` is not a well-formed task token"));
+		}
+		if !orphan_tasks.insert(task.as_str()) {
+			problems.push(format!("meta orphan task `{task}` appears more than once"));
+		}
+		if slugs.contains(task.as_str()) {
+			problems.push(format!(
+				"meta orphan task `{task}` is also a step slug, so it is not orphan"
+			));
 		}
 	}
 
@@ -647,5 +752,195 @@ mod tests {
 		let source = "[meta]\ntitle = \"t\"\n";
 		let plan = parse_toml(source).expect("parses");
 		assert_eq!(plan.meta.primary, Primary::Markdown);
+	}
+
+	#[test]
+	fn a_non_decided_question_carrying_folded_into_is_flagged() {
+		// `folded_into` is legal only on a `decided` question; an `open` one carrying
+		// it is an illegal state.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"open\"\nask = \"a\"\nfolded_into = \"a\"\n",
+		);
+		assert_flags(source, "`Q-1` is not `decided` but carries `folded_into`");
+	}
+
+	#[test]
+	fn a_decided_question_with_a_dangling_folded_into_is_flagged() {
+		// Proves the unconditional `folded_into` resolution: a `decided` question whose
+		// `folded_into` names an absent step is flagged as a dangling cross-reference.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"ghost\"\n",
+		);
+		assert_flags(source, "`Q-1` folds into `ghost`, which is not a step");
+	}
+
+	#[test]
+	fn a_non_decided_question_with_a_dangling_folded_into_is_flagged() {
+		// `folded_into` now resolves regardless of status, so a dangling target on an
+		// `exploring` question is caught (as well as the status-consistency violation).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"exploring\"\nask = \"a\"\nfolded_into = \"ghost\"\n",
+		);
+		assert_flags(source, "`Q-1` folds into `ghost`, which is not a step");
+	}
+
+	#[test]
+	fn a_superseded_question_with_no_superseded_by_is_flagged() {
+		// A `superseded` question must name the item that replaced it.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"superseded\"\nask = \"a\"\n",
+		);
+		assert_flags(source, "`Q-1` is `superseded` but has no resolving `superseded_by`");
+	}
+
+	#[test]
+	fn a_non_superseded_question_carrying_superseded_by_is_flagged() {
+		// `superseded_by` is legal only on a `superseded` question.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"open\"\nask = \"a\"\n",
+			"[[question]]\nid = \"Q-2\"\nstatus = \"open\"\nask = \"b\"\nsuperseded_by = \"Q-1\"\n",
+		);
+		assert_flags(source, "`Q-2` is not `superseded` but carries `superseded_by`");
+	}
+
+	#[test]
+	fn a_duplicate_waiver_id_is_flagged() {
+		// Two waivers sharing an id would be an ambiguous cross-substrate join for
+		// Inc 4, so a duplicate waiver id fails plan-wide like the other ids.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.waiver]]\nid = \"dup\"\nunit = \"step\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
+			"[[step]]\nslug = \"b\"\ntitle = \"B\"\nstatus = \"complete\"\norder = 2\n",
+			"[[step.waiver]]\nid = \"dup\"\nunit = \"step\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
+		);
+		assert_flags(source, "waiver id `dup` appears more than once");
+	}
+
+	#[test]
+	fn a_malformed_waiver_id_is_flagged() {
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.waiver]]\nid = \"-bad-\"\nunit = \"step\"\n",
+			"reason = \"predates-logging\"\nevidence_tier = \"self-declared\"\n",
+		);
+		assert_flags(source, "waiver id `-bad-` is not a well-formed id");
+	}
+
+	#[test]
+	fn a_duplicate_principle_n_is_flagged() {
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[principle]]\nn = 1\nname = \"One\"\ntext = \"first\"\n",
+			"[[principle]]\nn = 1\nname = \"Also one\"\ntext = \"clash\"\n",
+		);
+		assert_flags(source, "principle `1` appears more than once");
+	}
+
+	#[test]
+	fn a_self_blocking_step_is_flagged() {
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"blocked_by = [\"a\"]\n",
+		);
+		assert_flags(source, "step `a` is blocked_by itself");
+	}
+
+	#[test]
+	fn a_self_folding_step_is_flagged() {
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"folds = [\"a\"]\n",
+		);
+		assert_flags(source, "step `a` folds itself");
+	}
+
+	#[test]
+	fn a_duplicate_orphan_task_is_flagged() {
+		let source = "[meta]\ntitle = \"t\"\norphan_tasks = [\"x\", \"x\"]\n";
+		assert_flags(source, "meta orphan task `x` appears more than once");
+	}
+
+	#[test]
+	fn an_orphan_task_equal_to_a_step_slug_is_flagged() {
+		// An orphan token that names a declared step contradicts the field's own
+		// definition (a task that owns no Roadmap step).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\norphan_tasks = [\"a\"]\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+		);
+		assert_flags(source, "meta orphan task `a` is also a step slug");
+	}
+
+	#[test]
+	fn an_uppercase_step_slug_is_flagged() {
+		// Step slugs are lowercase kebab-case; an uppercase slug is rejected even
+		// though it is otherwise a well-formed token (orphan tokens keep uppercase).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"Alpha\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+		);
+		assert_flags(source, "step slug `Alpha` is not a well-formed kebab-case id");
+	}
+
+	#[test]
+	fn an_uppercase_increment_id_is_flagged() {
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.increment]]\nid = \"a-incA\"\nrisk_class = \"low_risk\"\n",
+		);
+		assert_flags(source, "increment id `a-incA` is not a well-formed kebab-case id");
+	}
+
+	#[test]
+	fn a_typoed_plan_key_fails_to_parse() {
+		// `blockd_by` is a typo for `blocked_by`; with `deny_unknown_fields` on the
+		// plan.toml structs the schema rejects it at parse rather than silently
+		// dropping the blocking edge (the O4 human decision: plan.toml is strict).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"blockd_by = [\"ghost\"]\n",
+		);
+		assert!(parse_toml(source).is_err(), "a typoed key should fail to parse");
+		assert_flags(source, "malformed `<task>.plan.toml`");
+	}
+
+	#[test]
+	fn the_unexercised_status_variants_round_trip() {
+		// The `not-started`, `skipped`, `optional`, `deferred` step statuses and the
+		// `exploring` question status are otherwise unexercised: parse, validate clean,
+		// and round-trip them (Principle 11).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"not-started\"\norder = 1\n",
+			"[[step]]\nslug = \"b\"\ntitle = \"B\"\nstatus = \"skipped\"\norder = 2\n",
+			"[[step]]\nslug = \"c\"\ntitle = \"C\"\nstatus = \"optional\"\norder = 3\n",
+			"[[step]]\nslug = \"d\"\ntitle = \"D\"\nstatus = \"deferred\"\norder = 4\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"exploring\"\nask = \"an exploring ask\"\n",
+		);
+		let plan = parse_toml(source).expect("parses");
+		assert_eq!(plan.steps[0].status, StepStatus::NotStarted);
+		assert_eq!(plan.steps[1].status, StepStatus::Skipped);
+		assert_eq!(plan.steps[2].status, StepStatus::Optional);
+		assert_eq!(plan.steps[3].status, StepStatus::Deferred);
+		assert_eq!(plan.questions[0].status, QuestionStatus::Exploring);
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
+
+		let reserialised = toml::to_string(&plan).expect("serialise");
+		let reparsed = parse_toml(&reserialised).expect("re-parse");
+		assert_eq!(plan, reparsed);
 	}
 }

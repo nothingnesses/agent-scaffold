@@ -1917,6 +1917,39 @@ mod tests {
 	}
 
 	#[test]
+	fn isolation_policy_slot_renders_the_generated_fragment() {
+		// The reserved `{{isolation_policy}}` slot substitutes to the fragment
+		// `isolation_policy` generates: the placeholder is gone from both the working
+		// root file and the reference copy, and the generated writer-isolation prose is
+		// present. This pins the slot wiring on the pack build path (the drift guard in
+		// `isolation_policy` pins the committed output, but reads the committed bytes via
+		// `include_str!` rather than exercising `build_assets`).
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let assets = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+			&[],
+		)
+		.unwrap();
+		let fragment = isolation_policy::ISOLATION_POLICY_FRAGMENT;
+		for dest in ["AGENTS.md", ".agents/AGENTS.reference.md"] {
+			let asset = assets.iter().find(|a| a.dest == dest).unwrap();
+			assert!(
+				!asset.contents.contains("{{isolation_policy}}"),
+				"{dest} should substitute the isolation_policy slot"
+			);
+			assert!(
+				asset.contents.contains(fragment),
+				"{dest} should carry the generated isolation-policy fragment"
+			);
+		}
+	}
+
+	#[test]
 	fn checks_module_renders_its_guidance_and_drops_its_assets() {
 		let principles = pack::default_principles();
 		let selected = pack::resolve_selection(&principles, "default").unwrap();

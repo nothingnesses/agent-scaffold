@@ -124,8 +124,12 @@ pub(crate) struct Meta {
 }
 
 /// One Roadmap step (`[[step]]`). Scalar and value keys come before the
-/// array-of-table keys (`increment` / `waiver`) so a TOML re-serialisation stays
-/// valid.
+/// `provenance` sub-table, which in turn comes before the array-of-table keys
+/// (`increment` / `waiver`), so a TOML re-serialisation stays valid: `provenance`
+/// serialises as a `[step.provenance]` sub-table (its inner lists are inline
+/// arrays, not arrays-of-tables), and a sub-table emitted AFTER `[[step.increment]]`
+/// would bind to the wrong table. It is therefore declared after the inline-value
+/// fields (`blocked_by` / `folds`) and before `increments` / `waivers`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Step {
@@ -144,6 +148,14 @@ pub(crate) struct Step {
 	/// The slugs of the steps this step folds in (subsumes).
 	#[serde(default)]
 	pub(crate) folds: Vec<String>,
+	/// The step's provenance links: the decisions/findings/commits that justify it
+	/// (`[step.provenance]`). Declared here, after the inline-value fields and before
+	/// the arrays-of-tables, so its sub-table serialises in a round-trip-valid position
+	/// (see the `Step` doc comment's ordering note). Absent on a step with no recorded
+	/// provenance, so an existing step deserialises to `None` and re-serialises to
+	/// nothing (byte-identical to today).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub(crate) provenance: Option<Provenance>,
 	/// The step's increments (`[[step.increment]]`).
 	#[serde(default, rename = "increment")]
 	pub(crate) increments: Vec<Increment>,
@@ -216,6 +228,36 @@ impl StepStatus {
 /// to a match elsewhere, so a stale `ALL` that silently dropped the new status from the
 /// render engine's status distribution is a build error (Principle 16).
 const _: () = assert!(StepStatus::ALL.len() == StepStatus::VARIANTS.len());
+
+/// A step's provenance links (`[step.provenance]`): the decisions, findings, and
+/// commits that justify the step, mirroring how a question carries its
+/// `folded_into` / `receipt`. `render` presents these as "why this step exists".
+/// Grouped in one sub-struct (like `Increment` / `Waiver` / `Sidecars`) so a
+/// mistyped inner key is a loud parse error via `deny_unknown_fields`, and the three
+/// lists read as one provenance record rather than three loose `Step` fields.
+///
+/// The three lists carry the same in-TOML-vs-out-of-TOML split `validate_source`
+/// already draws: `decisions` name `[[question]]` ids in THIS document, so they are
+/// resolved (a dangling one is a build error); `commits` and `findings` are external
+/// references (a git object, a findings artifact on disk), so they are shape-checked
+/// only, never resolved, keeping `validate_source` a pure function over the string.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Provenance {
+	/// The Open-Questions decisions (`Q-<n>`) that justify this step. Resolved to real
+	/// `[[question]]` ids by `validate_source` (fail-closed, like `folded_into`).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub(crate) decisions: Vec<String>,
+	/// The findings artifacts (task-relative paths) that justify this step. Shape-checked
+	/// via `is_safe_sidecar_ref`, NOT existence-checked (a findings file is committed then
+	/// deleted at task close, so a valid historical pointer may name an absent path).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub(crate) findings: Vec<String>,
+	/// The commit hashes that justify this step. Shape-checked only (non-empty lowercase
+	/// hex, 7 to 40 chars), NOT git-resolved (`validate_source` never shells out).
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub(crate) commits: Vec<String>,
+}
 
 /// One increment of a step (`[[step.increment]]`): a structured id and its
 /// convergence risk class. The id retires the lexical `-inc<x>` strip (Inc 2), so
@@ -452,6 +494,17 @@ fn is_safe_sidecar_ref(reference: &str) -> bool {
 			.all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
+/// Whether `hash` is a well-formed abbreviated-or-full commit hash: non-empty
+/// lowercase hexadecimal, 7 to 40 characters (a git short hash is at least 7 digits,
+/// a full SHA-1 is 40). This is a SHAPE check only: `validate_source` is a pure
+/// function over the TOML string and never shells out, so it cannot resolve the hash
+/// against a repo (the same posture as `receipt`, which shape-checks its `Q-<n>` but
+/// does not confirm the JSONL receipt exists). Reject uppercase so the accepted form
+/// has one spelling.
+fn is_commit_shaped(hash: &str) -> bool {
+	(7..=40).contains(&hash.len()) && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// Validate a `<task>.plan.toml`'s schema (types and enums, via `parse_toml`) and
 /// its internal cross-references, returning one human-readable problem per
 /// violation (an empty vector means the source is well-formed). A malformed source
@@ -467,6 +520,10 @@ fn is_safe_sidecar_ref(reference: &str) -> bool {
 ///   exactly a resolving `folded_into` and a `superseded` question exactly a
 ///   resolving `superseded_by` (and no other status carries either); `receipt` and
 ///   `w4_baseline` are well-formed `Q-<n>` ids;
+/// - a step's `[step.provenance]`, when present, is non-empty and its `decisions`
+///   resolve to real questions (`Q-<n>`-shaped, fail-closed), its `commits` are
+///   commit-hash-shaped, and its `findings` are safe task-relative refs (commits and
+///   findings are shape-checked only, never git-/filesystem-resolved);
 /// - the `[meta]` orphan-task list is well-formed, unique, and disjoint from the
 ///   step slugs; and
 /// - the waiver field-presence and `reason` <-> `evidence_tier` pairing rules
@@ -558,6 +615,58 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 			} else if !slugs.contains(target.as_str()) {
 				problems
 					.push(format!("step `{}` folds `{}`, which is not a step", step.slug, target));
+			}
+		}
+	}
+
+	// Step provenance (`[step.provenance]`): the same in-TOML-vs-out-of-TOML split the
+	// question cross-references draw. `decisions` name questions in THIS document, so
+	// they RESOLVE (a well-formed `Q-<n>` shape, then a real `[[question]]` id, both
+	// fail-closed, like `folded_into`/`superseded_by`); `commits` and `findings` are
+	// external references, so they are SHAPE-checked only (a pure function over the
+	// string never git-resolves a hash nor stats a path, like `receipt`/sidecar refs).
+	// A present-but-all-empty `provenance` block carries no meaning, so it is rejected
+	// (Principle 13, illegal states unrepresentable).
+	for step in &plan.steps {
+		let Some(provenance) = &step.provenance else {
+			continue;
+		};
+		if provenance.decisions.is_empty()
+			&& provenance.findings.is_empty()
+			&& provenance.commits.is_empty()
+		{
+			problems.push(format!(
+				"step `{}` has an empty `[step.provenance]` (at least one of decisions/findings/commits must be present)",
+				step.slug
+			));
+		}
+		for decision in &provenance.decisions {
+			if question_id_index(decision).is_none() {
+				problems.push(format!(
+					"step `{}` provenance decision `{}` is not a `Q-<n>` id",
+					step.slug, decision
+				));
+			} else if !question_ids.contains(decision.as_str()) {
+				problems.push(format!(
+					"step `{}` provenance decision `{}` names no question",
+					step.slug, decision
+				));
+			}
+		}
+		for finding in &provenance.findings {
+			if !is_safe_sidecar_ref(finding) {
+				problems.push(format!(
+					"step `{}` provenance finding `{}` must be a task-relative path (no absolute path, no `..` component)",
+					step.slug, finding
+				));
+			}
+		}
+		for commit in &provenance.commits {
+			if !is_commit_shaped(commit) {
+				problems.push(format!(
+					"step `{}` provenance commit `{}` is not a well-formed commit hash (7 to 40 lowercase hex chars)",
+					step.slug, commit
+				));
 			}
 		}
 	}
@@ -1157,5 +1266,159 @@ mod tests {
 		let reserialised = toml::to_string(&plan).expect("serialise");
 		let reparsed = parse_toml(&reserialised).expect("re-parse");
 		assert_eq!(plan, reparsed);
+	}
+
+	#[test]
+	fn a_populated_provenance_parses_and_round_trips_alongside_increments_and_waivers() {
+		// The provenance sub-table sits on a step that ALSO carries an increment and a
+		// waiver, so serialising (which emits fields in declaration order) and re-parsing
+		// pins the ordering constraint: `[step.provenance]` must land before the
+		// `[[step.increment]]` / `[[step.waiver]]` arrays-of-tables for the round-trip to
+		// hold. All three provenance lists are populated.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\n",
+			"decisions = [\"Q-1\"]\nfindings = [\"notes/a.md\"]\ncommits = [\"abc1234\"]\n",
+			"[[step.increment]]\nid = \"a-inc1\"\nrisk_class = \"risky\"\n",
+			"[[step.waiver]]\nid = \"a-w1\"\nunit = \"increment\"\nincrement = \"a-inc1\"\n",
+			"reason = \"accepted-at-escalation\"\nevidence_tier = \"record-backed\"\nevidence = \"a-inc1\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"a\"\n",
+		);
+		let plan = parse_toml(source).expect("parses");
+		let step = plan.steps.iter().find(|step| step.slug == "a").expect("step a");
+		assert_eq!(
+			step.provenance,
+			Some(Provenance {
+				decisions: vec!["Q-1".to_string()],
+				findings: vec!["notes/a.md".to_string()],
+				commits: vec!["abc1234".to_string()],
+			})
+		);
+		// It validates clean and survives a full serialise -> re-parse cycle unchanged.
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
+		let reserialised = toml::to_string(&plan).expect("serialise");
+		let reparsed = parse_toml(&reserialised).expect("re-parse");
+		assert_eq!(plan, reparsed);
+	}
+
+	#[test]
+	fn a_mistyped_provenance_inner_key_fails_to_parse() {
+		// `deny_unknown_fields` on `Provenance`: `decisons` (a typo for `decisions`) is an
+		// unknown inner key, a loud parse error rather than a silently dropped list.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\ndecisons = [\"Q-1\"]\n",
+		);
+		assert!(parse_toml(source).is_err(), "a mistyped inner key should fail to parse");
+		assert_flags(source, "malformed `<task>.plan.toml`");
+	}
+
+	#[test]
+	fn a_step_without_provenance_round_trips_with_no_provenance_key() {
+		// Back-compat: a step carrying no provenance deserialises to `None`, validates
+		// clean, and re-serialises with NO `provenance` key (byte-identical to today).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+		);
+		let plan = parse_toml(source).expect("parses");
+		assert_eq!(plan.steps[0].provenance, None);
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
+		let reserialised = toml::to_string(&plan).expect("serialise");
+		assert!(
+			!reserialised.contains("provenance"),
+			"a step with no provenance must not serialise a provenance key: {reserialised}"
+		);
+		let reparsed = parse_toml(&reserialised).expect("re-parse");
+		assert_eq!(plan, reparsed);
+	}
+
+	#[test]
+	fn a_dangling_provenance_decision_is_flagged() {
+		// A well-formed `Q-<n>` decision that names no question in the plan is a dangling
+		// justification link, flagged like a dangling `superseded_by`.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\ndecisions = [\"Q-99\"]\n",
+		);
+		assert_flags(source, "provenance decision `Q-99` names no question");
+	}
+
+	#[test]
+	fn a_malformed_provenance_decision_id_is_flagged() {
+		// A decision that is not `Q-<n>`-shaped is flagged as malformed, distinct from the
+		// dangling case, mirroring the question-id shape check.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\ndecisions = [\"nope\"]\n",
+		);
+		assert_flags(source, "provenance decision `nope` is not a `Q-<n>` id");
+	}
+
+	#[test]
+	fn a_bad_provenance_commit_shape_is_flagged() {
+		// A non-hex commit (`xyz1234`) is shape-checked and flagged; `validate_source`
+		// never git-resolves it, only checks the hash shape.
+		let non_hex = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\ncommits = [\"xyz1234\"]\n",
+		);
+		assert_flags(non_hex, "provenance commit `xyz1234` is not a well-formed commit hash");
+		// An over-length hash (41 chars) is out of the 7..=40 range.
+		let over_long = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\ncommits = [\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]\n",
+		);
+		assert_flags(over_long, "is not a well-formed commit hash");
+	}
+
+	#[test]
+	fn an_unsafe_provenance_findings_path_is_flagged() {
+		// A `..`-bearing findings ref and an absolute one both escape the plan directory,
+		// so both are rejected via `is_safe_sidecar_ref` (the same rule the sidecars use).
+		let traversal = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\nfindings = [\"../escape.md\"]\n",
+		);
+		assert_flags(traversal, "provenance finding `../escape.md` must be a task-relative path");
+		let absolute = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\nfindings = [\"/etc/x\"]\n",
+		);
+		assert_flags(absolute, "provenance finding `/etc/x` must be a task-relative path");
+	}
+
+	#[test]
+	fn an_empty_provenance_block_is_flagged() {
+		// D5: a present-but-all-empty `[step.provenance]` carries no meaning and is
+		// rejected (Principle 13).
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\n",
+		);
+		assert_flags(source, "step `a` has an empty `[step.provenance]`");
+	}
+
+	#[test]
+	fn a_fully_populated_well_formed_provenance_validates_clean() {
+		// The positive case: all three lists populated and well-formed, with the decision
+		// resolving to a real question, validates with no problems.
+		let source = concat!(
+			"[meta]\ntitle = \"t\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[step.provenance]\n",
+			"decisions = [\"Q-1\"]\nfindings = [\"notes/a.md\", \"./more.md\"]\ncommits = [\"abc1234\", \"0123456789abcdef0123456789abcdef01234567\"]\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"decided\"\nask = \"a\"\nfolded_into = \"a\"\n",
+		);
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
 	}
 }

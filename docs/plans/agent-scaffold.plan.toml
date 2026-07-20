@@ -3,6 +3,7 @@ title = "agent-scaffold"
 w4_baseline = "Q-44"
 primary = "toml"
 orphan_tasks = [
+  "backlog-promotion",
   "consolidate-plan",
   "metrics-fields",
   "plan-fold",

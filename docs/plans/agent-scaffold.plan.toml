@@ -709,7 +709,7 @@ waiver = []
 [[step]]
 slug = "task-entry-regrounding"
 title = "stakes-scaled task-entry re-grounding and per-step provenance links (`Q-53`)"
-status = "in-progress"
+status = "complete"
 order = 55
 blocked_by = []
 folds = []
@@ -721,6 +721,10 @@ decisions = ["Q-53"]
 [[step.increment]]
 id = "task-entry-regrounding-inc1"
 risk_class = "low_risk"
+
+[[step.increment]]
+id = "task-entry-regrounding-inc2"
+risk_class = "risky"
 
 [[step]]
 slug = "human-input-gate-reinforce"

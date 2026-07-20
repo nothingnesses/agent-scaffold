@@ -709,7 +709,7 @@ waiver = []
 [[step]]
 slug = "task-entry-regrounding"
 title = "stakes-scaled task-entry re-grounding and per-step provenance links (`Q-53`)"
-status = "not-started"
+status = "in-progress"
 order = 55
 blocked_by = []
 folds = []

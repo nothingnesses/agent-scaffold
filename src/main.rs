@@ -10,6 +10,7 @@
 //! pack's guidance template; the other assets are dropped verbatim.
 
 mod checks;
+mod isolation_policy;
 mod manifest;
 #[macro_use]
 mod metrics;
@@ -228,7 +229,8 @@ fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>
 /// `instrument.md` fragment when `instrument` is set (empty otherwise, or when
 /// the pack ships no such fragment), `{{workflow_control}}` is the generated
 /// statement of the workflow's convergence constants (from `WorkflowSpec`),
-/// `overrides` supplies the `--var` values for any variables the pack declares,
+/// `{{isolation_policy}}` is the generated writer-isolation policy fragment (from
+/// `isolation_policy`), `overrides` supplies the `--var` values for any variables the pack declares,
 /// and `modules` are the `--module` selections whose tagged assets are included
 /// (core assets always are) and whose guidance partials fill the reserved
 /// `{{modules}}` slot (empty when none is enabled). Building does not write.
@@ -255,6 +257,17 @@ fn build_assets(
 	// cannot drift; the drift-guard tests catch a hand edit of the committed fragment
 	// or a stale fragment after a `builtin()` constant edit.
 	builtin.insert("workflow_control".to_string(), WorkflowSpec::builtin().control_fragment());
+	// The `{{isolation_policy}}` block: the one canonical writer-isolation policy
+	// fragment (who counts as a writer and so runs isolated, versus the orchestrator's
+	// own integration-level edits on main), authored once in `isolation_policy.rs` and
+	// rendered here. A later driver stage emits the SAME fragment as its writer-state
+	// reminder, so the guidance prose and the reminder cannot drift; the drift-guard
+	// test catches a hand edit of the committed fragment or a stale fragment after a
+	// source edit.
+	builtin.insert(
+		"isolation_policy".to_string(),
+		isolation_policy::ISOLATION_POLICY_FRAGMENT.to_string(),
+	);
 	// The `{{modules}}` block: the concatenated guidance partials of the enabled
 	// modules (the `--module` selections closed under `requires`). Empty when no
 	// module is enabled, so a pack with no modules (the built-in one) leaves the

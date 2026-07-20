@@ -137,7 +137,8 @@ struct Manifest {
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
 /// override them with `--var`.
-const RESERVED_VARS: &[&str] = &["principles", "instrument", "modules", "workflow_control"];
+const RESERVED_VARS: &[&str] =
+	&["principles", "instrument", "modules", "workflow_control", "isolation_policy"];
 
 /// An error loading a pack: reading or parsing its files, or resolving the
 /// variables its assets substitute.

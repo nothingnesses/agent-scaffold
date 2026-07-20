@@ -739,6 +739,127 @@ waiver = []
 [step.provenance]
 decisions = ["Q-54"]
 
+[[step]]
+slug = "se-principle-namespace"
+title = "Namespace the two Project Principle citations (SE-1/SE-17)"
+status = "deferred"
+order = 57
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "classification-trivial-rename"
+title = "Rename the metrics `Classification::Trivial` variant (SE-2)"
+status = "deferred"
+order = 58
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "drift-guard-optionality"
+title = "Drift-guard checks field optionality, not just presence (SE-6)"
+status = "deferred"
+order = 59
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "instrument-magic-filename"
+title = "Document the `instrument.md` magic pack filename (SE-7)"
+status = "deferred"
+order = 60
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "module-spec-description-dead"
+title = "Remove the dead `ModuleSpec.description` field (SE-8)"
+status = "deferred"
+order = 61
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "checks-kind-skip"
+title = "The checks Test/Mutation kinds parse but are silently skipped (SE-9)"
+status = "deferred"
+order = 62
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["architecture-audit.explorations/audit-sharp-edges.md"]
+
+[[step]]
+slug = "sidecar-ref-empty-string"
+title = "Reject an empty sidecar/provenance ref in the shared rule (I2-2)"
+status = "deferred"
+order = 63
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "sidecar-ref-symlink"
+title = "Symlink escape in `[meta].sidecars` refs (L1)"
+status = "deferred"
+order = 64
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "repoint-resume-prompts"
+title = "Repoint the resume and compaction-prep prompts at `next` / `status --resume`"
+status = "deferred"
+order = 65
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-51"]
+
+[[step]]
+slug = "agents-worktree-planner-scope"
+title = "Clarify the worktree lifecycle covers the planner, not just the implementer"
+status = "deferred"
+order = 66
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1069,6 +1190,21 @@ status = "decided"
 folded_into = "human-input-gate-reinforce"
 receipt = "Q-54"
 ask = """the human-input contract (present options with their trade-offs, a recommendation, and reasoning judged against the numbered Project Principles, and let the human decide) lives once in `pack/AGENTS.md`, but the orchestrator drifted off it after a compaction and presented several decision gates as options-with-trade-offs while omitting the explicit recommendation and Principle-judged reasoning; how to prevent recurrence. This is control-drift (an agent forgot a rule that applies right here), not a missing rule, so the fix is point-of-action reinforcement. DECIDED (human, 2026-07-19): reinforce at the point of action via (a) strengthening `pack/prompts/orchestrator.md` so the human-input contract is an explicit per-gate checklist the orchestrator applies at EVERY decision presentation (referencing, not restating, the AGENTS.md contract, per Principle 8), built first as its own low-risk step; and (b) adding an awaiting-human-decision reminder to the Stage-1 driver `next` output (folded into the `workflow-driver` Stage 1 scope), which is the point-of-action anti-drift value the driver is designed to deliver, so this incident is live evidence for it (Principle 6). Chosen over folding the whole fix into Stage 1 (delays the recurrence-preventer), a note-only capture, and a deterministic check (the presence of a recommendation is not reliably machine-checkable). Decision and reasoning in `human-input-gate-reinforce`."""
+
+[[question]]
+id = "Q-55"
+status = "open"
+ask = """the two-tier workflow enforcement gap (SE-3, from the `Q-44` architecture audit `docs/plans/architecture-audit.explorations/audit-sharp-edges.md`): W3 convergence, the metrics validator, and the drift guards only operate when a project opted into `--instrument` and has a JSONL log, so a NON-instrumented project gets NO machine enforcement of any workflow invariant and `validate --workflow` silently passes (a false green); the two-tier split is also undocumented in the scaffolded AGENTS.md, so a user reading the role prompt expects the same guarantees regardless. The audit rated this SIGNIFICANT. How to handle is an open decision; candidate handlings the human should weigh (not pre-decided here): warn on `validate --workflow` when no log exists; require the log unconditionally; or make round-logging core rather than opt-in, which the Principle 8 structured-source direction leans toward. Do not build until decided."""
+
+[[question]]
+id = "Q-56"
+status = "open"
+ask = """the escalation-record schema refinement: a PROACTIVE human "converge-now" decision at a round was recorded as a `type:"escalation"` record, though the escalation record is nominally cap-only (it represents hitting the round cap and the human deciding to accept or resume). Whether a human CONVERGENCE decision deserves its OWN record type or a broadened escalation definition is an open design decision; candidates (not pre-decided): a new record type for a proactive human convergence decision; broaden the `escalation` record's definition to cover converge-now; or leave it and document the overload. This couples to the waiver model's `accepted-at-escalation` record-backed evidence, whose W5 join reads the escalation record, so any choice must keep that cross-substrate join well-defined. Do not decide here."""
+
+[[question]]
+id = "Q-57"
+status = "open"
+ask = """the treefmt / stash hygiene decision: every `scaffold-self` / `nix fmt` run reflows ~12-18 committed docs (and some `src/*.rs`), and implementers stash the reflow rather than commit it, so 25+ parked `git stash` entries have accumulated. Root cause: the committed docs are not treefmt-clean, but running the formatter over them would hard-wrap prose against the human's stated no-hard-wrap preference. The open decision is how to resolve it; candidates (not pre-decided): EXCLUDE the prose docs from treefmt as the render fixtures already are; format-and-accept the reflow; or leave the reflow parked. It also covers whether to clear the accumulated stashes. Do not decide here."""
 
 [[principle]]
 n = 1

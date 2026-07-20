@@ -1,0 +1,3 @@
+### `repoint-resume-prompts`: Repoint the resume and compaction-prep prompts at `next` / `status --resume`
+
+Deferred pack-prose follow-up. The `.agents/user-prompts/` prompts `resume.md` and `compaction-prep.md` predate the `workflow-driver` Stage 1 build, which shipped `agent-scaffold next` and `status --resume` (`Q-51`). Now that those commands exist, the two prompts should point at them (run `next` / `status --resume` to recover the current state) instead of describing the manual read-the-whole-plan-and-ledger recovery. This is an optional pack-prose refresh, not a behaviour change. No open decision, a known change. Deferred.

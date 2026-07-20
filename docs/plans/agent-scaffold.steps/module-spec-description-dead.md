@@ -1,0 +1,3 @@
+### `module-spec-description-dead`: Remove the dead `ModuleSpec.description` field (SE-8)
+
+Deferred cleanup from the `Q-44` audit (`architecture-audit.explorations/audit-sharp-edges.md`, SE-8). The `description` field on `ModuleSpec` (`src/manifest.rs`) is parsed from `pack.toml` but never read or displayed; it is held under `#[expect(dead_code)]` for a deferred TUI module-selection pane, so every pack carries schema surface with no effect. Either remove it (and re-add when the TUI lands) or document the placeholder intent in the `pack.toml` schema. No open decision, a known change. Deferred as a cosmetic cleanup.

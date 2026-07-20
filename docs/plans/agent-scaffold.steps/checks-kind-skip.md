@@ -1,0 +1,3 @@
+### `checks-kind-skip`: The checks Test/Mutation kinds parse but are silently skipped (SE-9)
+
+Deferred cleanup from the `Q-44` audit (`architecture-audit.explorations/audit-sharp-edges.md`, SE-9). `Kind::Test` and `Kind::Mutation` are valid parsed values (a user can write `kind = "test"` in their checks config), but `runnable_for()` (`src/checks.rs:660`) skips them at runtime with only an informational `Runnable::Skip` message, so a user who configures test checks expecting them to run gets a quiet no-op. Either surface a louder warning, or document in the checks-config format that these kinds are reserved for future use. No open decision, a known change. Deferred as an independent checks-module cleanup.

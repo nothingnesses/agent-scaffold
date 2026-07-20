@@ -9,6 +9,7 @@ orphan_tasks = [
   "plan-fold",
   "plan-maintenance",
   "post-inc6-folds",
+  "q58-capture",
   "workflow-hardening",
 ]
 

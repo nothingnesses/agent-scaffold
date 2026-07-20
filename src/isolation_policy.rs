@@ -5,15 +5,18 @@
 //!
 //! This mirrors `WorkflowSpec::control_fragment` (`workflow_spec.rs`): a single
 //! prose source, substituted into an `AGENTS.md` render slot (`{{isolation_policy}}`
-//! via `build_assets` in `main.rs`) and, in a later driver stage, emitted as the
-//! writer-state reminder, with a byte-guard test pinning the committed scaffold to
-//! exactly what this source generates. So the guidance prose and the driver's
-//! reminder both read the one fragment and cannot drift.
+//! via `build_assets` in `main.rs`) AND emitted verbatim by the driver as the
+//! writer-state isolation reminder (`next::build_instruction`), with a byte-guard test
+//! pinning the committed scaffold to exactly what this source generates. So the
+//! guidance prose and the driver's reminder both read the one fragment and cannot drift.
 //!
 //! The fragment REFERENCES the capability-tiered tier order that already lives in
 //! `AGENTS.md` (container, else worktree, else the file-safety fallback) rather than
 //! restating it (one source of truth); it adds only the writer-classification
-//! clarification the tier order left ambiguous.
+//! clarification the tier order left ambiguous. It names the "Writer isolation rule"
+//! rather than pointing "above", so it reads correctly BOTH inside `AGENTS.md` (where
+//! that rule sits just above) and standalone in the driver reminder (where there is no
+//! "above" to point at).
 
 /// The canonical writer-isolation policy prose: the standing directive that every
 /// spawned writer runs isolated while read-only agents need none (referencing the
@@ -27,7 +30,7 @@
 /// `control_fragment`, which interpolates the spec constants); `build_assets`
 /// substitutes it into the `{{isolation_policy}}` slot and the drift-guard test
 /// byte-compares it against the committed scaffold.
-pub(crate) const ISOLATION_POLICY_FRAGMENT: &str = "Who counts as a writer is settled here once and rendered from this single source, so the copies of this rule cannot drift: every spawned writer runs in the strongest isolation the harness supports, per the capability-tiered tier order above, while read-only agents need none. A spawned planner is a writer, and so is any design or exploration writer that authors content: each runs isolated under the same tier order as the implementer, and the orchestrator integrates its result on convergence. This is distinct from the orchestrator's own integration-level edits on main, which author no reviewed product content and so stay the orchestrator's direct job rather than a spawned writer's: flipping a step's status, declaring an increment, recording a round record, and moving the ledger's resume anchor.";
+pub(crate) const ISOLATION_POLICY_FRAGMENT: &str = "Who counts as a writer is settled here once and rendered from this single source, so the copies of this rule cannot drift: every spawned writer runs in the strongest isolation the harness supports, per the capability-tiered tier order in the Writer isolation rule, while read-only agents need none. A spawned planner is a writer, and so is any design or exploration writer that authors content: each runs isolated under the same tier order as the implementer, and the orchestrator integrates its result on convergence. This is distinct from the orchestrator's own integration-level edits on main, which author no reviewed product content and so stay the orchestrator's direct job rather than a spawned writer's: flipping a step's status, declaring an increment, recording a round record, and moving the ledger's resume anchor.";
 
 #[cfg(test)]
 mod tests {

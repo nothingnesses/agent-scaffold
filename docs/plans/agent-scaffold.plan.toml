@@ -869,12 +869,15 @@ status = "in-progress"
 order = 67
 blocked_by = []
 folds = ["agents-worktree-planner-scope"]
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-51"]
 findings = ["driver-output-generation.design.md"]
+
+[[step.increment]]
+id = "driver-output-generation-inc1"
+risk_class = "risky"
 
 [[question]]
 id = "Q-1"

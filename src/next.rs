@@ -26,6 +26,7 @@
 
 use {
 	crate::{
+		isolation_policy::ISOLATION_POLICY_FRAGMENT,
 		metrics::{
 			RiskClass,
 			Round,
@@ -35,6 +36,7 @@ use {
 			self,
 			source::{
 				PlanToml,
+				Principle,
 				StepStatus as TomlStepStatus,
 			},
 		},
@@ -52,11 +54,23 @@ use {
 	},
 };
 
-/// The isolation-tier reminder appended to a writer-spawning instruction when the tier
-/// was not supplied on the CLI. The tool never emits a worktree path or a branch name;
-/// it points the orchestrator at the policy instead (Principle 18, least authority).
-const TIER_REMINDER: &str =
+/// The resolve-the-tier note folded into the writer-isolation reminder when the tier
+/// was not supplied on the CLI (`isolation_tier == "unknown"`). The tool never emits a
+/// worktree path or a branch name; it points the orchestrator at the policy instead
+/// (Principle 18, least authority). Unlike the always-on policy fragment (which fires at
+/// every writer state regardless of tier), this note fires only when the tier is still
+/// unresolved, so the orchestrator knows a resolution is owed before the spawn.
+const TIER_RESOLVE_NOTE: &str =
 	"Resolve the isolation tier per the AGENTS.md tier policy before spawning the writer.";
+
+/// The Project Principle the escalate / human-input-contract reminder invokes for the
+/// human's cap-reached decision: the decision must be grounded in evidence. The driver
+/// projects THIS principle's actual name and text from the plan's `[[principle]]` (by
+/// NAME, so it is immune to the AGENTS.md/plan renumbering the design flags), and
+/// degrades to the originated human-input-contract imperative alone when the plan does
+/// not carry it (never a dangling number). Chosen by name rather than by a fixed number
+/// because two disagreeing numbered principle lists exist and the number is unstable.
+const ESCALATE_PRINCIPLE_NAME: &str = "Ground decisions in evidence";
 
 /// The whole `next` projection, serialised by `--json`. Every derived part is optional
 /// so a missing plan or log yields a partial projection rather than a failure (mirrors
@@ -139,7 +153,10 @@ pub(crate) struct Instruction {
 	pub(crate) prompt_path: String,
 	/// The convention-derived context slots (a `BTreeMap` so the order is deterministic).
 	pub(crate) context: BTreeMap<String, String>,
-	/// The phase-keyed reminders, citing Project Principles by number; fixed order.
+	/// The phase-keyed reminders: originated workflow-phase guidance (no numeric
+	/// citation), plus, at the escalate state, the projected Project Principle text for
+	/// the human decision, and, at writer states, the generated isolation-policy
+	/// fragment. Fixed order.
 	pub(crate) principle_reminders: Vec<String>,
 	/// A one-line human summary of the filled instruction.
 	pub(crate) filled_prompt_summary: String,
@@ -247,59 +264,85 @@ impl LoopState {
 	}
 
 	/// Whether this state spawns a WRITER (a role that edits files), which is what makes
-	/// the isolation tier relevant. Read-only actions (marking complete, escalating,
-	/// resolving blockers) do not spawn a writer.
+	/// the isolation tier relevant. ONLY `ReadyToPlan` (spawns the planner) and
+	/// `AwaitingFixes` (spawns the implementer) do: both author reviewed product content
+	/// and so run isolated. The two review states (`AwaitingFirstReview`,
+	/// `AwaitingReviewers`) spawn REVIEWERS, which are read-only and need no isolation
+	/// (`pack/AGENTS.md`, "Read-only agents need no isolation"; the orchestrator prompt's
+	/// "planner or implementer" line), so they are excluded: the always-on
+	/// writer-isolation reminder must not attach the isolation policy to a read-only
+	/// reviewer spawn. The remaining states (marking complete, escalating, resolving
+	/// blockers) spawn no agent at all.
 	fn spawns_writer(self) -> bool {
-		matches!(
-			self,
-			LoopState::ReadyToPlan
-				| LoopState::AwaitingFirstReview
-				| LoopState::AwaitingFixes
-				| LoopState::AwaitingReviewers
-		)
+		matches!(self, LoopState::ReadyToPlan | LoopState::AwaitingFixes)
 	}
 
-	/// The phase-keyed reminders for this state, citing Project Principles by number
-	/// (the AGENTS.md numbering). Control pointers, never manufactured verdicts. The
-	/// `escalate` state, and ONLY it, carries the Q-54 human-input-contract reminder.
+	/// The phase-keyed reminders for this state: the driver's own ORIGINATED guidance for
+	/// the phase, stated as plain imperatives. These no longer carry a "Principle N:"
+	/// numeric citation (design decision D-a Option 2): the number was doubly unstable (it
+	/// quoted a generated AGENTS.md list that renumbers on reorder, AND it referenced the
+	/// list the human-input contract does NOT name, the plan's `[[principle]]`), so it was
+	/// a mislabelled paraphrase dressed as a quotation. Stripped of the number, each is
+	/// honest originated guidance with no canonical source and nothing to drift from.
+	/// Where a Project Principle must actually be put in front of the human (the escalate
+	/// human-input-contract case) the driver PROJECTS its real name/text from the plan
+	/// instead (see `projected_principle_reminder`), rather than citing a number here. The
+	/// `escalate` state, and ONLY it, carries the human-input-contract reminder.
 	fn base_reminders(self) -> &'static [&'static str] {
 		match self {
 			LoopState::ReadyToPlan => &[
-				"Principle 2: raise and resolve the open questions before implementing.",
-				"Principle 1: give a recommendation with reasoning; confirm intent before forging ahead.",
+				"Raise and resolve the open questions before implementing.",
+				"Give a recommendation with reasoning; confirm intent before forging ahead.",
 			],
-			LoopState::Blocked => &[
-				"Principle 12: do not proceed past an unmet dependency; resolve the named blockers first.",
-			],
+			LoopState::Blocked =>
+				&["Do not proceed past an unmet dependency; resolve the named blockers first."],
 			LoopState::AwaitingFirstReview => &[
-				"Principle 5: the reviewer is independent; a writer never reviews its own work.",
-				"Principle 7: cite the file and line for each finding rather than asserting from memory.",
+				"The reviewer is independent; a writer never reviews its own work.",
+				"Cite the file and line for each finding rather than asserting from memory.",
 			],
 			LoopState::AwaitingFixes => &[
-				"Principle 4: keep the fix small and reviewable.",
-				"Principle 8: address the findings only; flag any other change rather than folding it in.",
+				"Keep the fix small and reviewable.",
+				"Address the findings only; flag any other change rather than folding it in.",
 			],
 			LoopState::AwaitingReviewers => &[
-				"Principle 5: staff a fresh, independent reviewer and diversify the model.",
-				"Principle 7: cite the file and line for each finding.",
+				"Staff a fresh, independent reviewer and diversify the model.",
+				"Cite the file and line for each finding.",
 			],
 			LoopState::Converged => &[
-				"Principle 6: verify by running the tests and checks before marking the step complete.",
-				"Principle 16: edit the step status in the plan source and re-render; never hand-edit the generated view.",
+				"Verify by running the tests and checks before marking the step complete.",
+				"Edit the step status in the plan source and re-render; never hand-edit the generated view.",
 			],
 			LoopState::Escalate => &[
-				"Human-input contract (see AGENTS.md): present the options, their trade-offs, an explicit recommendation, and the reasoning judged against the numbered Project Principles (name the Principle numbers), scaled to the stakes. The human decides; advise, never decide for them.",
-				"Principle 12: escalate loudly at the round cap rather than continuing the loop.",
+				"Human-input contract (see AGENTS.md): present the options, their trade-offs, an explicit recommendation, and the reasoning judged against the Project Principles, scaled to the stakes. The human decides; advise, never decide for them.",
+				"Escalate loudly at the round cap rather than continuing the loop.",
 			],
 			LoopState::RiskClassConflict => &[
-				"Principle 12: fail loud on the data fault; do not derive a convergence verdict from an ambiguous risk class.",
-				"Principle 15: the increment's round records disagree on risk_class; correct them so a single required streak is defined before the loop can converge.",
+				"Fail loud on the data fault; do not derive a convergence verdict from an ambiguous risk class.",
+				"The increment's round records disagree on risk_class; correct them so a single required streak is defined before the loop can converge.",
 			],
-			LoopState::Done => &[
-				"Principle 8: the step is complete; move to the next step rather than expanding scope here.",
-			],
+			LoopState::Done =>
+				&["The step is complete; move to the next step rather than expanding scope here."],
 		}
 	}
+}
+
+/// The projected Project Principle reminder for the escalate / human-input-contract
+/// state: find `ESCALATE_PRINCIPLE_NAME` in the plan's `[[principle]]` and emit its real
+/// name and text (with the plan's own number as a locator), so the human sees the actual
+/// principle to ground the cap-reached decision in, self-contained at the point of
+/// action and drift-free (it is projected live from the same plan.toml the render and the
+/// contract read). Looked up by NAME, not by a fixed number, because two disagreeing
+/// numbered lists exist and the number renumbers on reorder. Returns `None` when the plan
+/// does not carry the principle (D-e Option 1: degrade to the originated imperative alone,
+/// never a dangling number); the Markdown substrate, which parses no principles, always
+/// degrades this way.
+fn projected_principle_reminder(principles: &[Principle]) -> Option<String> {
+	let principle =
+		principles.iter().find(|principle| principle.name == ESCALATE_PRINCIPLE_NAME)?;
+	Some(format!(
+		"Ground the recommendation in the Project Principle \"{}\" (plan principle {}): {}",
+		principle.name, principle.n, principle.text
+	))
 }
 
 /// A step's lifecycle phase, normalised so the Markdown parametric `blocked on <slug>`
@@ -453,6 +496,10 @@ pub(crate) struct NextInputs<'a> {
 	pub(crate) ledger_path: String,
 	pub(crate) resume_state: Option<String>,
 	pub(crate) isolation_tier: String,
+	/// The plan's parsed `[[principle]]` list, projected by NAME into the escalate
+	/// human-input-contract reminder. Empty for a Markdown-source projection (the Markdown
+	/// substrate carries no principles), which degrades the projection gracefully.
+	pub(crate) principles: &'a [Principle],
 }
 
 /// The instruction-assembly context threaded through the builders: the path/tier facts
@@ -461,6 +508,8 @@ struct LoopContext<'a> {
 	task: &'a str,
 	ledger_path: &'a str,
 	isolation_tier: &'a str,
+	/// The plan's principles, threaded to the escalate-state reminder projection.
+	principles: &'a [Principle],
 }
 
 /// The loop facts the instruction and the summary read, so the many scalars are passed
@@ -481,6 +530,7 @@ pub(crate) fn project(inputs: NextInputs) -> NextProjection {
 		task: &inputs.task,
 		ledger_path: &inputs.ledger_path,
 		isolation_tier: &inputs.isolation_tier,
+		principles: inputs.principles,
 	};
 	let active_loop = select_active_loop(inputs.steps, inputs.rounds, inputs.spec, &context);
 	let no_active_loop_reason =
@@ -488,7 +538,9 @@ pub(crate) fn project(inputs: NextInputs) -> NextProjection {
 	NextProjection {
 		task: inputs.task,
 		source: inputs.source,
-		metrics: inputs.metrics_records.map(|records| MetricsSummary { records }),
+		metrics: inputs.metrics_records.map(|records| MetricsSummary {
+			records,
+		}),
 		active_loop,
 		resume_state: inputs.resume_state,
 		no_active_loop_reason,
@@ -506,8 +558,10 @@ fn select_active_loop(
 	spec: &WorkflowSpec,
 	context: &LoopContext,
 ) -> Option<ActiveLoop> {
-	if let Some(step) =
-		steps.iter().filter(|step| step.phase == StepPhase::InProgress).min_by_key(|step| step.order)
+	if let Some(step) = steps
+		.iter()
+		.filter(|step| step.phase == StepPhase::InProgress)
+		.min_by_key(|step| step.order)
 	{
 		return Some(build_in_progress_loop(step, rounds, spec, context));
 	}
@@ -730,9 +784,17 @@ fn assemble(
 }
 
 /// Build the filled instruction for a state: the role and its prompt path, the
-/// convention-derived context slots, the reminders (with the isolation-tier reminder
-/// appended when a writer is spawned and the tier was not supplied), and the one-line
-/// summary.
+/// convention-derived context slots, the reminders, and the one-line summary.
+///
+/// The reminders are assembled in three parts, in a fixed order: (1) the state's
+/// originated base reminders; (2) at the escalate state, the projected Project Principle
+/// text for the human decision (when the plan carries it); (3) at a WRITER-spawn state,
+/// the always-on writer-isolation reminder, unconditionally emitting the generated
+/// `ISOLATION_POLICY_FRAGMENT` (the single source shared with AGENTS.md, so the policy is
+/// inline at the point of action and cannot drift) plus the resolved tier, and, when the
+/// tier is still `unknown`, the resolve-the-tier note. This replaces the old
+/// tier-only-when-unknown pointer: the policy fires at every writer spawn regardless of
+/// tier (D-b, the motivating case).
 fn build_instruction(
 	state: LoopState,
 	facts: &LoopFacts,
@@ -741,8 +803,23 @@ fn build_instruction(
 	let role = state.role();
 	let mut principle_reminders: Vec<String> =
 		state.base_reminders().iter().map(|reminder| (*reminder).to_string()).collect();
-	if state.spawns_writer() && context.isolation_tier == "unknown" {
-		principle_reminders.push(TIER_REMINDER.to_string());
+	// The escalate human-input-contract reminder projects the actual Project Principle
+	// (by name, from the plan) rather than citing a number; absent from the plan, it
+	// degrades to the originated imperative alone (no dangling reference).
+	if state == LoopState::Escalate {
+		if let Some(reminder) = projected_principle_reminder(context.principles) {
+			principle_reminders.push(reminder);
+		}
+	}
+	// The always-on writer-isolation reminder: the generated policy fragment (drift-free,
+	// shared with AGENTS.md) plus the resolved tier, at every writer-spawn state.
+	if state.spawns_writer() {
+		let lead = if context.isolation_tier == "unknown" {
+			format!("Writer isolation (tier not yet resolved). {TIER_RESOLVE_NOTE}")
+		} else {
+			format!("Writer isolation (resolved tier: {}).", context.isolation_tier)
+		};
+		principle_reminders.push(format!("{lead} {ISOLATION_POLICY_FRAGMENT}"));
 	}
 	Instruction {
 		role: role.to_string(),
@@ -769,10 +846,8 @@ fn build_context(
 	let mut slots = BTreeMap::new();
 	slots.insert("ledger".to_string(), context.ledger_path.to_string());
 	slots.insert("isolation_tier".to_string(), context.isolation_tier.to_string());
-	let review_findings = format!(
-		"docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md",
-		context.task, facts.step
-	);
+	let review_findings =
+		format!("docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md", context.task, facts.step);
 	let triage_findings = format!("docs/plans/{}.reviews/{}-triage.md", context.task, facts.step);
 	match state {
 		LoopState::AwaitingFirstReview | LoopState::AwaitingReviewers => {
@@ -874,11 +949,7 @@ pub(crate) fn extract_resume_state(fragment: &str) -> Option<String> {
 			block.push(line);
 		}
 	}
-	if in_section {
-		Some(block.join("\n").trim_end().to_string())
-	} else {
-		None
-	}
+	if in_section { Some(block.join("\n").trim_end().to_string()) } else { None }
 }
 
 /// Derive the task slug from the plan source filename: the `<task>` in
@@ -1031,7 +1102,44 @@ mod tests {
 			ledger_path: "docs/plans/demo.ledger.md".to_string(),
 			resume_state: None,
 			isolation_tier: isolation_tier.to_string(),
+			principles: &[],
 		})
+	}
+
+	/// Project a fixture, additionally supplying the plan's `[[principle]]` list so the
+	/// escalate human-input-contract reminder can project a real principle by name.
+	fn project_fixture_with_principles(
+		steps: &[StepInfo],
+		rounds: &[Round],
+		isolation_tier: &str,
+		principles: &[Principle],
+	) -> NextProjection {
+		let spec = WorkflowSpec::builtin();
+		project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps,
+			rounds,
+			spec: &spec,
+			metrics_records: Some(rounds.len()),
+			ledger_path: "docs/plans/demo.ledger.md".to_string(),
+			resume_state: None,
+			isolation_tier: isolation_tier.to_string(),
+			principles,
+		})
+	}
+
+	/// Build a `[[principle]]` fixture (fields are `pub(crate)`, constructible in-crate).
+	fn test_principle(
+		n: u64,
+		name: &str,
+		text: &str,
+	) -> Principle {
+		Principle {
+			n,
+			name: name.to_string(),
+			text: text.to_string(),
+		}
 	}
 
 	/// The active loop of a fixture projection, panicking when there is none.
@@ -1063,7 +1171,10 @@ mod tests {
 		assert_eq!(loop_.state, LoopState::Blocked);
 		assert!(loop_.valid_transitions.is_empty());
 		assert_eq!(loop_.next_instruction.role, "orchestrator");
-		assert_eq!(loop_.next_instruction.context.get("blocked_by").map(String::as_str), Some("dep"));
+		assert_eq!(
+			loop_.next_instruction.context.get("blocked_by").map(String::as_str),
+			Some("dep")
+		);
 	}
 
 	#[test]
@@ -1185,8 +1296,10 @@ mod tests {
 		let spec = WorkflowSpec::builtin();
 		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
 		let projection = project_fixture(&steps, &rounds, "worktree");
-		let next_converged =
-			projection.active_loop.as_ref().is_some_and(|loop_| loop_.state == LoopState::Converged);
+		let next_converged = projection
+			.active_loop
+			.as_ref()
+			.is_some_and(|loop_| loop_.state == LoopState::Converged);
 
 		// W3 checks a COMPLETE step; feed it the same records and the same built-in spec.
 		let w3_steps = [crate::plan::Step {
@@ -1201,18 +1314,34 @@ mod tests {
 	#[test]
 	fn next_agrees_with_w3() {
 		// Converged cases: next says converged, W3 finds no shortfall.
-		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc")]);
+		assert_differential(vec![round(
+			1,
+			RoundOutcome::Clean,
+			1,
+			RiskClass::LowRisk,
+			"a",
+			"a-inc",
+		)]);
 		assert_differential(vec![
 			round(1, RoundOutcome::NewValid, 0, RiskClass::Risky, "a", "a-inc"),
 			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
 			round(3, RoundOutcome::Clean, 2, RiskClass::Risky, "a", "a-inc"),
 		]);
 		// Shortfall cases: next says not-converged, W3 reports a shortfall.
-		assert_differential(vec![round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")]);
+		assert_differential(vec![round(
+			1,
+			RoundOutcome::NewValid,
+			0,
+			RiskClass::LowRisk,
+			"a",
+			"a-inc",
+		)]);
 		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")]);
 		assert_differential(
 			(1 ..= 5)
-				.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+				.map(|line| {
+					round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")
+				})
 				.collect(),
 		);
 		// Mixed-class case: one increment whose rounds disagree on risk_class. This would
@@ -1266,30 +1395,173 @@ mod tests {
 		assert!(!reminders_cite_the_contract(active(&review)));
 	}
 
-	// -- The isolation-tier reminder --
+	// -- The always-on writer-isolation reminder --
 
-	#[test]
-	fn an_unknown_tier_appends_the_resolve_reminder_for_a_writer() {
-		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
-		let projection = project_fixture(&steps, &[], "unknown");
-		let has_reminder = active(&projection)
+	/// Whether any reminder carries the generated isolation-policy fragment (the single
+	/// source shared with AGENTS.md). Matching the whole fragment, not a paraphrase, pins
+	/// that the driver emits the shared const and not a hand-copy.
+	fn reminders_carry_the_isolation_fragment(loop_: &ActiveLoop) -> bool {
+		loop_
 			.next_instruction
 			.principle_reminders
 			.iter()
-			.any(|reminder| reminder.contains("isolation tier"));
-		assert!(has_reminder);
+			.any(|reminder| reminder.contains(ISOLATION_POLICY_FRAGMENT))
+	}
+
+	/// Whether any reminder carries the resolve-the-tier note (fired only when the tier is
+	/// still `unknown` at a writer state).
+	fn reminders_carry_the_resolve_note(loop_: &ActiveLoop) -> bool {
+		loop_
+			.next_instruction
+			.principle_reminders
+			.iter()
+			.any(|reminder| reminder.contains(TIER_RESOLVE_NOTE))
+	}
+
+	/// The `ready-to-plan` (planner) writer state, with the given echoed tier.
+	fn ready_to_plan_loop(isolation_tier: &str) -> NextProjection {
+		let steps = [test_step("a", 0, StepPhase::NotStarted, &[])];
+		project_fixture(&steps, &[], isolation_tier)
+	}
+
+	/// The `awaiting-fixes` (implementer) writer state, with the given echoed tier.
+	fn awaiting_fixes_loop(isolation_tier: &str) -> NextProjection {
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")];
+		project_fixture(&steps, &rounds, isolation_tier)
 	}
 
 	#[test]
-	fn a_known_tier_omits_the_resolve_reminder() {
+	fn a_writer_state_emits_the_isolation_fragment_for_any_tier() {
+		// The policy fragment fires UNCONDITIONALLY at writer states, whether the tier is
+		// known or unknown, at both writer states (planner and implementer). This is the
+		// motivating case: the policy is inline at the point of action and cannot drift.
+		for state in [ready_to_plan_loop("worktree"), ready_to_plan_loop("unknown")] {
+			assert_eq!(active(&state).state, LoopState::ReadyToPlan);
+			assert!(reminders_carry_the_isolation_fragment(active(&state)));
+		}
+		for state in [awaiting_fixes_loop("container"), awaiting_fixes_loop("unknown")] {
+			assert_eq!(active(&state).state, LoopState::AwaitingFixes);
+			assert!(reminders_carry_the_isolation_fragment(active(&state)));
+		}
+	}
+
+	#[test]
+	fn a_writer_state_echoes_the_resolved_tier_in_the_isolation_reminder() {
+		let known = ready_to_plan_loop("worktree");
+		assert!(
+			active(&known)
+				.next_instruction
+				.principle_reminders
+				.iter()
+				.any(|reminder| reminder.contains("resolved tier: worktree"))
+		);
+		// A known tier does NOT carry the resolve-the-tier note; only an unknown tier does.
+		assert!(!reminders_carry_the_resolve_note(active(&known)));
+	}
+
+	#[test]
+	fn an_unknown_tier_adds_the_resolve_note_at_a_writer_state() {
+		let unknown = awaiting_fixes_loop("unknown");
+		assert!(reminders_carry_the_resolve_note(active(&unknown)));
+		// The fragment is still present alongside the resolve note.
+		assert!(reminders_carry_the_isolation_fragment(active(&unknown)));
+	}
+
+	#[test]
+	fn the_reviewer_states_carry_no_isolation_reminder() {
+		// `spawns_writer` no longer includes the two read-only reviewer states, so the
+		// isolation policy must NOT attach to a reviewer spawn (CHANGE A / D-d). Test both
+		// review states and both a known and an unknown tier.
+		let first_review_steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		for tier in ["worktree", "unknown"] {
+			let first_review = project_fixture(&first_review_steps, &[], tier);
+			assert_eq!(active(&first_review).state, LoopState::AwaitingFirstReview);
+			assert!(!reminders_carry_the_isolation_fragment(active(&first_review)));
+			assert!(!reminders_carry_the_resolve_note(active(&first_review)));
+
+			let review_rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")];
+			let awaiting_reviewers = project_fixture(&first_review_steps, &review_rounds, tier);
+			assert_eq!(active(&awaiting_reviewers).state, LoopState::AwaitingReviewers);
+			assert!(!reminders_carry_the_isolation_fragment(active(&awaiting_reviewers)));
+			assert!(!reminders_carry_the_resolve_note(active(&awaiting_reviewers)));
+		}
+	}
+
+	// -- De-numbered terse reminders + projected escalate principle (CHANGE C) --
+
+	#[test]
+	fn no_terse_reminder_carries_a_numeric_principle_citation() {
+		// D-a Option 2: the workflow-phase reminders are honest originated imperatives with
+		// no "Principle N:" numeric citation. Sweep every state's base reminders.
+		for state in [
+			LoopState::ReadyToPlan,
+			LoopState::Blocked,
+			LoopState::AwaitingFirstReview,
+			LoopState::AwaitingFixes,
+			LoopState::AwaitingReviewers,
+			LoopState::Converged,
+			LoopState::Escalate,
+			LoopState::RiskClassConflict,
+			LoopState::Done,
+		] {
+			for reminder in state.base_reminders() {
+				assert!(
+					!reminder.contains("Principle "),
+					"state {state:?} still cites a numbered principle: {reminder}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn the_escalate_reminder_projects_a_real_plan_principle_by_name() {
+		// The escalate human-input-contract reminder projects the actual name and text of
+		// the plan's "Ground decisions in evidence" principle (D-e Option 1), self-contained
+		// for the human, not a numeric citation.
 		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
-		let projection = project_fixture(&steps, &[], "container");
-		let has_reminder = active(&projection)
+		let escalate_rounds: Vec<Round> = (1 ..= 5)
+			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+			.collect();
+		let principles = [
+			test_principle(6, ESCALATE_PRINCIPLE_NAME, "validate an approach with evidence."),
+			test_principle(2, "Minimal by default", "the core does one thing well."),
+		];
+		let projection =
+			project_fixture_with_principles(&steps, &escalate_rounds, "worktree", &principles);
+		assert_eq!(active(&projection).state, LoopState::Escalate);
+		let projected = active(&projection)
 			.next_instruction
 			.principle_reminders
 			.iter()
-			.any(|reminder| reminder.contains("isolation tier"));
-		assert!(!has_reminder);
+			.find(|reminder| reminder.contains(ESCALATE_PRINCIPLE_NAME))
+			.expect("the escalate reminder projects the grounding principle by name");
+		// The projected reminder carries the real text and the plan's own number, never a
+		// hardcoded AGENTS.md number.
+		assert!(projected.contains("validate an approach with evidence."));
+		assert!(projected.contains("plan principle 6"));
+	}
+
+	#[test]
+	fn the_escalate_reminder_degrades_when_the_principle_is_absent() {
+		// When the plan does not carry the grounding principle (here: no principles at all,
+		// as for a Markdown source), the reminder degrades to the originated human-input
+		// contract alone, never a dangling number (D-e Option 1). The base contract reminder
+		// is still present; no reminder mentions the missing principle name.
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let escalate_rounds: Vec<Round> = (1 ..= 5)
+			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
+			.collect();
+		let projection = project_fixture(&steps, &escalate_rounds, "worktree");
+		assert_eq!(active(&projection).state, LoopState::Escalate);
+		assert!(reminders_cite_the_contract(active(&projection)));
+		assert!(
+			!active(&projection)
+				.next_instruction
+				.principle_reminders
+				.iter()
+				.any(|reminder| reminder.contains(ESCALATE_PRINCIPLE_NAME))
+		);
 	}
 
 	// -- RESUME STATE extractor --
@@ -1320,7 +1592,8 @@ mod tests {
 
 	fn golden_projection() -> NextProjection {
 		let steps = [test_step("core-assets", 0, StepPhase::InProgress, &[])];
-		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "core-assets", "core-assets-inc1")];
+		let rounds =
+			[round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "core-assets", "core-assets-inc1")];
 		let spec = WorkflowSpec::builtin();
 		project(NextInputs {
 			task: "demo".to_string(),
@@ -1332,6 +1605,7 @@ mod tests {
 			ledger_path: "docs/plans/demo.ledger.md".to_string(),
 			resume_state: None,
 			isolation_tier: "worktree".to_string(),
+			principles: &[],
 		})
 	}
 
@@ -1355,8 +1629,8 @@ ACTIVE LOOP
     review_findings: docs/plans/demo.reviews/core-assets-reviewer-<disambiguator>.md
     triage_findings: docs/plans/demo.reviews/core-assets-triage.md
   reminders:
-    - Principle 5: staff a fresh, independent reviewer and diversify the model.
-    - Principle 7: cite the file and line for each finding.
+    - Staff a fresh, independent reviewer and diversify the model.
+    - Cite the file and line for each finding.
   summary: fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2).";
 
 	const GOLDEN_JSON: &str = r#"{
@@ -1391,8 +1665,8 @@ ACTIVE LOOP
         "triage_findings": "docs/plans/demo.reviews/core-assets-triage.md"
       },
       "principle_reminders": [
-        "Principle 5: staff a fresh, independent reviewer and diversify the model.",
-        "Principle 7: cite the file and line for each finding."
+        "Staff a fresh, independent reviewer and diversify the model.",
+        "Cite the file and line for each finding."
       ],
       "filled_prompt_summary": "fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2)."
     }

@@ -1091,8 +1091,7 @@ fn default_ledger_path(task: &str) -> PathBuf {
 /// `status` is a best-effort projection, not a validator.
 fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
-	let ledger_path =
-		args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
 	if !ledger_path.exists() {
 		println!("no ledger at {}; nothing to resume", ledger_path.display());
 		return Ok(());
@@ -1100,10 +1099,7 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let contents = fs::read_to_string(&ledger_path)?;
 	match next::extract_resume_state(&contents) {
 		Some(resume_state) => println!("{resume_state}"),
-		None => println!(
-			"{}: no `## RESUME STATE` block found",
-			ledger_path.display()
-		),
+		None => println!("{}: no `## RESUME STATE` block found", ledger_path.display()),
 	}
 	Ok(())
 }
@@ -1117,19 +1113,27 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 
 	// Resolve the plan source the same way `status` does: a TOML-primary `--source` wins,
 	// else the Markdown `--plan`. `source` is echoed verbatim for determinism.
-	let (steps, source) = if let Some(source_plan) = toml_source(&args.source)? {
+	// The plan's `[[principle]]` list is carried alongside the steps so `next` can project
+	// the escalate human-input-contract reminder's Project Principle by name. Only the TOML
+	// source parses principles; a Markdown-source projection carries none (the reminder
+	// degrades gracefully to its originated imperative).
+	let (steps, principles, source) = if let Some(source_plan) = toml_source(&args.source)? {
 		let label = args
 			.source
 			.as_ref()
 			.map_or_else(|| "source".to_string(), |path| path.display().to_string());
-		(next::steps_from_toml(&source_plan), label)
+		(next::steps_from_toml(&source_plan), source_plan.principles.clone(), label)
 	} else {
 		match &args.plan {
 			Some(path) if path.exists() => {
 				let contents = fs::read_to_string(path)?;
-				(next::steps_from_markdown(&plan::parse_roadmap(&contents)), path.display().to_string())
+				(
+					next::steps_from_markdown(&plan::parse_roadmap(&contents)),
+					Vec::new(),
+					path.display().to_string(),
+				)
 			}
-			_ => (Vec::new(), "no plan source".to_string()),
+			_ => (Vec::new(), Vec::new(), "no plan source".to_string()),
 		}
 	};
 
@@ -1165,6 +1169,7 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		ledger_path: ledger_path.display().to_string(),
 		resume_state,
 		isolation_tier,
+		principles: &principles,
 	});
 
 	if args.json {

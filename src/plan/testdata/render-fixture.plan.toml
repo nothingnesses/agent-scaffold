@@ -22,6 +22,14 @@ title = "The first step"
 status = "complete"
 order = 1
 
+# `alpha` carries provenance ALONGSIDE its increment and waiver, so the render golden
+# pins the `[step.provenance]` sub-table's round-trip-valid placement (before the
+# arrays-of-tables) and exercises all three provenance lists in the Notes cell.
+[step.provenance]
+decisions = ["Q-2"]
+findings = ["render-fixture.findings/alpha.md"]
+commits = ["abc1234"]
+
 [[step.increment]]
 id = "alpha-inc1"
 risk_class = "risky"

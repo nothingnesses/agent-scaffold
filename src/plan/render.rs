@@ -35,6 +35,7 @@ use {
 		source::{
 			PlanToml,
 			Principle,
+			Provenance,
 			Question,
 			QuestionStatus,
 			Step,
@@ -470,8 +471,10 @@ fn roadmap_section(step_blobs: &[(&Step, String)]) -> String {
 }
 
 /// The Notes cell for a Roadmap row: the `blocked on <slug>` markers (from
-/// `blocked_by`) then the inline waiver descriptors, joined with `; `. Empty when the
-/// step is neither blocked nor waived.
+/// `blocked_by`), then the inline waiver descriptors, then the provenance fragment
+/// (from `[step.provenance]`), joined with `; `. The provenance fragment is appended
+/// LAST so the blocked/waived state a reader scans for stays leftmost. Empty when the
+/// step is neither blocked, waived, nor provenanced.
 fn notes_cell(step: &Step) -> String {
 	let mut notes: Vec<String> = Vec::new();
 	for blocker in &step.blocked_by {
@@ -480,7 +483,31 @@ fn notes_cell(step: &Step) -> String {
 	for waiver in &step.waivers {
 		notes.push(waiver_note(waiver));
 	}
+	if let Some(provenance) = &step.provenance {
+		notes.push(provenance_note(provenance));
+	}
 	notes.join("; ")
+}
+
+/// The inline "why this step exists" descriptor for a step's provenance: the
+/// present sub-lists in the fixed decisions -> findings -> commits order, each in the
+/// TOML's source order (a `Vec`, already deterministic). Renders only the non-empty
+/// lists, so a provenance carrying only decisions shows only `decisions ...`. Mirrors
+/// how a question renders its `receipt`: a TOML-derived per-item fact on the scannable
+/// line. `validate_source` guarantees at least one list is non-empty, so the fragment
+/// is never a bare `why:` (rendered defensively if it ever is).
+fn provenance_note(provenance: &Provenance) -> String {
+	let mut parts: Vec<String> = Vec::new();
+	if !provenance.decisions.is_empty() {
+		parts.push(format!("decisions {}", provenance.decisions.join(", ")));
+	}
+	if !provenance.findings.is_empty() {
+		parts.push(format!("findings {}", provenance.findings.join(", ")));
+	}
+	if !provenance.commits.is_empty() {
+		parts.push(format!("commits {}", provenance.commits.join(", ")));
+	}
+	format!("why: {}", parts.join("; "))
 }
 
 /// The inline descriptor for a waiver in the Roadmap Notes: the unit (a whole step,
@@ -693,6 +720,15 @@ mod tests {
 		);
 		assert!(
 			out.contains("waived: increment `alpha-inc1` accepted-at-escalation (record-backed)"),
+			"{out}"
+		);
+		// The provenance fragment renders LAST in `alpha`'s Notes cell (after the waiver),
+		// showing the present sub-lists in decisions -> findings -> commits order. `alpha`
+		// carries all three, so the full "why: ..." fragment appears.
+		assert!(
+			out.contains(
+				"why: decisions Q-2; findings render-fixture.findings/alpha.md; commits abc1234"
+			),
 			"{out}"
 		);
 		// The queue shows the decided fold target and the receipt pointer.
@@ -1063,6 +1099,30 @@ mod tests {
 		assert!(
 			out.contains("1 skipped") && out.contains("1 optional") && out.contains("1 deferred"),
 			"{out}"
+		);
+	}
+
+	#[test]
+	fn provenance_note_renders_only_the_present_sub_lists_in_order() {
+		// Only the non-empty sub-lists render, in the fixed decisions -> findings ->
+		// commits order. A decisions-only provenance yields exactly `why: decisions ...`
+		// with no stray `findings`/`commits` label (the live exemplars exercise this case).
+		let decisions_only = Provenance {
+			decisions: vec!["Q-53".to_string()],
+			findings: Vec::new(),
+			commits: Vec::new(),
+		};
+		assert_eq!(provenance_note(&decisions_only), "why: decisions Q-53");
+		// Findings + commits, no decisions: the decisions label is absent and the order
+		// is preserved.
+		let findings_and_commits = Provenance {
+			decisions: Vec::new(),
+			findings: vec!["notes/x.md".to_string()],
+			commits: vec!["abc1234".to_string(), "def5678".to_string()],
+		};
+		assert_eq!(
+			provenance_note(&findings_and_commits),
+			"why: findings notes/x.md; commits abc1234, def5678"
 		);
 	}
 

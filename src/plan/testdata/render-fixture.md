@@ -41,7 +41,7 @@ Generated status vocabulary (from the code constants, so it cannot drift):
 
 | Step | Status | Notes |
 | --- | --- | --- |
-| `alpha` | complete | waived: increment `alpha-inc1` accepted-at-escalation (record-backed) - Accepted below its streak at a human escalation. |
+| `alpha` | complete | waived: increment `alpha-inc1` accepted-at-escalation (record-backed) - Accepted below its streak at a human escalation.; why: decisions Q-2; findings render-fixture.findings/alpha.md; commits abc1234 |
 | `beta` | in progress | blocked on `alpha`; waived: step predates-logging (self-declared) |
 | `gamma` | next | blocked on `beta` |
 | `delta` | not started |  |

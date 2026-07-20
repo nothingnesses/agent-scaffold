@@ -123,13 +123,13 @@ pub(crate) struct Meta {
 	pub(crate) sidecars: Sidecars,
 }
 
-/// One Roadmap step (`[[step]]`). Scalar and value keys come before the
-/// `provenance` sub-table, which in turn comes before the array-of-table keys
-/// (`increment` / `waiver`), so a TOML re-serialisation stays valid: `provenance`
-/// serialises as a `[step.provenance]` sub-table (its inner lists are inline
-/// arrays, not arrays-of-tables), and a sub-table emitted AFTER `[[step.increment]]`
-/// would bind to the wrong table. It is therefore declared after the inline-value
-/// fields (`blocked_by` / `folds`) and before `increments` / `waivers`.
+/// One Roadmap step (`[[step]]`). The `provenance` sub-table is declared after the
+/// inline-value fields (`blocked_by` / `folds`) and before the array-of-table keys
+/// (`increment` / `waiver`) purely for readability, to group it with the other
+/// value-ish keys rather than for round-trip correctness: a fully-qualified
+/// `[step.provenance]` header binds to its `[[step]]` regardless of declaration
+/// position, and the toml serialiser emits values and sub-tables in a valid order
+/// on its own, so declaration order here does not affect round-trip fidelity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Step {
@@ -150,10 +150,10 @@ pub(crate) struct Step {
 	pub(crate) folds: Vec<String>,
 	/// The step's provenance links: the decisions/findings/commits that justify it
 	/// (`[step.provenance]`). Declared here, after the inline-value fields and before
-	/// the arrays-of-tables, so its sub-table serialises in a round-trip-valid position
-	/// (see the `Step` doc comment's ordering note). Absent on a step with no recorded
-	/// provenance, so an existing step deserialises to `None` and re-serialises to
-	/// nothing (byte-identical to today).
+	/// the arrays-of-tables, to group it with the other value-ish keys for readability
+	/// (see the `Step` doc comment); the placement is not a round-trip constraint.
+	/// Absent on a step with no recorded provenance, so an existing step deserialises
+	/// to `None` and re-serialises to nothing (byte-identical to today).
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub(crate) provenance: Option<Provenance>,
 	/// The step's increments (`[[step.increment]]`).
@@ -1270,11 +1270,12 @@ mod tests {
 
 	#[test]
 	fn a_populated_provenance_parses_and_round_trips_alongside_increments_and_waivers() {
-		// The provenance sub-table sits on a step that ALSO carries an increment and a
-		// waiver, so serialising (which emits fields in declaration order) and re-parsing
-		// pins the ordering constraint: `[step.provenance]` must land before the
-		// `[[step.increment]]` / `[[step.waiver]]` arrays-of-tables for the round-trip to
-		// hold. All three provenance lists are populated.
+		// A genuine round-trip check: the provenance sub-table sits on a step that ALSO
+		// carries an increment and a waiver, and all three provenance lists are populated,
+		// so this verifies a fully-populated step survives serialise -> re-parse unchanged.
+		// It does NOT pin an ordering constraint: a fully-qualified `[step.provenance]`
+		// header binds to its `[[step]]` regardless of position, so both field orders
+		// round-trip in this toml version.
 		let source = concat!(
 			"[meta]\ntitle = \"t\"\n",
 			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",

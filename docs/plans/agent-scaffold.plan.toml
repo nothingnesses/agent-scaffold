@@ -853,13 +853,27 @@ decisions = ["Q-51"]
 
 [[step]]
 slug = "agents-worktree-planner-scope"
-title = "Clarify the worktree lifecycle covers the planner, not just the implementer"
-status = "deferred"
+title = "absorbed into `driver-output-generation`, which authors this clarification in the shared `isolation_policy` fragment (`skipped`)"
+status = "skipped"
 order = 66
 blocked_by = []
 folds = []
 increment = []
 waiver = []
+
+[[step]]
+slug = "driver-output-generation"
+title = "generate driver outputs at the point of action without drift; harden writer isolation (`Q-51` follow-up)"
+status = "not-started"
+order = 67
+blocked_by = []
+folds = ["agents-worktree-planner-scope"]
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-51"]
+findings = ["driver-output-generation.design.md"]
 
 [[question]]
 id = "Q-1"

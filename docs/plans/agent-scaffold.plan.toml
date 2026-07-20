@@ -713,8 +713,11 @@ status = "in-progress"
 order = 55
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "task-entry-regrounding-inc1"
+risk_class = "low_risk"
 
 [[step]]
 slug = "human-input-gate-reinforce"

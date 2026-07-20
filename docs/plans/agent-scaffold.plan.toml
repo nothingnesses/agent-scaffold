@@ -717,7 +717,6 @@ waiver = []
 
 [step.provenance]
 decisions = ["Q-53"]
-commits = ["1e1d26f"]
 
 [[step.increment]]
 id = "task-entry-regrounding-inc1"

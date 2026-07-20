@@ -848,7 +848,7 @@ Deferred cleanup from the `Q-44` audit (`architecture-audit.explorations/audit-s
 
 ### `sidecar-ref-empty-string`: Reject an empty sidecar/provenance ref in the shared rule (I2-2)
 
-Deferred cleanup (issue I2-2, from the structured-skeleton implementation reviews). `is_safe_sidecar_ref("")` returns `true` (`src/plan/source.rs:489`): an empty string is not absolute and has no path components, so the lexical rule accepts it. This shared rule guards BOTH the `[meta].sidecars` front/tail refs and the new `[step.provenance]` findings refs, so the gap affects both. Fix it once in the shared rule (reject the empty string) so every caller inherits the fix. No open decision, a known change. Deferred as a small validation-hardening cleanup.
+Deferred cleanup (issue I2-2, from the `task-entry-regrounding` inc2 review; ledger anchors 2026-07-20h/i/j). `is_safe_sidecar_ref("")` returns `true` (`src/plan/source.rs:489`): an empty string is not absolute and has no path components, so the lexical rule accepts it. This shared rule guards BOTH the `[meta].sidecars` front/tail refs and the new `[step.provenance]` findings refs, so the gap affects both. Fix it once in the shared rule (reject the empty string) so every caller inherits the fix. No open decision, a known change. Deferred as a small validation-hardening cleanup.
 
 ### `sidecar-ref-symlink`: Symlink escape in `[meta].sidecars` refs (L1)
 

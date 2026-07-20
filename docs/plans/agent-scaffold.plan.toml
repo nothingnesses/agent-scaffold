@@ -865,7 +865,7 @@ waiver = []
 [[step]]
 slug = "driver-output-generation"
 title = "generate driver outputs at the point of action without drift; harden writer isolation (`Q-51` follow-up)"
-status = "not-started"
+status = "in-progress"
 order = 67
 blocked_by = []
 folds = ["agents-worktree-planner-scope"]

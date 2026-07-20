@@ -715,6 +715,10 @@ blocked_by = []
 folds = []
 waiver = []
 
+[step.provenance]
+decisions = ["Q-53"]
+commits = ["1e1d26f"]
+
 [[step.increment]]
 id = "task-entry-regrounding-inc1"
 risk_class = "low_risk"
@@ -728,6 +732,9 @@ blocked_by = []
 folds = []
 increment = []
 waiver = []
+
+[step.provenance]
+decisions = ["Q-54"]
 
 [[question]]
 id = "Q-1"

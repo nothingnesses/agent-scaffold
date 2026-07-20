@@ -204,8 +204,8 @@ Generated status vocabulary (from the code constants, so it cannot drift):
 | `workflow-driver` | in progress |  |
 | `doc-redundancy-cleanup` | complete |  |
 | `doc-currency-guidance` | not started |  |
-| `task-entry-regrounding` | in progress |  |
-| `human-input-gate-reinforce` | complete |  |
+| `task-entry-regrounding` | in progress | why: decisions Q-53; commits 1e1d26f |
+| `human-input-gate-reinforce` | complete | why: decisions Q-54 |
 
 ## Step Details
 

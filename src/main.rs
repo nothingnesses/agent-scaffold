@@ -1091,7 +1091,8 @@ fn default_ledger_path(task: &str) -> PathBuf {
 /// `status` is a best-effort projection, not a validator.
 fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
-	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let ledger_path =
+		args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
 	if !ledger_path.exists() {
 		println!("no ledger at {}; nothing to resume", ledger_path.display());
 		return Ok(());
@@ -1099,7 +1100,10 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let contents = fs::read_to_string(&ledger_path)?;
 	match next::extract_resume_state(&contents) {
 		Some(resume_state) => println!("{resume_state}"),
-		None => println!("{}: no `## RESUME STATE` block found", ledger_path.display()),
+		None => println!(
+			"{}: no `## RESUME STATE` block found",
+			ledger_path.display()
+		),
 	}
 	Ok(())
 }

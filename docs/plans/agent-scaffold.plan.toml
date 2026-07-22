@@ -865,11 +865,10 @@ waiver = []
 [[step]]
 slug = "driver-output-generation"
 title = "generate driver outputs at the point of action without drift; harden writer isolation (`Q-51` follow-up)"
-status = "in-progress"
+status = "complete"
 order = 67
 blocked_by = []
 folds = ["agents-worktree-planner-scope"]
-waiver = []
 
 [step.provenance]
 decisions = ["Q-51"]
@@ -878,6 +877,18 @@ findings = ["driver-output-generation.design.md"]
 [[step.increment]]
 id = "driver-output-generation-inc1"
 risk_class = "risky"
+
+[[step.increment]]
+id = "driver-output-generation-inc2"
+risk_class = "risky"
+
+[[step.waiver]]
+id = "driver-output-generation-inc2-w1"
+unit = "increment"
+increment = "driver-output-generation-inc2"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "driver-output-generation-inc2"
 
 [[question]]
 id = "Q-1"

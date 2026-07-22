@@ -538,9 +538,7 @@ pub(crate) fn project(inputs: NextInputs) -> NextProjection {
 	NextProjection {
 		task: inputs.task,
 		source: inputs.source,
-		metrics: inputs.metrics_records.map(|records| MetricsSummary {
-			records,
-		}),
+		metrics: inputs.metrics_records.map(|records| MetricsSummary { records }),
 		active_loop,
 		resume_state: inputs.resume_state,
 		no_active_loop_reason,
@@ -558,10 +556,8 @@ fn select_active_loop(
 	spec: &WorkflowSpec,
 	context: &LoopContext,
 ) -> Option<ActiveLoop> {
-	if let Some(step) = steps
-		.iter()
-		.filter(|step| step.phase == StepPhase::InProgress)
-		.min_by_key(|step| step.order)
+	if let Some(step) =
+		steps.iter().filter(|step| step.phase == StepPhase::InProgress).min_by_key(|step| step.order)
 	{
 		return Some(build_in_progress_loop(step, rounds, spec, context));
 	}
@@ -846,8 +842,10 @@ fn build_context(
 	let mut slots = BTreeMap::new();
 	slots.insert("ledger".to_string(), context.ledger_path.to_string());
 	slots.insert("isolation_tier".to_string(), context.isolation_tier.to_string());
-	let review_findings =
-		format!("docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md", context.task, facts.step);
+	let review_findings = format!(
+		"docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md",
+		context.task, facts.step
+	);
 	let triage_findings = format!("docs/plans/{}.reviews/{}-triage.md", context.task, facts.step);
 	match state {
 		LoopState::AwaitingFirstReview | LoopState::AwaitingReviewers => {
@@ -949,7 +947,11 @@ pub(crate) fn extract_resume_state(fragment: &str) -> Option<String> {
 			block.push(line);
 		}
 	}
-	if in_section { Some(block.join("\n").trim_end().to_string()) } else { None }
+	if in_section {
+		Some(block.join("\n").trim_end().to_string())
+	} else {
+		None
+	}
 }
 
 /// Derive the task slug from the plan source filename: the `<task>` in
@@ -1171,10 +1173,7 @@ mod tests {
 		assert_eq!(loop_.state, LoopState::Blocked);
 		assert!(loop_.valid_transitions.is_empty());
 		assert_eq!(loop_.next_instruction.role, "orchestrator");
-		assert_eq!(
-			loop_.next_instruction.context.get("blocked_by").map(String::as_str),
-			Some("dep")
-		);
+		assert_eq!(loop_.next_instruction.context.get("blocked_by").map(String::as_str), Some("dep"));
 	}
 
 	#[test]
@@ -1296,10 +1295,8 @@ mod tests {
 		let spec = WorkflowSpec::builtin();
 		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
 		let projection = project_fixture(&steps, &rounds, "worktree");
-		let next_converged = projection
-			.active_loop
-			.as_ref()
-			.is_some_and(|loop_| loop_.state == LoopState::Converged);
+		let next_converged =
+			projection.active_loop.as_ref().is_some_and(|loop_| loop_.state == LoopState::Converged);
 
 		// W3 checks a COMPLETE step; feed it the same records and the same built-in spec.
 		let w3_steps = [crate::plan::Step {
@@ -1314,34 +1311,18 @@ mod tests {
 	#[test]
 	fn next_agrees_with_w3() {
 		// Converged cases: next says converged, W3 finds no shortfall.
-		assert_differential(vec![round(
-			1,
-			RoundOutcome::Clean,
-			1,
-			RiskClass::LowRisk,
-			"a",
-			"a-inc",
-		)]);
+		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "a", "a-inc")]);
 		assert_differential(vec![
 			round(1, RoundOutcome::NewValid, 0, RiskClass::Risky, "a", "a-inc"),
 			round(2, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc"),
 			round(3, RoundOutcome::Clean, 2, RiskClass::Risky, "a", "a-inc"),
 		]);
 		// Shortfall cases: next says not-converged, W3 reports a shortfall.
-		assert_differential(vec![round(
-			1,
-			RoundOutcome::NewValid,
-			0,
-			RiskClass::LowRisk,
-			"a",
-			"a-inc",
-		)]);
+		assert_differential(vec![round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")]);
 		assert_differential(vec![round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")]);
 		assert_differential(
 			(1 ..= 5)
-				.map(|line| {
-					round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")
-				})
+				.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
 				.collect(),
 		);
 		// Mixed-class case: one increment whose rounds disagree on risk_class. This would
@@ -1592,8 +1573,7 @@ mod tests {
 
 	fn golden_projection() -> NextProjection {
 		let steps = [test_step("core-assets", 0, StepPhase::InProgress, &[])];
-		let rounds =
-			[round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "core-assets", "core-assets-inc1")];
+		let rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "core-assets", "core-assets-inc1")];
 		let spec = WorkflowSpec::builtin();
 		project(NextInputs {
 			task: "demo".to_string(),

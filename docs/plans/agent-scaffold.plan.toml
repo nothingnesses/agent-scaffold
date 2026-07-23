@@ -5,6 +5,7 @@ primary = "toml"
 orphan_tasks = [
   "backlog-promotion",
   "consolidate-plan",
+  "decision-fold-q60-q62",
   "lifecycle-capture",
   "metrics-fields",
   "plan-fold",

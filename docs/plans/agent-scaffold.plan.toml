@@ -1016,6 +1016,32 @@ decisions = ["Q-50"]
 id = "acceptance-doc-currency-phrasing-polish-inc1"
 risk_class = "low_risk"
 
+[[step]]
+slug = "single-source-recommendation-rule"
+title = "render the recommendation-in-options rule into the Preflight from a single canonical source (`Q-60`)"
+status = "deferred"
+order = 76
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-60"]
+
+[[step]]
+slug = "driver-isolation-reminder-scope"
+title = "widen the `next` driver's isolation reminder to the reviewer / triager-spawn states (`Q-62`)"
+status = "deferred"
+order = 77
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-62"]
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1378,8 +1404,10 @@ ask = """whether the session lifecycle (the `pause` / `compaction-prep` / `resum
 
 [[question]]
 id = "Q-60"
-status = "open"
-ask = """whether the "Preflight" section of `pack/AGENTS.md` should explicitly restate that every option-set the orchestrator presents to the human carries a recommendation plus trade-offs plus reasoning judged against the plan's `[[principle]]` by NAME (the human-input contract), to make that standing directive concrete at resume time. Why: the human-input contract already requires this at every decision point, but it was repeatedly dropped right after a resume; a Preflight bullet would reinforce it exactly where it has been dropped. Raised by the human on 2026-07-23. This is a candidate, not yet decided (`open`); the orchestrator's lean is to adopt it as a low-cost pack addition. Do NOT edit the Preflight text in this pass; that is the eventual fold if the human decides yes."""
+status = "decided"
+folded_into = "single-source-recommendation-rule"
+receipt = "Q-60"
+ask = """whether the "Preflight" section of `pack/AGENTS.md` should explicitly restate that every option-set the orchestrator presents to the human carries a recommendation plus trade-offs plus reasoning judged against the plan's `[[principle]]` by NAME (the human-input contract), to make that standing directive concrete at resume time. Why: the human-input contract already requires this at every decision point, but it was repeatedly dropped right after a resume; a Preflight bullet would reinforce it exactly where it has been dropped. Raised by the human on 2026-07-23. This is a candidate, not yet decided (`open`); the orchestrator's lean is to adopt it as a low-cost pack addition. Do NOT edit the Preflight text in this pass; that is the eventual fold if the human decides yes. DECIDED (human, 2026-07-23): YES restate the recommendation-in-options rule in the Preflight (every option-set carries a recommendation plus trade-offs plus reasoning judged against the plan's principles by name), but NOT as a hand-copied duplicate and NOT as a bare pointer; the rule text lives in ONE canonical source and is RENDERED into both the human-input-contract location and the Preflight (and any other place it appears), so the copies cannot drift. This is the same single-source-rendered-fragment pattern already used for `ISOLATION_POLICY_FRAGMENT` (in `src/isolation_policy.rs`), which is substituted into the `{{isolation_policy}}` slot in `pack/AGENTS.md` and byte-guarded by tests. The human's general directive: always restate and avoid pointers where possible, instead rendering duplicates from a single source to prevent drift. This refines, for the recommendation-in-options rule specifically, the current AGENTS.md design in which each human-input point "refers to this contract rather than restating it": that pointer style is replaced here by a rendered restatement from the single canonical source. Chosen over a bare pointer (which the general directive discourages) and over a hand-copied restatement (which would drift). Folded into `single-source-recommendation-rule`; decision receipt `type:"decision"` `q_id:"Q-60"` in `docs/metrics/workflow.jsonl`."""
 
 [[question]]
 id = "Q-61"
@@ -1390,8 +1418,10 @@ ask = """the uniform-agent-isolation decision. DECIDED (human, 2026-07-23): EVER
 
 [[question]]
 id = "Q-62"
-status = "open"
-ask = """the driver-reminder scope follow-up from `Q-61`. Now that the uniform-isolation rule makes the reviewers, the triager, and the explorers isolate too (not only the writers), should the `next` driver emit its worktree-isolation reminder at the reviewer / triager-spawn states as well, or is `spawns_writer` still the right scope? Currently `spawns_writer` (`src/next.rs`) returns true only for `ReadyToPlan` (spawns the planner) and `AwaitingFixes` (spawns the implementer), so the always-on isolation reminder attaches only at those two writer states; the review states (`AwaitingFirstReview`, `AwaitingReviewers`) carry no isolation reminder, and the content-pin test `the_reviewer_states_carry_no_isolation_reminder` pins that. When `Q-61` landed, the driver behaviour was deliberately left unchanged and a NOTE was added in `spawns_writer` flagging this as a still-open decision, because the isolation reminder there also carries the writer's resolved tier and its resolve-the-tier note, which concern the writer's product-content blast radius. Candidates (not pre-decided): (a) widen `spawns_writer` (or add a sibling predicate) so the isolation reminder also fires at the reviewer / triager-spawn states, matching the uniform rule at the point of action, and flip the pinning test; (b) keep `spawns_writer` as-is on the ground that the isolation instruction for the read-only agents is already carried by their role prompts (`reviewer.md`, `triager.md`) and by `AGENTS.md`, so the driver reminder need not duplicate it, and the driver reminder stays about the writer's tier echo; (c) split the reminder so a lighter isolate-in-a-worktree reminder fires at every spawn state while the tier-echo / resolve-note stay writer-only. Judged against the plan principles: P1 (one uniform rule, no drift between guidance and driver) leans toward (a) or (c); P2 (minimal by default) and the no-duplication direction lean toward (b). Do not change driver behaviour until decided."""
+status = "decided"
+folded_into = "driver-isolation-reminder-scope"
+receipt = "Q-62"
+ask = """the driver-reminder scope follow-up from `Q-61`. Now that the uniform-isolation rule makes the reviewers, the triager, and the explorers isolate too (not only the writers), should the `next` driver emit its worktree-isolation reminder at the reviewer / triager-spawn states as well, or is `spawns_writer` still the right scope? Currently `spawns_writer` (`src/next.rs`) returns true only for `ReadyToPlan` (spawns the planner) and `AwaitingFixes` (spawns the implementer), so the always-on isolation reminder attaches only at those two writer states; the review states (`AwaitingFirstReview`, `AwaitingReviewers`) carry no isolation reminder, and the content-pin test `the_reviewer_states_carry_no_isolation_reminder` pins that. When `Q-61` landed, the driver behaviour was deliberately left unchanged and a NOTE was added in `spawns_writer` flagging this as a still-open decision, because the isolation reminder there also carries the writer's resolved tier and its resolve-the-tier note, which concern the writer's product-content blast radius. Candidates (not pre-decided): (a) widen `spawns_writer` (or add a sibling predicate) so the isolation reminder also fires at the reviewer / triager-spawn states, matching the uniform rule at the point of action, and flip the pinning test; (b) keep `spawns_writer` as-is on the ground that the isolation instruction for the read-only agents is already carried by their role prompts (`reviewer.md`, `triager.md`) and by `AGENTS.md`, so the driver reminder need not duplicate it, and the driver reminder stays about the writer's tier echo; (c) split the reminder so a lighter isolate-in-a-worktree reminder fires at every spawn state while the tier-echo / resolve-note stay writer-only. Judged against the plan principles: P1 (one uniform rule, no drift between guidance and driver) leans toward (a) or (c); P2 (minimal by default) and the no-duplication direction lean toward (b). Do not change driver behaviour until decided. DECIDED (human, 2026-07-23): option (a), WIDEN the reminder to fire at the reviewer / triager-spawn states too. The future build widens `spawns_writer` (or adds a sibling predicate) in `src/next.rs` so the isolation reminder attaches at the review-spawn states (`AwaitingFirstReview`, `AwaitingReviewers`), and flips the content-pin test `the_reviewer_states_carry_no_isolation_reminder`. Reasoning: P1 wants one uniform rule with no drift between the guidance and the driver, and since Q-61 makes every spawned agent isolate, the reminder belongs at the point of action for the review-spawn states, not only the writer states. Chosen over (b) keep-writer-only (which leaves the driver silent exactly where an agent is about to be spawned) and over (c) split-the-reminder (extra surface for no clear gain here). This is a `src/next.rs` code change plus flipping the pin test, deferred as a build step rather than done in this fold pass. Folded into `driver-isolation-reminder-scope`; decision receipt `type:"decision"` `q_id:"Q-62"` in `docs/metrics/workflow.jsonl`."""
 
 [[principle]]
 n = 1

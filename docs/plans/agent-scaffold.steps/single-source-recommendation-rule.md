@@ -1,0 +1,9 @@
+### `single-source-recommendation-rule`: render the recommendation-in-options rule into the Preflight from a single canonical source (`Q-60`)
+
+Restate the recommendation-in-options rule (that every option-set the orchestrator presents carries a recommendation plus trade-offs plus reasoning judged against the plan's principles by name) in the Preflight, so the standing directive is concrete at resume time where it has been repeatedly dropped. The restatement is neither a bare pointer nor a hand-copied duplicate: the rule text lives in ONE canonical source and is rendered into both the human-input-contract paragraph and the Preflight paragraph of `pack/AGENTS.md` (and any other place the rule appears), so the copies cannot drift.
+
+Why: Q-60. The human decided (2026-07-23) to restate rather than point, under the general directive "always restate and avoid pointers where possible, instead rendering duplicates from a single source to prevent drift". This refines the current AGENTS.md design in which each human-input point "refers to this contract rather than restating it": for the recommendation-in-options rule specifically, that pointer style is replaced by a rendered restatement.
+
+Precedent and render targets: the single-source-rendered-fragment pattern already used for `ISOLATION_POLICY_FRAGMENT` (in `src/isolation_policy.rs`), which is substituted into the `{{isolation_policy}}` slot in `pack/AGENTS.md` and byte-guarded by tests. This step follows the same pattern: one canonical fragment, a substitution slot, and a byte-guard test. The two render targets in `pack/AGENTS.md` are the human-input-contract paragraph and the Preflight paragraph.
+
+Deferred: this is a build owed later (a new rendered fragment, its substitution slot, and its byte-guard test, plus the Preflight edit), not built in this fold pass.

@@ -10,8 +10,8 @@
 
 use {
 	include_dir::{
-		Dir,
 		include_dir,
+		Dir,
 	},
 	serde::Deserialize,
 	std::{
@@ -137,8 +137,14 @@ struct Manifest {
 
 /// Variable names the tool computes itself; a pack may neither declare them nor
 /// override them with `--var`.
-const RESERVED_VARS: &[&str] =
-	&["principles", "instrument", "modules", "workflow_control", "isolation_policy"];
+const RESERVED_VARS: &[&str] = &[
+	"principles",
+	"instrument",
+	"modules",
+	"workflow_control",
+	"isolation_policy",
+	"recommendation_rule",
+];
 
 /// An error loading a pack: reading or parsing its files, or resolving the
 /// variables its assets substitute.

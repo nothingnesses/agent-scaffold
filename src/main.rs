@@ -18,6 +18,7 @@ mod metrics;
 mod next;
 mod pack;
 mod plan;
+mod recommendation_rule;
 mod tui;
 mod workflow;
 mod workflow_spec;
@@ -91,7 +92,11 @@ fn outcome_of(
 			},
 		Ownership::Working =>
 			if exists {
-				if force { Outcome::Overwritten } else { Outcome::SkippedExisting }
+				if force {
+					Outcome::Overwritten
+				} else {
+					Outcome::SkippedExisting
+				}
 			} else {
 				Outcome::Created
 			},
@@ -268,6 +273,18 @@ fn build_assets(
 	builtin.insert(
 		"isolation_policy".to_string(),
 		isolation_policy::ISOLATION_POLICY_FRAGMENT.to_string(),
+	);
+	// The `{{recommendation_rule}}` block: the one canonical statement of the
+	// human-input contract's presentation format (the options, their trade-offs, a
+	// recommendation, and the reasoning judged against the plan's Project Principles
+	// by name), authored once in `recommendation_rule.rs` and rendered here. `render`
+	// replaces EVERY `{{recommendation_rule}}` occurrence, so the same fragment fills
+	// both the human-input-contract paragraph and the Preflight restatement and the
+	// two copies cannot drift; the drift-guard test catches a hand edit of the
+	// committed fragment or a stale fragment after a source edit.
+	builtin.insert(
+		"recommendation_rule".to_string(),
+		recommendation_rule::RECOMMENDATION_RULE_FRAGMENT.to_string(),
 	);
 	// The `{{modules}}` block: the concatenated guidance partials of the enabled
 	// modules (the `--module` selections closed under `requires`). Empty when no
@@ -1092,8 +1109,7 @@ fn default_ledger_path(task: &str) -> PathBuf {
 /// `status` is a best-effort projection, not a validator.
 fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
-	let ledger_path =
-		args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
 	if !ledger_path.exists() {
 		println!("no ledger at {}; nothing to resume", ledger_path.display());
 		return Ok(());
@@ -1101,10 +1117,7 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let contents = fs::read_to_string(&ledger_path)?;
 	match next::extract_resume_state(&contents) {
 		Some(resume_state) => println!("{resume_state}"),
-		None => println!(
-			"{}: no `## RESUME STATE` block found",
-			ledger_path.display()
-		),
+		None => println!("{}: no `## RESUME STATE` block found", ledger_path.display()),
 	}
 	Ok(())
 }
@@ -1955,6 +1968,39 @@ mod tests {
 			assert!(
 				asset.contents.contains(fragment),
 				"{dest} should carry the generated isolation-policy fragment"
+			);
+		}
+	}
+
+	#[test]
+	fn recommendation_rule_slot_renders_the_generated_fragment() {
+		// The reserved `{{recommendation_rule}}` slot substitutes to the fragment
+		// `recommendation_rule` generates: the placeholder is gone from both the working
+		// root file and the reference copy, and the generated recommendation-rule prose
+		// is present. Because `render` replaces every occurrence, this pins the slot
+		// wiring for both render targets (the human-input-contract paragraph and the
+		// Preflight restatement) on the pack build path.
+		let principles = pack::default_principles();
+		let selected = pack::resolve_selection(&principles, "default").unwrap();
+		let assets = build_assets(
+			&manifest::builtin(),
+			&selected,
+			Detail::Summary,
+			&HashMap::new(),
+			true,
+			&[],
+		)
+		.unwrap();
+		let fragment = recommendation_rule::RECOMMENDATION_RULE_FRAGMENT;
+		for dest in ["AGENTS.md", ".agents/AGENTS.reference.md"] {
+			let asset = assets.iter().find(|a| a.dest == dest).unwrap();
+			assert!(
+				!asset.contents.contains("{{recommendation_rule}}"),
+				"{dest} should substitute the recommendation_rule slot"
+			);
+			assert!(
+				asset.contents.contains(fragment),
+				"{dest} should carry the generated recommendation-rule fragment"
 			);
 		}
 	}

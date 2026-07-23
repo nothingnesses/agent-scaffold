@@ -1465,6 +1465,19 @@ This COMPOSES with `Q-51` (this is essentially completing the full workflow-driv
 
 This is `exploring`: a multi-explorer design pass is owed (candidate lenses: the generation architecture, how far to render AGENTS.md from the single source and what stays hand-authored; the checkable-versus-promptable partition of the current AGENTS.md content; the delivery and FSM path reusing the `next`, `render`, and W3 machinery; and a YAGNI or skeptic lens on how much of the ladder is worth building versus the drift it removes). Design record owed under `docs/plans/agent-scaffold.explorations/` named for `Q-64`."""
 
+[[question]]
+id = "Q-65"
+status = "exploring"
+ask = """whether, given the project's trajectory (the `Q-51` workflow-driver and the `Q-64` tool-self-sufficiency direction), agent-scaffold is still primarily a SCAFFOLDING tool or has become a structured WORKFLOW ENGINE / DRIVER, and if the latter whether to RENAME it, and to what. Raised by the human 2026-07-23 (Socratic); the human is not precious about the current name and is unconcerned with backwards-compatibility or brand recognition.
+
+IDENTITY ANALYSIS (orchestrator, to be tested by the design pass): the project is no longer primarily a scaffolding tool. The `scaffold` subcommand (the one-shot pack generator) is becoming ONE bootstrap subcommand of a larger thing whose ongoing value is the plan/metrics/convergence machinery plus the driver: `validate --workflow` ENFORCES structural invariants, `render` PROJECTS the structured plan for humans, and `next` DRIVES the loop. It is best described as a HARNESS-AGNOSTIC, STRUCTURED WORKFLOW ENGINE or DRIVER (a control plane for a role-separated, convergence-gated development workflow). It is NOT a META-HARNESS: a harness runs the agent (the LLM loop and tool execution), which this tool never does; agents INVOKE the tool, so calling it a meta-harness is a category error.
+
+RENAME: worth it. A name that says scaffold keeps implying a one-shot generator and mis-sells a workflow driver, a small permanent comprehension tax; since the human is not precious about the name, there is little reason to keep a misdescriptive one. TIMING: the name should FOLLOW the settled identity, and `Q-64` is the pass that settles how central the driver identity is, so this question is resolved AS PART OF the `Q-64` design pass (which should crystallize the identity and produce a name recommendation), rather than picked in a vacuum.
+
+CANDIDATE NAME DIRECTIONS to seed the pass: DESCRIPTIVE (lowest cognitive cost, fits the project's clarity and project-for-humans values), for example `agentflow`, `flowgate` (the workflow plus the convergence gate it enforces), `agentctl` (a CLI-conventional control tool); METAPHOR (drives the crew but never does the work, which is the orchestrator rule), for example `cox` or `coxswain` (steers and paces a rowing crew without rowing, precise but obscure), `maestro` or `podium` (conducts an ensemble from one score, the structured plan; the conductor does not play), `helm`. Orchestrator lean: a DESCRIPTIVE name over a metaphor (this project values clarity over cleverness), with `agentflow` or `flowgate` as front-runners, but let the `Q-64` explorers pressure-test the identity first and let the name fall out of it.
+
+Judged against the plan principles: P8 (structured data first, project for humans) and P1 (cleaner long-term architecture) argue the public name should accurately project the tool's identity. This is `exploring`, resolved TOGETHER WITH `Q-64` (its identity conclusion determines the name); no separate design pass is owed beyond `Q-64`'s, this question rides along with it."""
+
 [[principle]]
 n = 1
 name = "Prefer the cleaner long-term architecture over the smallest diff"

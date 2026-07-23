@@ -948,58 +948,73 @@ findings = ["docs/plans/agent-scaffold.explorations/Q-59-data-model.md", "docs/p
 [[step]]
 slug = "document-receipt-task-convention"
 title = "document (or rule non-normative) the decision-receipt `task` convention"
-status = "deferred"
+status = "complete"
 order = 71
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "document-receipt-task-convention-inc1"
+risk_class = "low_risk"
 
 [[step]]
 slug = "formatter-reflow-wording-polish"
 title = "polish the formatter-reflow-convention pack wording"
-status = "deferred"
+status = "complete"
 order = 72
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "formatter-reflow-wording-polish-inc1"
+risk_class = "low_risk"
 
 [[step]]
 slug = "reconcile-baseline-doc-drift"
 title = "reconcile the AGENTS.md W4-baseline description with the live `[meta].w4_baseline` mechanism"
-status = "deferred"
+status = "complete"
 order = 73
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "reconcile-baseline-doc-drift-inc1"
+risk_class = "low_risk"
 
 [[step]]
 slug = "soften-writer-agent-framing"
 title = "soften residual writer-agent framing after uniform isolation (`Q-61` residual)"
-status = "deferred"
+status = "complete"
 order = 74
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-61"]
 
+[[step.increment]]
+id = "soften-writer-agent-framing-inc1"
+risk_class = "low_risk"
+
 [[step]]
 slug = "acceptance-doc-currency-phrasing-polish"
 title = "reword the phase-5 acceptance doc-currency check to keep the phase read as review-only (`Q-50` residual)"
-status = "deferred"
+status = "complete"
 order = 75
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-50"]
+
+[[step.increment]]
+id = "acceptance-doc-currency-phrasing-polish-inc1"
+risk_class = "low_risk"
 
 [[question]]
 id = "Q-1"

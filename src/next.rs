@@ -54,14 +54,14 @@ use {
 	},
 };
 
-/// The resolve-the-tier note folded into the writer-isolation reminder when the tier
+/// The resolve-the-tier note folded into the agent-isolation reminder when the tier
 /// was not supplied on the CLI (`isolation_tier == "unknown"`). The tool never emits a
 /// worktree path or a branch name; it points the orchestrator at the policy instead
 /// (Principle 18, least authority). Unlike the always-on policy fragment (which fires at
-/// every writer state regardless of tier), this note fires only when the tier is still
+/// every agent-spawn state regardless of tier), this note fires only when the tier is still
 /// unresolved, so the orchestrator knows a resolution is owed before the spawn.
 const TIER_RESOLVE_NOTE: &str =
-	"Resolve the isolation tier per the AGENTS.md tier policy before spawning the writer.";
+	"Resolve the isolation tier per the AGENTS.md tier policy before spawning the agent.";
 
 /// The phase -> Project-Principle-NAMES map: for a given `LoopState`, the names of the
 /// Project Principles the driver should put in front of the actor at that phase. The
@@ -174,7 +174,7 @@ pub(crate) struct Instruction {
 	pub(crate) context: BTreeMap<String, String>,
 	/// The phase-keyed reminders: originated workflow-phase guidance (no numeric
 	/// citation), plus the projected Project Principle text for the current state's
-	/// mapped principle(s), and, at writer states, the generated isolation-policy
+	/// mapped principle(s), and, at agent-spawn states, the generated isolation-policy
 	/// fragment. Fixed order.
 	pub(crate) principle_reminders: Vec<String>,
 	/// A one-line human summary of the filled instruction.
@@ -1411,7 +1411,7 @@ mod tests {
 		assert!(!reminders_cite_the_contract(active(&review)));
 	}
 
-	// -- The always-on writer-isolation reminder --
+	// -- The always-on agent-isolation reminder --
 
 	/// Whether any reminder carries the generated isolation-policy fragment (the single
 	/// source shared with AGENTS.md). Matching the whole fragment, not a paraphrase, pins
@@ -1425,7 +1425,7 @@ mod tests {
 	}
 
 	/// Whether any reminder carries the resolve-the-tier note (fired only when the tier is
-	/// still `unknown` at a writer state).
+	/// still `unknown` at any agent-spawn state).
 	fn reminders_carry_the_resolve_note(loop_: &ActiveLoop) -> bool {
 		loop_
 			.next_instruction

@@ -1,0 +1,9 @@
+### `formatter-reflow-convention`: incidental formatter reflow is not a review finding (`Q-57`)
+
+Encode the Q-57 convention in `pack/AGENTS.md`: incidental formatter reflow (rustfmt or treefmt reformatting lines a change did not intend to touch, for example after a scaffold regeneration or because a committed file was not formatter-clean) is acceptable and is not a review finding. Writers do not revert, stash, or `git checkout` it, and reviewers and triagers do not raise it.
+
+Why it exists: running the repo formatter over the committed tree reflows lines a change never meant to touch, and the standing practice was to stash or revert that reflow per hunk. The churn accumulated ~38 parked `git stash` entries, effort spent fighting the formatter rather than shipping the change. The decision (human, 2026-07-23) stops the reverting: the reflow is accepted where it appears.
+
+Judged against the plan's principles: P8 (structured data first, one authoritative rule) is served by stating the convention once in `pack/AGENTS.md` and letting the scaffold carry it, so a single place governs what happens to incidental reflow rather than a per-writer habit. P2 (minimal by default) is the other driver: stop spending effort fighting a formatter; the cheapest resolution is to accept the reflow and drop the stash-and-revert ceremony.
+
+This reconciles with the existing "Format only your own files" file-safety rule rather than contradicting it. That rule still holds that a writer does not proactively run repo-wide formatters (for example `just fmt` or `nix fmt`); this convention governs only what happens when incidental reflow appears anyway, and says it is kept, not reverted, and is never a finding. The docs and prettier hard-wrap concern stays governed by the existing no-hard-wrap prose rule; this convention does not change that.

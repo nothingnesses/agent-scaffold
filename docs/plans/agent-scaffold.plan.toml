@@ -5,6 +5,7 @@ primary = "toml"
 orphan_tasks = [
   "backlog-promotion",
   "consolidate-plan",
+  "lifecycle-capture",
   "metrics-fields",
   "plan-fold",
   "plan-maintenance",
@@ -890,6 +891,19 @@ reason = "accepted-at-escalation"
 evidence_tier = "record-backed"
 evidence = "driver-output-generation-inc2"
 
+[[step]]
+slug = "formatter-reflow-convention"
+title = "incidental formatter reflow is not a review finding (`Q-57`)"
+status = "in-progress"
+order = 68
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-57"]
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1233,13 +1247,25 @@ ask = """the escalation-record schema refinement: a PROACTIVE human "converge-no
 
 [[question]]
 id = "Q-57"
-status = "open"
-ask = """the treefmt / stash hygiene decision: every `scaffold-self` / `nix fmt` run reflows ~12-18 committed docs (and some `src/*.rs`), and implementers stash the reflow rather than commit it, so 25+ parked `git stash` entries have accumulated. Root cause: the committed docs are not treefmt-clean, but running the formatter over them would hard-wrap prose against the human's stated no-hard-wrap preference. The open decision is how to resolve it; candidates (not pre-decided): EXCLUDE the prose docs from treefmt as the render fixtures already are; format-and-accept the reflow; or leave the reflow parked. It also covers whether to clear the accumulated stashes. Do not decide here."""
+status = "decided"
+folded_into = "formatter-reflow-convention"
+receipt = "Q-57"
+ask = """the treefmt / stash hygiene decision: every `scaffold-self` / `nix fmt` run reflows ~12-18 committed docs (and some `src/*.rs`), and writers stashed the reflow rather than commit it, so ~38 parked `git stash` entries accumulated. Root cause: the committed docs are not treefmt-clean, but running the formatter over them would hard-wrap prose against the human's stated no-hard-wrap preference. DECIDED (human, 2026-07-23): ACCEPT INCIDENTAL FORMATTER REFLOW. Incidental formatter reflow (rustfmt or treefmt reformatting lines a change did not intend to touch, for example after a scaffold regeneration or because a committed file was not formatter-clean) is ACCEPTABLE and is NOT a review finding; writers do not revert, stash, or `git checkout` it, and reviewers and triagers do not raise it. Chosen over the orchestrator's recommendation to format the code and exclude the prose docs from the formatter, and over keeping the per-hunk reverting (the status quo). The docs and prettier hard-wrap concern stays governed by the existing no-hard-wrap prose rule; this policy does not fix that, it only stops the reverting churn. Decision receipt: `type:"decision"` `q_id:"Q-57"` in `docs/metrics/workflow.jsonl` (Q-57 is past the `Q-44` baseline, so W4 enforces the receipt). Decision and reasoning in `formatter-reflow-convention`."""
 
 [[question]]
 id = "Q-58"
 status = "open"
 ask = """whether `agent-scaffold next` (the driver's Stage-1 forward projection, `Q-51`) should PROJECT the current transient resume-state rather than VERBATIM-ECHO the ledger's `## RESUME STATE` section, and what output content best serves a resuming agent. It is meant to be a token-efficient resume aid but echoes that section verbatim: measured on this repo the output was 150145 bytes / 148 lines, of which the DERIVED ACTIVE LOOP block was only 799 bytes and the rest (~149 KB) was the verbatim echo of 27 dated `CURRENT TRANSIENT STATE` anchors, only 1 of which is live. A cheap SOURCE-side fix already landed (bound the `## RESUME STATE` section to the single live anchor via a `##` boundary heading, so the echo is now ~6 KB; the orchestrator keeps exactly one live anchor going forward). The deeper open decision (candidates, not pre-decided): (1) have the TOOL project only the current transient rather than echo whatever sits under the heading, so it is robust to source drift and not reliant on ledger discipline, which needs either the bounded source or the Stage-2 reconstructor; (2) make the transient resume-state STRUCTURED rather than human prose so the tool can project it drift-free (Principle 8, the restate-by-generation direction), noting the A-b Stage-1 decision deliberately chose verbatim-echo to avoid heuristic prose parsing; (3) determine the OPTIMAL output content EMPIRICALLY via an ablation: emit output variants (full; ACTIVE-LOOP-only; +current-anchor; structured-only), score a fresh consuming agent's stated next-action/constraints against a deterministic next-action oracle (derivable from the workflow rules, as the ACTIVE LOOP already is), and find the token-cost / task-success knee. This is `Q-52`'s falsifiable-deletion method applied to output CONTENT, so it composes with the `Q-52` code-value research. Do not build until decided."""
+
+[[question]]
+id = "Q-59"
+status = "exploring"
+ask = """whether the session lifecycle (the `pause` / `compaction-prep` / `resume` user-prompts) should be encoded as explicit, tool-validated STATES rather than the current prose-only checklists plus procedures. Current reality: `next`'s `LoopState` (`src/next.rs`) models only the review loop (ReadyToPlan, Blocked, AwaitingFirstReview, AwaitingFixes, AwaitingReviewers, Converged, Escalate, RiskClassConflict, Done); it has NO Active / Checkpointed / Paused state. `pause.md`, `compaction-prep.md`, and `resume.md` under `.agents/user-prompts/` are prose checklists, and AGENTS.md's "Checkpoint and resuming after context loss" section describes them as procedures. Nothing records "this session is checkpointed", nor validates that a resume follows a checkpoint, nor that work does not start while paused. The design space to explore (do NOT pick one, this is `exploring`): (1) where the state lives, a `[meta]` enum in `plan.toml`, or append-only `type:"checkpoint"` / `type:"resume"` records in `workflow.jsonl`, or a structured ledger field; (2) the command surface, a `checkpoint` / `resume` subcommand pair that writes AND validates the transition, versus validation-only where `next` / `status` read the state and refuse "do work" advice while checkpointed; (3) enforcement in `validate --workflow`, a resume must follow a checkpoint, no two checkpoints without an intervening resume, and the checkpoint commit must be clean. It COMPOSES with `Q-58` (tool-side structuring of the transient resume-state) and EXTENDS the `workflow-driver` step, so a design pass should reconcile `Q-59` WITH `Q-58` rather than bolt one on. Judged against the plan principles: P5 (make illegal states unrepresentable) and P8 (structured data first) are the drivers; P1 (prefer the cleaner long-term architecture) argues for reconciling with `Q-58`; P2 (minimal by default) cautions against over-building the command surface, which is why it is captured `exploring` (a design pass is owed) rather than built. A design pass is owed; do not build until decided."""
+
+[[question]]
+id = "Q-60"
+status = "open"
+ask = """whether the "Preflight" section of `pack/AGENTS.md` should explicitly restate that every option-set the orchestrator presents to the human carries a recommendation plus trade-offs plus reasoning judged against the plan's `[[principle]]` by NAME (the human-input contract), to make that standing directive concrete at resume time. Why: the human-input contract already requires this at every decision point, but it was repeatedly dropped right after a resume; a Preflight bullet would reinforce it exactly where it has been dropped. Raised by the human on 2026-07-23. This is a candidate, not yet decided (`open`); the orchestrator's lean is to adopt it as a low-cost pack addition. Do NOT edit the Preflight text in this pass; that is the eventual fold if the human decides yes."""
 
 [[principle]]
 n = 1

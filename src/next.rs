@@ -63,14 +63,33 @@ use {
 const TIER_RESOLVE_NOTE: &str =
 	"Resolve the isolation tier per the AGENTS.md tier policy before spawning the writer.";
 
-/// The Project Principle the escalate / human-input-contract reminder invokes for the
-/// human's cap-reached decision: the decision must be grounded in evidence. The driver
-/// projects THIS principle's actual name and text from the plan's `[[principle]]` (by
-/// NAME, so it is immune to the AGENTS.md/plan renumbering the design flags), and
-/// degrades to the originated human-input-contract imperative alone when the plan does
-/// not carry it (never a dangling number). Chosen by name rather than by a fixed number
-/// because two disagreeing numbered principle lists exist and the number is unstable.
-const ESCALATE_PRINCIPLE_NAME: &str = "Ground decisions in evidence";
+/// The phase -> Project-Principle-NAMES map: for a given `LoopState`, the names of the
+/// Project Principles the driver should put in front of the actor at that phase. The
+/// driver projects each mapped principle's actual name and text from the plan's
+/// `[[principle]]` (by NAME, so it is immune to the AGENTS.md/plan renumbering the design
+/// flags), and degrades to the originated imperatives alone for any name the plan does
+/// not carry (never a dangling number). Names, not fixed numbers, because two disagreeing
+/// numbered principle lists exist and the number is unstable. The mapping is list-valued
+/// so a state can invoke several principles later; it is populated CONSERVATIVELY, only
+/// where a principle genuinely fits the phase, and most states map to nothing (an empty
+/// slice) rather than being forced a fit that would only add noise.
+fn phase_principle_names(state: LoopState) -> &'static [&'static str] {
+	match state {
+		// The planner must validate the approach and raise the open questions with
+		// evidence before implementing (matches its base reminder to give a recommendation
+		// with reasoning and confirm intent).
+		LoopState::ReadyToPlan => &["Ground decisions in evidence"],
+		// The human's cap-reached decision must itself be grounded in evidence.
+		LoopState::Escalate => &["Ground decisions in evidence"],
+		LoopState::Blocked
+		| LoopState::AwaitingFirstReview
+		| LoopState::AwaitingFixes
+		| LoopState::AwaitingReviewers
+		| LoopState::Converged
+		| LoopState::RiskClassConflict
+		| LoopState::Done => &[],
+	}
+}
 
 /// The whole `next` projection, serialised by `--json`. Every derived part is optional
 /// so a missing plan or log yields a partial projection rather than a failure (mirrors
@@ -154,8 +173,8 @@ pub(crate) struct Instruction {
 	/// The convention-derived context slots (a `BTreeMap` so the order is deterministic).
 	pub(crate) context: BTreeMap<String, String>,
 	/// The phase-keyed reminders: originated workflow-phase guidance (no numeric
-	/// citation), plus, at the escalate state, the projected Project Principle text for
-	/// the human decision, and, at writer states, the generated isolation-policy
+	/// citation), plus the projected Project Principle text for the current state's
+	/// mapped principle(s), and, at writer states, the generated isolation-policy
 	/// fragment. Fixed order.
 	pub(crate) principle_reminders: Vec<String>,
 	/// A one-line human summary of the filled instruction.
@@ -287,10 +306,11 @@ impl LoopState {
 	/// list the human-input contract does NOT name, the plan's `[[principle]]`), so it was
 	/// a mislabelled paraphrase dressed as a quotation. Stripped of the number, each is
 	/// honest originated guidance with no canonical source and nothing to drift from.
-	/// Where a Project Principle must actually be put in front of the human (the escalate
-	/// human-input-contract case) the driver PROJECTS its real name/text from the plan
-	/// instead (see `projected_principle_reminder`), rather than citing a number here. The
-	/// `escalate` state, and ONLY it, carries the human-input-contract reminder.
+	/// Where a Project Principle must actually be put in front of the actor the driver
+	/// PROJECTS its real name/text from the plan instead (see the phase -> principle-names
+	/// map `phase_principle_names` and `projected_principle_reminders`), rather than citing
+	/// a number here. The `escalate` state, and ONLY it, carries the human-input-contract
+	/// reminder.
 	fn base_reminders(self) -> &'static [&'static str] {
 		match self {
 			LoopState::ReadyToPlan => &[
@@ -329,23 +349,30 @@ impl LoopState {
 	}
 }
 
-/// The projected Project Principle reminder for the escalate / human-input-contract
-/// state: find `ESCALATE_PRINCIPLE_NAME` in the plan's `[[principle]]` and emit its real
-/// name and text (with the plan's own number as a locator), so the human sees the actual
-/// principle to ground the cap-reached decision in, self-contained at the point of
-/// action and drift-free (it is projected live from the same plan.toml the render and the
-/// contract read). Looked up by NAME, not by a fixed number, because two disagreeing
-/// numbered lists exist and the number renumbers on reorder. Returns `None` when the plan
-/// does not carry the principle (D-e Option 1: degrade to the originated imperative alone,
-/// never a dangling number); the Markdown substrate, which parses no principles, always
-/// degrades this way.
-fn projected_principle_reminder(principles: &[Principle]) -> Option<String> {
-	let principle =
-		principles.iter().find(|principle| principle.name == ESCALATE_PRINCIPLE_NAME)?;
-	Some(format!(
-		"Ground the recommendation in the Project Principle \"{}\" (plan principle {}): {}",
-		principle.name, principle.n, principle.text
-	))
+/// The projected Project Principle reminders for a state: look up the state's mapped
+/// principle NAMES in `phase_principle_names`, find each in the plan's `[[principle]]` by
+/// NAME, and emit its real name and text (with the plan's own number as a locator), so
+/// the actor sees the actual principle to ground its decision in, self-contained at the
+/// point of action and drift-free (it is projected live from the same plan.toml the render
+/// and the contract read). Looked up by NAME, not by a fixed number, because two
+/// disagreeing numbered lists exist and the number renumbers on reorder. A mapped name the
+/// plan does not carry is skipped (D-e Option 1: degrade to the originated imperatives
+/// alone, never a dangling number); the Markdown substrate, which parses no principles,
+/// always degrades to an empty Vec, as does any state the map does not populate.
+fn projected_principle_reminders(
+	state: LoopState,
+	principles: &[Principle],
+) -> Vec<String> {
+	phase_principle_names(state)
+		.iter()
+		.filter_map(|name| principles.iter().find(|principle| principle.name == *name))
+		.map(|principle| {
+			format!(
+				"Ground the recommendation in the Project Principle \"{}\" (plan principle {}): {}",
+				principle.name, principle.n, principle.text
+			)
+		})
+		.collect()
 }
 
 /// A step's lifecycle phase, normalised so the Markdown parametric `blocked on <slug>`
@@ -786,8 +813,10 @@ fn assemble(
 /// convention-derived context slots, the reminders, and the one-line summary.
 ///
 /// The reminders are assembled in three parts, in a fixed order: (1) the state's
-/// originated base reminders; (2) at the escalate state, the projected Project Principle
-/// text for the human decision (when the plan carries it); (3) at a WRITER-spawn state,
+/// originated base reminders; (2) the projected Project Principle text for the current
+/// state's mapped principle(s) per `phase_principle_names` (when the plan carries them;
+/// today ReadyToPlan and Escalate both map to "Ground decisions in evidence"); (3) at a
+/// WRITER-spawn state,
 /// the always-on writer-isolation reminder, unconditionally emitting the generated
 /// `ISOLATION_POLICY_FRAGMENT` (the single source shared with AGENTS.md, so the policy is
 /// inline at the point of action and cannot drift) plus the resolved tier, and, when the
@@ -802,14 +831,10 @@ fn build_instruction(
 	let role = state.role();
 	let mut principle_reminders: Vec<String> =
 		state.base_reminders().iter().map(|reminder| (*reminder).to_string()).collect();
-	// The escalate human-input-contract reminder projects the actual Project Principle
-	// (by name, from the plan) rather than citing a number; absent from the plan, it
-	// degrades to the originated imperative alone (no dangling reference).
-	if state == LoopState::Escalate {
-		if let Some(reminder) = projected_principle_reminder(context.principles) {
-			principle_reminders.push(reminder);
-		}
-	}
+	// The current state's mapped Project Principle(s) projected by name from the plan
+	// (not a number); a mapped principle absent from the plan is skipped, and a state the
+	// phase map does not populate contributes nothing (no dangling reference).
+	principle_reminders.extend(projected_principle_reminders(state, context.principles));
 	// The always-on writer-isolation reminder: the generated policy fragment (drift-free,
 	// shared with AGENTS.md) plus the resolved tier, at every writer-spawn state.
 	if state.spawns_writer() {
@@ -1501,6 +1526,11 @@ mod tests {
 		}
 	}
 
+	/// The grounding principle's name, mapped to both the escalate and ready-to-plan states
+	/// by `phase_principle_names`. A test-local literal, since the production const was
+	/// generalised into the phase map.
+	const GROUNDING_PRINCIPLE_NAME: &str = "Ground decisions in evidence";
+
 	#[test]
 	fn the_escalate_reminder_projects_a_real_plan_principle_by_name() {
 		// The escalate human-input-contract reminder projects the actual name and text of
@@ -1511,7 +1541,7 @@ mod tests {
 			.map(|line| round(line, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc"))
 			.collect();
 		let principles = [
-			test_principle(6, ESCALATE_PRINCIPLE_NAME, "validate an approach with evidence."),
+			test_principle(6, GROUNDING_PRINCIPLE_NAME, "validate an approach with evidence."),
 			test_principle(2, "Minimal by default", "the core does one thing well."),
 		];
 		let projection =
@@ -1521,12 +1551,55 @@ mod tests {
 			.next_instruction
 			.principle_reminders
 			.iter()
-			.find(|reminder| reminder.contains(ESCALATE_PRINCIPLE_NAME))
+			.find(|reminder| reminder.contains(GROUNDING_PRINCIPLE_NAME))
 			.expect("the escalate reminder projects the grounding principle by name");
 		// The projected reminder carries the real text and the plan's own number, never a
 		// hardcoded AGENTS.md number.
 		assert!(projected.contains("validate an approach with evidence."));
 		assert!(projected.contains("plan principle 6"));
+	}
+
+	#[test]
+	fn the_ready_to_plan_reminder_projects_the_grounding_principle_by_name() {
+		// The phase map now also puts the grounding principle in front of the planner
+		// (D3 generalisation): the ready-to-plan state projects the same "Ground decisions
+		// in evidence" principle by name, so the planner validates its approach with
+		// evidence. Same projection form as the escalate case.
+		let steps = [test_step("a", 0, StepPhase::NotStarted, &[])];
+		let principles = [
+			test_principle(6, GROUNDING_PRINCIPLE_NAME, "validate an approach with evidence."),
+			test_principle(2, "Minimal by default", "the core does one thing well."),
+		];
+		let projection = project_fixture_with_principles(&steps, &[], "worktree", &principles);
+		assert_eq!(active(&projection).state, LoopState::ReadyToPlan);
+		let projected = active(&projection)
+			.next_instruction
+			.principle_reminders
+			.iter()
+			.find(|reminder| reminder.contains(GROUNDING_PRINCIPLE_NAME))
+			.expect("the ready-to-plan reminder projects the grounding principle by name");
+		assert!(projected.contains("validate an approach with evidence."));
+		assert!(projected.contains("plan principle 6"));
+	}
+
+	#[test]
+	fn an_unmapped_state_projects_no_principle() {
+		// A state the phase map does not populate (here: awaiting-fixes) projects no Project
+		// Principle reminder even when the plan carries the grounding principle: the map is
+		// populated conservatively, not forced onto every state.
+		let steps = [test_step("a", 0, StepPhase::InProgress, &[])];
+		let rounds = [round(1, RoundOutcome::NewValid, 0, RiskClass::LowRisk, "a", "a-inc")];
+		let principles =
+			[test_principle(6, GROUNDING_PRINCIPLE_NAME, "validate an approach with evidence.")];
+		let projection = project_fixture_with_principles(&steps, &rounds, "worktree", &principles);
+		assert_eq!(active(&projection).state, LoopState::AwaitingFixes);
+		assert!(
+			!active(&projection)
+				.next_instruction
+				.principle_reminders
+				.iter()
+				.any(|reminder| reminder.contains(GROUNDING_PRINCIPLE_NAME))
+		);
 	}
 
 	#[test]
@@ -1547,7 +1620,7 @@ mod tests {
 				.next_instruction
 				.principle_reminders
 				.iter()
-				.any(|reminder| reminder.contains(ESCALATE_PRINCIPLE_NAME))
+				.any(|reminder| reminder.contains(GROUNDING_PRINCIPLE_NAME))
 		);
 	}
 

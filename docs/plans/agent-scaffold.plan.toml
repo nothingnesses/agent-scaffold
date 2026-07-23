@@ -704,12 +704,18 @@ waiver = []
 [[step]]
 slug = "doc-currency-guidance"
 title = "documentation currency as core cross-cutting workflow guidance (`Q-50`)"
-status = "not-started"
+status = "complete"
 order = 54
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[step.provenance]
+decisions = ["Q-50"]
+
+[[step.increment]]
+id = "doc-currency-guidance-inc1"
+risk_class = "low_risk"
 
 [[step]]
 slug = "task-entry-regrounding"
@@ -981,6 +987,19 @@ waiver = []
 
 [step.provenance]
 decisions = ["Q-61"]
+
+[[step]]
+slug = "acceptance-doc-currency-phrasing-polish"
+title = "reword the phase-5 acceptance doc-currency check to keep the phase read as review-only (`Q-50` residual)"
+status = "deferred"
+order = 75
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-50"]
 
 [[question]]
 id = "Q-1"

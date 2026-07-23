@@ -1,0 +1,5 @@
+### `acceptance-doc-currency-phrasing-polish`: reword the phase-5 acceptance doc-currency check to keep the phase read as review-only (`Q-50` residual)
+
+The `doc-currency-guidance` pass added a documentation-currency check to phase 5 (Accept) that names an implementer action ("the implementer updates the docs and prompts the change made stale") inside a phase otherwise framed as a review-only reviewers-then-triager pass. The round-1 fidelity reviewer raised this as a low finding and the triager ruled it valid but non-blocking: the "as part of the acceptance review" clause attaches to the reviewer's verification, the implementer's doc-update is the standing phase-4 writer duty, and the next sentence already routes shortfalls back to implementation, so the text is consistent rather than contradictory.
+
+Optional polish: reword the phase-5 sentence so the reviewer-verifies clause is clearly the acceptance-phase action and the implementer-updates clause reads as the follow-up that a shortfall triggers, not an action the read-only acceptance pass performs. Low priority; wording only, no behaviour change.

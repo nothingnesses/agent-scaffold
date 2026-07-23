@@ -11,6 +11,7 @@ orphan_tasks = [
   "plan-maintenance",
   "post-inc6-folds",
   "q58-capture",
+  "q59-backlog-fold",
   "uniform-isolation",
   "workflow-hardening",
 ]
@@ -924,6 +925,63 @@ decisions = ["Q-61"]
 id = "uniform-agent-isolation-inc1"
 risk_class = "risky"
 
+[[step]]
+slug = "resume-state-currency-signal"
+title = "resume-state currency signal: the minimal Q-59 lifecycle outcome, folds into `Q-58`"
+status = "deferred"
+order = 70
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-59"]
+findings = ["docs/plans/agent-scaffold.explorations/Q-59-data-model.md", "docs/plans/agent-scaffold.explorations/Q-59-command-surface.md", "docs/plans/agent-scaffold.explorations/Q-59-yagni.md"]
+
+[[step]]
+slug = "document-receipt-task-convention"
+title = "document (or rule non-normative) the decision-receipt `task` convention"
+status = "deferred"
+order = 71
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "formatter-reflow-wording-polish"
+title = "polish the formatter-reflow-convention pack wording"
+status = "deferred"
+order = 72
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "reconcile-baseline-doc-drift"
+title = "reconcile the AGENTS.md W4-baseline description with the live `[meta].w4_baseline` mechanism"
+status = "deferred"
+order = 73
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[[step]]
+slug = "soften-writer-agent-framing"
+title = "soften residual writer-agent framing after uniform isolation (`Q-61` residual)"
+status = "deferred"
+order = 74
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-61"]
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1279,8 +1337,10 @@ ask = """whether `agent-scaffold next` (the driver's Stage-1 forward projection,
 
 [[question]]
 id = "Q-59"
-status = "open"
-ask = """whether the session lifecycle (the `pause` / `compaction-prep` / `resume` user-prompts) should be encoded as explicit, tool-validated STATES rather than the current prose-only checklists plus procedures. Current reality: `next`'s `LoopState` (`src/next.rs`) models only the review loop (ReadyToPlan, Blocked, AwaitingFirstReview, AwaitingFixes, AwaitingReviewers, Converged, Escalate, RiskClassConflict, Done); it has NO Active / Checkpointed / Paused state. `pause.md`, `compaction-prep.md`, and `resume.md` under `.agents/user-prompts/` are prose checklists, and AGENTS.md's "Checkpoint and resuming after context loss" section describes them as procedures. Nothing records "this session is checkpointed", nor validates that a resume follows a checkpoint, nor that work does not start while paused. The design space to explore (do NOT pick one, this is `exploring`): (1) where the state lives, a `[meta]` enum in `plan.toml`, or append-only `type:"checkpoint"` / `type:"resume"` records in `workflow.jsonl`, or a structured ledger field; (2) the command surface, a `checkpoint` / `resume` subcommand pair that writes AND validates the transition, versus validation-only where `next` / `status` read the state and refuse "do work" advice while checkpointed; (3) enforcement in `validate --workflow`, a resume must follow a checkpoint, no two checkpoints without an intervening resume, and the checkpoint commit must be clean. It COMPOSES with `Q-58` (tool-side structuring of the transient resume-state) and EXTENDS the `workflow-driver` step, so a design pass should reconcile `Q-59` WITH `Q-58` rather than bolt one on. Judged against the plan principles: P5 (make illegal states unrepresentable) and P8 (structured data first) are the drivers; P1 (prefer the cleaner long-term architecture) argues for reconciling with `Q-58`; P2 (minimal by default) cautions against over-building the command surface, which is why it is captured `exploring` (a design pass is owed) rather than built. DESIGN PASS DONE (2026-07-23): three worktree-isolated explorers wrote `docs/plans/agent-scaffold.explorations/Q-59-data-model.md`, `Q-59-command-surface.md`, and `Q-59-yagni.md`. All three converge on folding Q-59 INTO Q-58 as one structured-transient carrier (not a separate mechanism), on NOT building a `checkpoint` / `resume` write-command family (it jumps the Q-24 guarded-write gate and adds a runtime write path), and on the state living where `next` loads unconditionally (the Q-58 carrier / ledger, not the `--instrument`-gated `workflow.jsonl`, which fails P3 "safe on existing projects" as a sole home). They differ on how much to build now: a minimal currency signal (the YAGNI evidence position: no recorded transition failure exists, so build only a checkpoint-commit / staleness field) versus a fuller validation-only lifecycle state (session_state enum + a W6 transition-legality check, no commands). Now `open` for the human decision per the human-input contract."""
+status = "decided"
+folded_into = "resume-state-currency-signal"
+receipt = "Q-59"
+ask = """whether the session lifecycle (the `pause` / `compaction-prep` / `resume` user-prompts) should be encoded as explicit, tool-validated STATES rather than the current prose-only checklists plus procedures. Current reality: `next`'s `LoopState` (`src/next.rs`) models only the review loop (ReadyToPlan, Blocked, AwaitingFirstReview, AwaitingFixes, AwaitingReviewers, Converged, Escalate, RiskClassConflict, Done); it has NO Active / Checkpointed / Paused state. `pause.md`, `compaction-prep.md`, and `resume.md` under `.agents/user-prompts/` are prose checklists, and AGENTS.md's "Checkpoint and resuming after context loss" section describes them as procedures. Nothing records "this session is checkpointed", nor validates that a resume follows a checkpoint, nor that work does not start while paused. The design space to explore (do NOT pick one, this is `exploring`): (1) where the state lives, a `[meta]` enum in `plan.toml`, or append-only `type:"checkpoint"` / `type:"resume"` records in `workflow.jsonl`, or a structured ledger field; (2) the command surface, a `checkpoint` / `resume` subcommand pair that writes AND validates the transition, versus validation-only where `next` / `status` read the state and refuse "do work" advice while checkpointed; (3) enforcement in `validate --workflow`, a resume must follow a checkpoint, no two checkpoints without an intervening resume, and the checkpoint commit must be clean. It COMPOSES with `Q-58` (tool-side structuring of the transient resume-state) and EXTENDS the `workflow-driver` step, so a design pass should reconcile `Q-59` WITH `Q-58` rather than bolt one on. Judged against the plan principles: P5 (make illegal states unrepresentable) and P8 (structured data first) are the drivers; P1 (prefer the cleaner long-term architecture) argues for reconciling with `Q-58`; P2 (minimal by default) cautions against over-building the command surface, which is why it is captured `exploring` (a design pass is owed) rather than built. DESIGN PASS DONE (2026-07-23): three worktree-isolated explorers wrote `docs/plans/agent-scaffold.explorations/Q-59-data-model.md`, `Q-59-command-surface.md`, and `Q-59-yagni.md`. All three converge on folding Q-59 INTO Q-58 as one structured-transient carrier (not a separate mechanism), on NOT building a `checkpoint` / `resume` write-command family (it jumps the Q-24 guarded-write gate and adds a runtime write path), and on the state living where `next` loads unconditionally (the Q-58 carrier / ledger, not the `--instrument`-gated `workflow.jsonl`, which fails P3 "safe on existing projects" as a sole home). They differ on how much to build now: a minimal currency signal (the YAGNI evidence position: no recorded transition failure exists, so build only a checkpoint-commit / staleness field) versus a fuller validation-only lifecycle state (session_state enum + a W6 transition-legality check, no commands). Now `open` for the human decision per the human-input contract. DECISION (human, 2026-07-23): Option A, the MINIMAL CURRENCY SIGNAL, fold the session-lifecycle state INTO Q-58's structured transient and build ONLY a checkpoint-commit / last-updated field that `next` / `status` project as "current / N commits stale / tree dirty"; DEFER the richer lifecycle state (a session_state enum, a transition-legality check, refuse-while-checkpointed) behind an EVIDENCE GATE (a first recorded transition failure), mirroring Q-51's staged-behind-gates precedent; NO checkpoint / resume commands; the state lives in the Q-58 carrier, not the instrument-gated JSONL. Folded into `resume-state-currency-signal`; decision receipt `type:"decision"` `q_id:"Q-59"` in `docs/metrics/workflow.jsonl`."""
 
 [[question]]
 id = "Q-60"

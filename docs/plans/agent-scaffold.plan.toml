@@ -1077,16 +1077,19 @@ decisions = ["Q-64"]
 
 [[step]]
 slug = "agents-md-drift-guard"
-title = "whole-file byte-equality drift guard asserting the committed root AGENTS.md equals a fresh `build_assets` render (`Q-64`)"
-status = "next"
+title = "whole-file normalized drift guard asserting the committed AGENTS.md and its `.agents` copy match a fresh `build_assets` render, with a precondition fail-safe (`Q-64`)"
+status = "complete"
 order = 80
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-64"]
+
+[[step.increment]]
+id = "agents-md-drift-guard-inc1"
+risk_class = "risky"
 
 [[step]]
 slug = "principle-by-name-projection"
@@ -1139,6 +1142,16 @@ waiver = []
 
 [step.provenance]
 decisions = ["Q-65", "Q-64"]
+
+[[step]]
+slug = "drift-guard-test-hook-hygiene"
+title = "serialize the drift-guard `precondition_rejects` test helper's panic-hook swap so a parallel-test race cannot leave the no-op hook installed and suppress a concurrent panic backtrace (R3-CQ-1 residual)"
+status = "deferred"
+order = 85
+blocked_by = []
+folds = []
+increment = []
+waiver = []
 
 [[question]]
 id = "Q-1"

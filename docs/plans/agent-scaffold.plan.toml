@@ -1036,7 +1036,7 @@ decisions = ["Q-60"]
 [[step]]
 slug = "driver-isolation-reminder-scope"
 title = "widen the `next` driver's isolation reminder to the reviewer / triager-spawn states (`Q-62`)"
-status = "next"
+status = "in-progress"
 order = 77
 blocked_by = []
 folds = []

@@ -1046,15 +1046,18 @@ decisions = ["Q-62"]
 [[step]]
 slug = "triager-runs-only-on-findings"
 title = "run the separate triager only on review rounds that have findings (`Q-63`)"
-status = "not-started"
+status = "complete"
 order = 78
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-63"]
+
+[[step.increment]]
+id = "triager-runs-only-on-findings-inc1"
+risk_class = "low_risk"
 
 [[question]]
 id = "Q-1"

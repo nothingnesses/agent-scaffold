@@ -263,16 +263,19 @@ impl LoopState {
 		}
 	}
 
-	/// Whether this state spawns a WRITER (a role that edits files), which is what makes
-	/// the isolation tier relevant. ONLY `ReadyToPlan` (spawns the planner) and
-	/// `AwaitingFixes` (spawns the implementer) do: both author reviewed product content
-	/// and so run isolated. The two review states (`AwaitingFirstReview`,
-	/// `AwaitingReviewers`) spawn REVIEWERS, which are read-only and need no isolation
-	/// (`pack/AGENTS.md`, "Read-only agents need no isolation"; the orchestrator prompt's
-	/// "planner or implementer" line), so they are excluded: the always-on
-	/// writer-isolation reminder must not attach the isolation policy to a read-only
-	/// reviewer spawn. The remaining states (marking complete, escalating, resolving
-	/// blockers) spawn no agent at all.
+	/// Whether this state spawns a WRITER (a role that edits the plan or the product),
+	/// which is what makes the resolved-tier echo and the resolve-the-tier note relevant.
+	/// ONLY `ReadyToPlan` (spawns the planner) and `AwaitingFixes` (spawns the
+	/// implementer) do: both author reviewed product content, and the isolation reminder
+	/// here carries the writer's resolved tier. The two review states
+	/// (`AwaitingFirstReview`, `AwaitingReviewers`) spawn REVIEWERS. NOTE: under the
+	/// uniform-isolation rule (`pack/AGENTS.md`, Writer isolation) reviewers now ALSO run
+	/// isolated, since even a findings file is a write; the driver reminder nonetheless
+	/// still targets only the writer states, because its tier echo and resolve-note
+	/// concern the writer's product-content blast radius. Whether the driver should also
+	/// emit the isolation reminder at reviewer-spawn states is a separate, still-open
+	/// driver-scoping decision, not settled by the fragment change alone. The remaining
+	/// states (marking complete, escalating, resolving blockers) spawn no agent at all.
 	fn spawns_writer(self) -> bool {
 		matches!(self, LoopState::ReadyToPlan | LoopState::AwaitingFixes)
 	}
@@ -1451,9 +1454,12 @@ mod tests {
 
 	#[test]
 	fn the_reviewer_states_carry_no_isolation_reminder() {
-		// `spawns_writer` no longer includes the two read-only reviewer states, so the
-		// isolation policy must NOT attach to a reviewer spawn (CHANGE A / D-d). Test both
-		// review states and both a known and an unknown tier.
+		// `spawns_writer` does not include the two reviewer states, so the isolation
+		// reminder (with its writer-tier echo) does NOT attach to a reviewer spawn. Under
+		// the uniform-isolation rule reviewers now isolate too, but the driver's
+		// reminder scoping is a separate, still-open decision (see `spawns_writer`); this
+		// test pins the current driver behaviour. Test both review states and both a
+		// known and an unknown tier.
 		let first_review_steps = [test_step("a", 0, StepPhase::InProgress, &[])];
 		for tier in ["worktree", "unknown"] {
 			let first_review = project_fixture(&first_review_steps, &[], tier);

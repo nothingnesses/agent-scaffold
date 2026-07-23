@@ -6,4 +6,6 @@ Make small, reviewable changes that satisfy the plan and the triager's valid ver
 
 Keep your changes recoverable and scoped to what you own (see the file-safety rules in `AGENTS.md`). Format only the files you changed; do not run repo-wide formatters (for example `just fmt` or `nix fmt`) or `git checkout` / `git restore` on files you do not own, and leave incidental reformatting to the orchestrator. Run any destructive validation in a temporary directory or a worktree, not the live tree.
 
+Keep documentation current with your change: update any docs and prompts your change makes stale, so the shipped change does not leave them out of date.
+
 When the changes are ready, record what changed (for example the before and after commit hashes, or the diff range) so the reviewers can see exactly what to review.

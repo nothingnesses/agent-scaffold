@@ -12,4 +12,6 @@ Write your findings to a file rather than only returning them in your reply, so 
 
 Line length and prose line-wrapping are never findings: the project does not hard-wrap prose and a formatter owns wrapping, so do not raise or comment on them.
 
+Check documentation currency: verify the change does not leave any doc or prompt it touches stale, and report a stale doc or prompt as a finding like any other.
+
 If you are given a review ledger of already-settled findings, do not re-raise one unless you have new evidence that its verdict was wrong; say what the new evidence is.

@@ -1071,7 +1071,7 @@ crates.io RELEASE CHECKLIST (durable notes):
 
 - crates.io has NO in-place rename. Publish a NEW crate `agent-flow`: set the `Cargo.toml` `name`, the binary becomes `agent-flow`, the `scaffold` subcommand stays. Update all in-repo command examples and docs that say `agent-scaffold`.
 - Keep the version line continuous: reserve `agent-flow` on crates.io at 0.0.2, with the first REAL release under `agent-flow` at 0.0.3.
-- The final `agent-scaffold` publish (0.0.2) README must link to `agent-flow` AND state that the `agent-scaffold` name is free for whoever wants to reclaim it, contact by opening an issue on the `agent-flow` GitHub repo. Yank the old `agent-scaffold` versions only AFTER the redirect and the new crate are live.
+- The final `agent-scaffold` publish (0.0.2) README must link to `agent-flow` AND state that the `agent-scaffold` name is free for whoever wants to reclaim it, contact by opening an issue on the `agent-flow` GitHub repo. Leave the old `agent-scaffold` versions un-yanked so the name stays reclaimable.
 - crates.io treats `-` and `_` as the same name, so publishing `agent-flow` also reserves `agent_flow`.
 
 Folded from Q-65 (rename decision) and Q-64 (the identity conclusion that determines the name). Provenance: Q-65, Q-64.

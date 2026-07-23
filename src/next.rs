@@ -282,21 +282,26 @@ impl LoopState {
 		}
 	}
 
-	/// Whether this state spawns a WRITER (a role that edits the plan or the product),
-	/// which is what makes the resolved-tier echo and the resolve-the-tier note relevant.
-	/// ONLY `ReadyToPlan` (spawns the planner) and `AwaitingFixes` (spawns the
-	/// implementer) do: both author reviewed product content, and the isolation reminder
-	/// here carries the writer's resolved tier. The two review states
-	/// (`AwaitingFirstReview`, `AwaitingReviewers`) spawn REVIEWERS. NOTE: under the
-	/// uniform-isolation rule (`pack/AGENTS.md`, Writer isolation) reviewers now ALSO run
-	/// isolated, since even a findings file is a write; the driver reminder nonetheless
-	/// still targets only the writer states, because its tier echo and resolve-note
-	/// concern the writer's product-content blast radius. Whether the driver should also
-	/// emit the isolation reminder at reviewer-spawn states is a separate, still-open
-	/// driver-scoping decision, not settled by the fragment change alone. The remaining
-	/// states (marking complete, escalating, resolving blockers) spawn no agent at all.
-	fn spawns_writer(self) -> bool {
-		matches!(self, LoopState::ReadyToPlan | LoopState::AwaitingFixes)
+	/// Whether this state spawns an ISOLATED AGENT: a role that runs in its own isolation
+	/// tier because it performs a write, which is what makes the isolation-policy fragment,
+	/// the resolved-tier echo, and the resolve-the-tier note relevant. FOUR states qualify:
+	/// `ReadyToPlan` (spawns the planner) and `AwaitingFixes` (spawns the implementer), which
+	/// both author reviewed product content, and `AwaitingFirstReview` and `AwaitingReviewers`
+	/// (spawn REVIEWERS), which author a findings file, and even a findings file is a write.
+	/// Q-62 (decided 2026-07-23, option (a)) widened the driver so the always-on isolation
+	/// reminder fires at all four spawn states, not only the writer states: under the
+	/// uniform-isolation rule (`pack/AGENTS.md`, Writer isolation) reviewers run isolated too,
+	/// so the reminder, its tier echo, and its resolve-note now attach wherever an agent is
+	/// spawned. The remaining states (marking complete, escalating, resolving blockers) spawn
+	/// no agent at all.
+	fn spawns_isolated_agent(self) -> bool {
+		matches!(
+			self,
+			LoopState::ReadyToPlan
+				| LoopState::AwaitingFixes
+				| LoopState::AwaitingFirstReview
+				| LoopState::AwaitingReviewers
+		)
 	}
 
 	/// The phase-keyed reminders for this state: the driver's own ORIGINATED guidance for
@@ -815,14 +820,15 @@ fn assemble(
 /// The reminders are assembled in three parts, in a fixed order: (1) the state's
 /// originated base reminders; (2) the projected Project Principle text for the current
 /// state's mapped principle(s) per `phase_principle_names` (when the plan carries them;
-/// today ReadyToPlan and Escalate both map to "Ground decisions in evidence"); (3) at a
-/// WRITER-spawn state,
-/// the always-on writer-isolation reminder, unconditionally emitting the generated
+/// today ReadyToPlan and Escalate both map to "Ground decisions in evidence"); (3) at an
+/// AGENT-spawn state (planner, implementer, or reviewer/triager),
+/// the always-on agent-isolation reminder, unconditionally emitting the generated
 /// `ISOLATION_POLICY_FRAGMENT` (the single source shared with AGENTS.md, so the policy is
 /// inline at the point of action and cannot drift) plus the resolved tier, and, when the
 /// tier is still `unknown`, the resolve-the-tier note. This replaces the old
-/// tier-only-when-unknown pointer: the policy fires at every writer spawn regardless of
-/// tier (D-b, the motivating case).
+/// tier-only-when-unknown pointer: the policy fires at every agent spawn regardless of
+/// tier (D-b, the motivating case; Q-62 widened the scope from writer spawns to all four
+/// agent-spawn states).
 fn build_instruction(
 	state: LoopState,
 	facts: &LoopFacts,
@@ -835,13 +841,14 @@ fn build_instruction(
 	// (not a number); a mapped principle absent from the plan is skipped, and a state the
 	// phase map does not populate contributes nothing (no dangling reference).
 	principle_reminders.extend(projected_principle_reminders(state, context.principles));
-	// The always-on writer-isolation reminder: the generated policy fragment (drift-free,
-	// shared with AGENTS.md) plus the resolved tier, at every writer-spawn state.
-	if state.spawns_writer() {
+	// The always-on agent-isolation reminder: the generated policy fragment (drift-free,
+	// shared with AGENTS.md) plus the resolved tier, at every agent-spawn state (Q-62 widened
+	// this from the writer states to include the reviewer/triager-spawn states too).
+	if state.spawns_isolated_agent() {
 		let lead = if context.isolation_tier == "unknown" {
-			format!("Writer isolation (tier not yet resolved). {TIER_RESOLVE_NOTE}")
+			format!("Agent isolation (tier not yet resolved). {TIER_RESOLVE_NOTE}")
 		} else {
-			format!("Writer isolation (resolved tier: {}).", context.isolation_tier)
+			format!("Agent isolation (resolved tier: {}).", context.isolation_tier)
 		};
 		principle_reminders.push(format!("{lead} {ISOLATION_POLICY_FRAGMENT}"));
 	}
@@ -1478,25 +1485,29 @@ mod tests {
 	}
 
 	#[test]
-	fn the_reviewer_states_carry_no_isolation_reminder() {
-		// `spawns_writer` does not include the two reviewer states, so the isolation
-		// reminder (with its writer-tier echo) does NOT attach to a reviewer spawn. Under
-		// the uniform-isolation rule reviewers now isolate too, but the driver's
-		// reminder scoping is a separate, still-open decision (see `spawns_writer`); this
-		// test pins the current driver behaviour. Test both review states and both a
-		// known and an unknown tier.
+	fn the_reviewer_states_now_carry_the_isolation_reminder() {
+		// Q-62 (decided 2026-07-23, option (a)) widened `spawns_isolated_agent` to include
+		// the two reviewer/triager-spawn states, so the always-on isolation reminder (policy
+		// fragment plus tier echo) DOES attach to a reviewer spawn: under the
+		// uniform-isolation rule reviewers isolate too, since even a findings file is a
+		// write. Option (c) (keep the tier echo writer-only) was rejected, so the full
+		// reminder fires here. Test both review states; the fragment fires at any tier, and
+		// an unknown tier additionally carries the resolve-the-tier note.
 		let first_review_steps = [test_step("a", 0, StepPhase::InProgress, &[])];
 		for tier in ["worktree", "unknown"] {
 			let first_review = project_fixture(&first_review_steps, &[], tier);
 			assert_eq!(active(&first_review).state, LoopState::AwaitingFirstReview);
-			assert!(!reminders_carry_the_isolation_fragment(active(&first_review)));
-			assert!(!reminders_carry_the_resolve_note(active(&first_review)));
+			assert!(reminders_carry_the_isolation_fragment(active(&first_review)));
+			assert_eq!(reminders_carry_the_resolve_note(active(&first_review)), tier == "unknown");
 
 			let review_rounds = [round(1, RoundOutcome::Clean, 1, RiskClass::Risky, "a", "a-inc")];
 			let awaiting_reviewers = project_fixture(&first_review_steps, &review_rounds, tier);
 			assert_eq!(active(&awaiting_reviewers).state, LoopState::AwaitingReviewers);
-			assert!(!reminders_carry_the_isolation_fragment(active(&awaiting_reviewers)));
-			assert!(!reminders_carry_the_resolve_note(active(&awaiting_reviewers)));
+			assert!(reminders_carry_the_isolation_fragment(active(&awaiting_reviewers)));
+			assert_eq!(
+				reminders_carry_the_resolve_note(active(&awaiting_reviewers)),
+				tier == "unknown"
+			);
 		}
 	}
 
@@ -1690,6 +1701,7 @@ ACTIVE LOOP
   reminders:
     - Staff a fresh, independent reviewer and diversify the model.
     - Cite the file and line for each finding.
+    - Agent isolation (resolved tier: worktree). __ISOLATION_FRAGMENT__
   summary: fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2).";
 
 	const GOLDEN_JSON: &str = r#"{
@@ -1725,7 +1737,8 @@ ACTIVE LOOP
       },
       "principle_reminders": [
         "Staff a fresh, independent reviewer and diversify the model.",
-        "Cite the file and line for each finding."
+        "Cite the file and line for each finding.",
+        "Agent isolation (resolved tier: worktree). __ISOLATION_FRAGMENT__"
       ],
       "filled_prompt_summary": "fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2)."
     }
@@ -1733,15 +1746,24 @@ ACTIVE LOOP
   "resume_state": null
 }"#;
 
+	// The golden fixtures carry the reviewer-state isolation reminder (Q-62 widened the
+	// driver to emit it here). The long policy fragment is single-sourced from
+	// `ISOLATION_POLICY_FRAGMENT`: the golden holds a `__ISOLATION_FRAGMENT__` placeholder,
+	// substituted here, so the snapshot cannot drift from the shared const and there is no
+	// hand-copied duplicate to keep in step.
+	fn golden_with_fragment(golden: &str) -> String {
+		golden.replace("__ISOLATION_FRAGMENT__", ISOLATION_POLICY_FRAGMENT)
+	}
+
 	#[test]
 	fn golden_human_text() {
-		assert_eq!(render_human(&golden_projection()), GOLDEN_HUMAN);
+		assert_eq!(render_human(&golden_projection()), golden_with_fragment(GOLDEN_HUMAN));
 	}
 
 	#[test]
 	fn golden_json() {
 		let json = serde_json::to_string_pretty(&golden_projection()).expect("serialises");
-		assert_eq!(json, GOLDEN_JSON);
+		assert_eq!(json, golden_with_fragment(GOLDEN_JSON));
 	}
 
 	// -- Renderer idempotence --

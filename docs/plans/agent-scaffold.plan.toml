@@ -13,6 +13,7 @@ orphan_tasks = [
   "post-inc6-folds",
   "q58-capture",
   "q59-backlog-fold",
+  "q64-capture",
   "uniform-isolation",
   "workflow-hardening",
 ]

@@ -18,8 +18,8 @@
 //! composes with the Q-57 decision that incidental formatter reflow is not a
 //! finding). So both sides are passed through `normalize_wrapping`, which collapses
 //! ONLY the whitespace degrees of freedom prettier exercises (see its doc comment for
-//! the exact transform and the argument that it cannot mask a content change) before
-//! the equality check.
+//! the exact transform and the argument that, under its stated precondition, it cannot
+//! mask a content change) before the equality check.
 //!
 //! Empirically, at the time this guard was written the raw render is already
 //! byte-identical to both committed files (the pack authors each paragraph on a single
@@ -67,6 +67,37 @@ mod tests {
 			.find(|asset| asset.dest == dest)
 			.unwrap_or_else(|| panic!("the self-scaffold render includes an asset at {dest}"))
 			.contents
+	}
+
+	/// Assert the precondition that `normalize_wrapping`'s safety argument depends on
+	/// (see its doc comment): the guarded text `content` carries no indentation- or
+	/// whitespace-significant construct, so equal normalization still implies
+	/// identical non-whitespace content and block structure. Without this, the flat
+	/// files could one day gain a nested list, indented code, or multi-space inline
+	/// code and the guard would pass while real drift slipped through. This converts
+	/// that latent gap into a loud failure at the moment such a construct is added.
+	///
+	/// It rejects: (i) any line beginning with a space or tab, which catches nested
+	/// or continuation-indented list items and 4-space indented code (normalize strips
+	/// leading indentation); and (ii) any line with a run of two or more consecutive
+	/// spaces, which catches multi-space inline code and any intra-line multi-space
+	/// run (normalize collapses inter-word whitespace). Both predicates are true for
+	/// the current committed files.
+	fn assert_no_unprotected_construct(
+		name: &str,
+		content: &str,
+	) {
+		for (index, line) in content.lines().enumerate() {
+			let number = index + 1;
+			assert!(
+				!line.starts_with(' ') && !line.starts_with('\t'),
+				"{name} line {number} begins with indentation, an indentation-significant Markdown construct (a nested or continuation-indented list item, or a 4-space indented code block) that normalize_wrapping does NOT protect: it strips leading indentation, so equal normalization would no longer imply equal content and this could mask real drift. Harden normalize_wrapping (make list indentation significant, treat indented code verbatim) before adding such content."
+			);
+			assert!(
+				!line.contains("  "),
+				"{name} line {number} contains a run of two or more consecutive spaces, a whitespace-significant construct (a multi-space inline code span, or an intra-line multi-space run) that normalize_wrapping collapses to a single space, so equal normalization would no longer imply equal content and this could mask real drift. Harden normalize_wrapping before adding such content."
+			);
+		}
 	}
 
 	/// Whether `line` (already trimmed and space-collapsed) begins its own logical
@@ -137,20 +168,44 @@ mod tests {
 	/// block (delimited by ``` or ~~~) pass through VERBATIM, since prettier never
 	/// reflows code and whitespace there is significant.
 	///
-	/// WHY it cannot mask a content change. The transform only ever deletes or
+	/// WHY it preserves a content change, AND THE PRECONDITION THAT BUYS THAT. The
+	/// guarantee is NOT absolute: it holds only while the guarded files contain no
+	/// indentation-significant Markdown construct (no line with leading indentation,
+	/// hence no nested or continuation-indented list item and no 4-space indented
+	/// code block) and no whitespace-significant inline construct (no run of two or
+	/// more spaces, including inside an inline code span). The transform trims leading
+	/// and trailing whitespace and collapses inter-word whitespace runs to a single
+	/// space, so it DISCARDS exactly the information those constructs encode: it
+	/// cannot tell a nested list item (`  - child`) from a sibling (`- child`), a
+	/// list-continuation de-indent from a new line, 4-space indented code from a plain
+	/// line, or a multi-space inline code span from a single-spaced one. Under the
+	/// precondition none of those occur, and the transform then only ever deletes or
 	/// collapses WHITESPACE (spaces, tabs, the newlines joined within a block, and
-	/// runs of blank lines); it never deletes, adds, or reorders a non-whitespace
-	/// character, and it preserves blank-line block boundaries (collapsed, not
-	/// removed) and every fenced code line verbatim. So two inputs normalize equal
-	/// only when they carry the identical ordered stream of non-whitespace characters,
-	/// the identical block-boundary structure up to blank-run collapsing, and
-	/// byte-identical code fences. Any real drift, a reworded, added, dropped, or
-	/// reordered word or list item or slot, changes that token stream; merging or
-	/// splitting a paragraph changes the block-boundary count; editing a code fence
-	/// changes a verbatim line. Only prettier's own freedoms, where a line is wrapped,
-	/// how many spaces sit between words, how many blank lines separate blocks, are
-	/// discarded. A reviewer trying to construct a hidden drift must therefore change
-	/// only whitespace, which is by definition the reflow Q-57 rules out as a finding.
+	/// runs of blank lines) between non-whitespace tokens that carry no significant
+	/// leading or internal whitespace; it never deletes, adds, or reorders a
+	/// non-whitespace character, and it preserves blank-line block boundaries
+	/// (collapsed, not removed) and every fenced code line verbatim. So, GIVEN THE
+	/// PRECONDITION, two inputs normalize equal only when they carry the identical
+	/// ordered stream of non-whitespace characters, the identical block-boundary
+	/// structure up to blank-run collapsing, and byte-identical code fences: that is,
+	/// identical non-whitespace content and block structure. Any real drift, a
+	/// reworded, added, dropped, or reordered word or list item or slot, changes that
+	/// token stream; merging or splitting a paragraph changes the block-boundary
+	/// count; editing a code fence changes a verbatim line. Only prettier's own
+	/// freedoms, where a line is wrapped, how many spaces sit between words, how many
+	/// blank lines separate blocks, are discarded.
+	///
+	/// UNPROTECTED CONSTRUCTS. Outside the precondition the transform CAN mask real
+	/// drift. It does not distinguish, and so silently equates: (a) a nested or
+	/// continuation-indented list item and a flat sibling (leading indentation is
+	/// stripped); (b) a 4-space indented code block and ordinary prose (same); and
+	/// (c) a multi-space inline code span and a single-spaced one (an inter-word
+	/// space run is collapsed). The guarded files are flat today (no such construct),
+	/// so this is latent, not active. `assert_no_unprotected_construct` pins that
+	/// precondition on the committed content and fails LOUDLY the day guidance gains
+	/// one of these, converting the latent gap into a fail-safe. `normalize_wrapping`
+	/// must be hardened (make list indentation significant, treat indented code
+	/// verbatim) before such content is added.
 	fn normalize_wrapping(input: &str) -> String {
 		let mut out: Vec<String> = Vec::new();
 		// The logical line being accumulated (a paragraph or a list item plus its
@@ -218,13 +273,27 @@ mod tests {
 		// edit, a dropped slot, or a stale pack source, that the per-fragment guards do
 		// not cover, while tolerating an incidental formatter reflow. The fix is
 		// `just scaffold-self`.
+		let rendered_agents = self_scaffold_asset("AGENTS.md");
+		let rendered_reference = self_scaffold_asset(".agents/AGENTS.reference.md");
+
+		// Precondition for normalize_wrapping's safety argument (see its doc comment):
+		// both the fresh render and the committed copy must be free of any
+		// indentation- or whitespace-significant construct, or equal normalization
+		// would no longer imply equal content and the equality checks below could pass
+		// on masked drift. Asserted on both sides so the guard fails loudly the day
+		// such a construct enters the guidance.
+		assert_no_unprotected_construct("committed AGENTS.md", COMMITTED_AGENTS);
+		assert_no_unprotected_construct("rendered AGENTS.md", &rendered_agents);
+		assert_no_unprotected_construct("committed .agents/AGENTS.reference.md", COMMITTED_REFERENCE);
+		assert_no_unprotected_construct("rendered .agents/AGENTS.reference.md", &rendered_reference);
+
 		assert_eq!(
-			normalize_wrapping(&self_scaffold_asset("AGENTS.md")),
+			normalize_wrapping(&rendered_agents),
 			normalize_wrapping(COMMITTED_AGENTS),
 			"root AGENTS.md has drifted from a fresh pack render (ignoring prettier wrapping); run `just scaffold-self`"
 		);
 		assert_eq!(
-			normalize_wrapping(&self_scaffold_asset(".agents/AGENTS.reference.md")),
+			normalize_wrapping(&rendered_reference),
 			normalize_wrapping(COMMITTED_REFERENCE),
 			".agents/AGENTS.reference.md has drifted from a fresh pack render (ignoring prettier wrapping); run `just scaffold-self`"
 		);

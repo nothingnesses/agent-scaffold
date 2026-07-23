@@ -894,15 +894,18 @@ evidence = "driver-output-generation-inc2"
 [[step]]
 slug = "formatter-reflow-convention"
 title = "incidental formatter reflow is not a review finding (`Q-57`)"
-status = "in-progress"
+status = "complete"
 order = 68
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-57"]
+
+[[step.increment]]
+id = "formatter-reflow-convention-inc1"
+risk_class = "low_risk"
 
 [[question]]
 id = "Q-1"

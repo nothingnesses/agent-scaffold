@@ -14,6 +14,7 @@ orphan_tasks = [
   "q58-capture",
   "q59-backlog-fold",
   "q64-capture",
+  "q64-q65-fold",
   "q65-capture",
   "uniform-isolation",
   "workflow-hardening",
@@ -1022,7 +1023,7 @@ risk_class = "low_risk"
 [[step]]
 slug = "single-source-recommendation-rule"
 title = "render the recommendation-in-options rule into the Preflight from a single canonical source (`Q-60`)"
-status = "deferred"
+status = "next"
 order = 76
 blocked_by = []
 folds = []
@@ -1035,7 +1036,7 @@ decisions = ["Q-60"]
 [[step]]
 slug = "driver-isolation-reminder-scope"
 title = "widen the `next` driver's isolation reminder to the reviewer / triager-spawn states (`Q-62`)"
-status = "deferred"
+status = "next"
 order = 77
 blocked_by = []
 folds = []
@@ -1060,6 +1061,84 @@ decisions = ["Q-63"]
 [[step.increment]]
 id = "triager-runs-only-on-findings-inc1"
 risk_class = "low_risk"
+
+[[step]]
+slug = "generated-projection"
+title = "demote AGENTS.md to a slot-wise generated projection: build the Option-A endorsed core now, gate the contested `workflow.toml` / phase-machine margin (`Q-64`)"
+status = "in-progress"
+order = 79
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-64"]
+
+[[step]]
+slug = "agents-md-drift-guard"
+title = "whole-file byte-equality drift guard asserting the committed root AGENTS.md equals a fresh `build_assets` render (`Q-64`)"
+status = "next"
+order = 80
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-64"]
+
+[[step]]
+slug = "principle-by-name-projection"
+title = "project per-phase principles BY NAME via a phase->principle-names map, dropping the fragile numeric citations (`Q-64`)"
+status = "next"
+order = 81
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-64"]
+
+[[step]]
+slug = "roles-findings-naming-slots"
+title = "add generated `{{roles}}` and `{{findings_naming}}` AGENTS.md slots single-sourced with the driver's values, killing the existing `next.rs` duplicates (`Q-64`)"
+status = "next"
+order = 82
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-64"]
+
+[[step]]
+slug = "workflow-toml-rule-fragments"
+title = "widen `workflow.toml` to per-phase rule fragments and generate the `{{workflow_phases}}` section, gated behind the sec-2(d) evidence gate (`Q-64`)"
+status = "deferred"
+order = 83
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-64"]
+
+[[step]]
+slug = "rename-to-agent-flow"
+title = "rename the crate and binary from agent-scaffold to `agent-flow` at a stable, release-ready state (`Q-65`)"
+status = "deferred"
+order = 84
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-65", "Q-64"]
 
 [[question]]
 id = "Q-1"
@@ -1451,7 +1530,9 @@ ask = """whether the separate triager should run only on review rounds where the
 
 [[question]]
 id = "Q-64"
-status = "exploring"
+status = "decided"
+folded_into = "generated-projection"
+receipt = "Q-64"
 ask = """whether a separate AGENTS.md prose file should continue to exist at all once the tool matures, or whether the agent-scaffold tool alone can encode, enforce, and deliver the workflow. Raised by the human 2026-07-23 (Socratic), in two parts: (1) does AGENTS.md still make sense, is the tool by itself insufficient; (2) if the tool is insufficient without AGENTS.md, how far can it be pushed toward self-sufficiency.
 
 STARTING ANALYSIS (orchestrator, to be tested and extended by the design pass): the tool ALONE is insufficient, but a hand-maintained prose AGENTS.md is also the wrong end state; the clean answer is a GENERATED AGENTS.md that is single-sourced with the tool, not prose versus tool. Three things AGENTS.md does that a driver or validator cannot replace: (1) it carries JUDGMENT and behavioral guidance the tool can prompt but never enforce (adversarial review quality, sound triage, front-loading context, well-reasoned recommendations, prose conventions), which is the control-versus-judgment boundary the project already drew for `Q-51`; (2) BOOTSTRAP and harness-agnosticism, something loaded by default must tell the agent the tool exists and be present on a harness that does not auto-run executables; (3) the HUMAN-READABLE contract (Principle 8 is literally structured data first, project for humans). Why a static hand-maintained AGENTS.md is ALSO wrong: it is the drift the project exists to kill (two independent copies of the same rules diverging), already hit as the driver principle-numbering bug and the W4-baseline doc drift.
@@ -1464,11 +1545,13 @@ THE IRREDUCIBLE FLOOR, what the tool cannot cross at any maturity: (a) JUDGMENT 
 
 This COMPOSES with `Q-51` (this is essentially completing the full workflow-driver vision plus widening generation) and `Q-58` (the structured transient is one input the state reconstructor needs), so the design pass should reconcile `Q-64` WITH `Q-51` and `Q-58` rather than treat it standalone. Judged against the plan principles: P8 (structured data first, project for humans) and P1 (cleaner long-term architecture) drive the generated-projection direction; one-source-of-truth is the anti-drift argument; P2 (minimal by default) and P6 (evidence first, adopt in stages) caution against building the whole ladder speculatively, which is why this is `exploring` rather than decided. Orchestrator starting recommendation for the pass to weigh: direction A, keep AGENTS.md but demote it from an authored source to a GENERATED projection of the single workflow source, with the tool as the logic source, the structural enforcer, and the just-in-time deliverer, and the residual floor (judgment prompts, bootstrap stub, human contract) staying as generated prose.
 
-This is `exploring`: a multi-explorer design pass is owed (candidate lenses: the generation architecture, how far to render AGENTS.md from the single source and what stays hand-authored; the checkable-versus-promptable partition of the current AGENTS.md content; the delivery and FSM path reusing the `next`, `render`, and W3 machinery; and a YAGNI or skeptic lens on how much of the ladder is worth building versus the drift it removes). Design record owed under `docs/plans/agent-scaffold.explorations/` named for `Q-64`."""
+This is `exploring`: a multi-explorer design pass is owed (candidate lenses: the generation architecture, how far to render AGENTS.md from the single source and what stays hand-authored; the checkable-versus-promptable partition of the current AGENTS.md content; the delivery and FSM path reusing the `next`, `render`, and W3 machinery; and a YAGNI or skeptic lens on how much of the ladder is worth building versus the drift it removes). Design record owed under `docs/plans/agent-scaffold.explorations/` named for `Q-64`. DECIDED (human, 2026-07-23): Option A refined. Adopt direction A (slot-wise generation, AGENTS.md stays a hand-authored template with generated slots, not whole-file generation). Build the endorsed rung-1 core NOW (the whole-file AGENTS.md drift guard, principle-by-name projection replacing fragile numeric citations, the roles / findings-naming generated slots, plus the promoted Q-60 recommendation-rule single-source and Q-62 isolation-reminder widening), and GATE the contested workflow.toml rule-fragment widening plus the `{{workflow_phases}}` phase-machine section generation behind the sec-2(d) evidence gate. Folded into `generated-projection`; decision receipt `type:"decision"` `q_id:"Q-64"` in `docs/metrics/workflow.jsonl`."""
 
 [[question]]
 id = "Q-65"
-status = "exploring"
+status = "decided"
+folded_into = "rename-to-agent-flow"
+receipt = "Q-65"
 ask = """whether, given the project's trajectory (the `Q-51` workflow-driver and the `Q-64` tool-self-sufficiency direction), agent-scaffold is still primarily a SCAFFOLDING tool or has become a structured WORKFLOW ENGINE / DRIVER, and if the latter whether to RENAME it, and to what. Raised by the human 2026-07-23 (Socratic); the human is not precious about the current name and is unconcerned with backwards-compatibility or brand recognition.
 
 IDENTITY ANALYSIS (orchestrator, to be tested by the design pass): the project is no longer primarily a scaffolding tool. The `scaffold` subcommand (the one-shot pack generator) is becoming ONE bootstrap subcommand of a larger thing whose ongoing value is the plan/metrics/convergence machinery plus the driver: `validate --workflow` ENFORCES structural invariants, `render` PROJECTS the structured plan for humans, and `next` DRIVES the loop. It is best described as a HARNESS-AGNOSTIC, STRUCTURED WORKFLOW ENGINE or DRIVER (a control plane for a role-separated, convergence-gated development workflow). It is NOT a META-HARNESS: a harness runs the agent (the LLM loop and tool execution), which this tool never does; agents INVOKE the tool, so calling it a meta-harness is a category error.
@@ -1477,7 +1560,7 @@ RENAME: worth it. A name that says scaffold keeps implying a one-shot generator 
 
 CANDIDATE NAME DIRECTIONS to seed the pass: DESCRIPTIVE (lowest cognitive cost, fits the project's clarity and project-for-humans values), for example `agentflow`, `flowgate` (the workflow plus the convergence gate it enforces), `agentctl` (a CLI-conventional control tool); METAPHOR (drives the crew but never does the work, which is the orchestrator rule), for example `cox` or `coxswain` (steers and paces a rowing crew without rowing, precise but obscure), `maestro` or `podium` (conducts an ensemble from one score, the structured plan; the conductor does not play), `helm`. Orchestrator lean: a DESCRIPTIVE name over a metaphor (this project values clarity over cleverness), with `agentflow` or `flowgate` as front-runners, but let the `Q-64` explorers pressure-test the identity first and let the name fall out of it.
 
-Judged against the plan principles: P8 (structured data first, project for humans) and P1 (cleaner long-term architecture) argue the public name should accurately project the tool's identity. This is `exploring`, resolved TOGETHER WITH `Q-64` (its identity conclusion determines the name); no separate design pass is owed beyond `Q-64`'s, this question rides along with it."""
+Judged against the plan principles: P8 (structured data first, project for humans) and P1 (cleaner long-term architecture) argue the public name should accurately project the tool's identity. This is `exploring`, resolved TOGETHER WITH `Q-64` (its identity conclusion determines the name); no separate design pass is owed beyond `Q-64`'s, this question rides along with it. DECIDED (human, 2026-07-23): renamed to `agent-flow` (descriptive), release-timed to a stable release-ready state so the name can be claimed on crates.io. Reserve `agent-flow` on crates.io at 0.0.2 with the first real release under the new name at 0.0.3; the final agent-scaffold publish (0.0.2) links to agent-flow and states that the agent-scaffold name is free to reclaim by opening an issue on the agent-flow GitHub repo. Identity is a structured workflow validator plus advisory driver (scaffold is one bootstrap subcommand), NOT a meta-harness (category error: agents invoke the tool, it never runs the LLM loop). Folded into `rename-to-agent-flow`; decision receipt `type:"decision"` `q_id:"Q-65"` in `docs/metrics/workflow.jsonl`."""
 
 [[principle]]
 n = 1

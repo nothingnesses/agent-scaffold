@@ -70,32 +70,55 @@ mod tests {
 	}
 
 	/// Assert the precondition that `normalize_wrapping`'s safety argument depends on
-	/// (see its doc comment): the guarded text `content` carries no indentation- or
-	/// whitespace-significant construct, so equal normalization still implies
+	/// (see its doc comment): every NON-FENCED line of the guarded text `content` is
+	/// already in canonical whitespace form, so equal normalization still implies
 	/// identical non-whitespace content and block structure. Without this, the flat
-	/// files could one day gain a nested list, indented code, or multi-space inline
-	/// code and the guard would pass while real drift slipped through. This converts
-	/// that latent gap into a loud failure at the moment such a construct is added.
+	/// files could one day gain a nested list, indented code, or a whitespace-significant
+	/// inline span and the guard would pass while real drift slipped through. This
+	/// converts that latent gap into a loud failure at the moment such a construct is
+	/// added.
 	///
-	/// It rejects: (i) any line beginning with a space or tab, which catches nested
-	/// or continuation-indented list items and 4-space indented code (normalize strips
-	/// leading indentation); and (ii) any line with a run of two or more consecutive
-	/// spaces, which catches multi-space inline code and any intra-line multi-space
-	/// run (normalize collapses inter-word whitespace). Both predicates are true for
-	/// the current committed files.
+	/// A line is in canonical form when it already equals
+	/// `line.split_whitespace().collect::<Vec<_>>().join(" ")`, i.e. no leading or
+	/// trailing whitespace and no internal whitespace run of any kind beyond a single
+	/// ASCII space. That single predicate subsumes the older leading-whitespace and
+	/// double-space checks and additionally rejects NON-SPACE whitespace (a mid-line
+	/// tab, an NBSP, a form feed) that `split_whitespace` collapses just like a space
+	/// run: any such run makes the line differ from its canonical form, so it trips.
+	/// A leading space or tab catches nested or continuation-indented list items and
+	/// 4-space indented code; a trailing or internal whitespace run catches multi-space
+	/// (or tab/NBSP-separated) inline code and any intra-line whitespace run. Every
+	/// non-fenced line of the current committed files is already in canonical form.
+	///
+	/// FENCED CODE IS EXEMPT. Fence state is tracked with the SAME rule
+	/// `normalize_wrapping` uses (a line whose `trim_start()` begins with ``` or ~~~
+	/// toggles the fence), and fenced-content lines plus the fence marker lines
+	/// themselves are skipped, because `normalize_wrapping` emits them VERBATIM: an
+	/// indented example inside a fence is not a construct it collapses, so asserting on
+	/// it would false-fail a legitimate fenced example.
 	fn assert_no_unprotected_construct(
 		name: &str,
 		content: &str,
 	) {
+		// Whether the cursor is inside a fenced code block, tracked with the same fence
+		// rule normalize_wrapping uses so the two agree on which lines are verbatim.
+		let mut in_fence = false;
 		for (index, line) in content.lines().enumerate() {
 			let number = index + 1;
+			// A fence delimiter line toggles verbatim mode; it and every line inside the
+			// fence pass through normalize_wrapping unchanged, so they are exempt here.
+			let trimmed_start = line.trim_start();
+			if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+				in_fence = !in_fence;
+				continue;
+			}
+			if in_fence {
+				continue;
+			}
+			let canonical = line.split_whitespace().collect::<Vec<_>>().join(" ");
 			assert!(
-				!line.starts_with(' ') && !line.starts_with('\t'),
-				"{name} line {number} begins with indentation, an indentation-significant Markdown construct (a nested or continuation-indented list item, or a 4-space indented code block) that normalize_wrapping does NOT protect: it strips leading indentation, so equal normalization would no longer imply equal content and this could mask real drift. Harden normalize_wrapping (make list indentation significant, treat indented code verbatim) before adding such content."
-			);
-			assert!(
-				!line.contains("  "),
-				"{name} line {number} contains a run of two or more consecutive spaces, a whitespace-significant construct (a multi-space inline code span, or an intra-line multi-space run) that normalize_wrapping collapses to a single space, so equal normalization would no longer imply equal content and this could mask real drift. Harden normalize_wrapping before adding such content."
+				line == canonical,
+				"{name} line {number} is not in canonical whitespace form (it has leading/trailing whitespace, or an internal whitespace run beyond a single ASCII space such as a double space, tab, or NBSP). The line is {line:?}; its canonical form is {canonical:?}. Guidance gained a whitespace-significant construct (a nested or continuation-indented list item, 4-space indented code, or a multi-space / tab / NBSP inline span) that normalize_wrapping would collapse (it trims and collapses all whitespace runs to a single space), so equal normalization would no longer imply equal content and this could mask real drift. Harden normalize_wrapping (make list indentation significant, treat indented code verbatim) before adding such content."
 			);
 		}
 	}
@@ -347,6 +370,62 @@ mod tests {
 			normalize_wrapping(canonical),
 			normalize_wrapping(merged_blocks),
 			"removing a block boundary must not normalize away"
+		);
+	}
+
+	/// Run `assert_no_unprotected_construct` on `content` and report whether it
+	/// panicked (rejected the content), so a regression test can assert acceptance or
+	/// rejection without unwinding the whole test binary. The panic hook is silenced
+	/// around the intended panic so a rejected fixture does not print a backtrace on an
+	/// otherwise-passing run; it is restored before returning.
+	fn precondition_rejects(content: &str) -> bool {
+		let previous_hook = std::panic::take_hook();
+		std::panic::set_hook(Box::new(|_| {}));
+		let rejected =
+			std::panic::catch_unwind(|| assert_no_unprotected_construct("fixture", content)).is_err();
+		std::panic::set_hook(previous_hook);
+		rejected
+	}
+
+	#[test]
+	fn precondition_rejects_non_space_whitespace_and_round_one_cases() {
+		// F1: a mid-line tab inside a non-fenced line normalizes equal to a single-space
+		// version (split_whitespace collapses it), so it must be rejected. Before the fix
+		// the `contains("  ")` check missed this non-space whitespace.
+		assert!(
+			precondition_rejects("text with a\ttab inside"),
+			"a mid-line tab must be rejected (F1)"
+		);
+		// An NBSP (U+00A0) is likewise collapsed by split_whitespace and must be rejected.
+		assert!(
+			precondition_rejects("text with a\u{00a0}nbsp inside"),
+			"a mid-line NBSP must be rejected (F1)"
+		);
+		// Round-1 cases must still reject: a nested list item (leading indentation) and a
+		// double space.
+		assert!(
+			precondition_rejects("- parent\n  - child"),
+			"a nested (leading-indented) list item must still be rejected"
+		);
+		assert!(
+			precondition_rejects("a paragraph with  two spaces"),
+			"a double space must still be rejected"
+		);
+	}
+
+	#[test]
+	fn precondition_exempts_fenced_indented_lines_but_not_bare_ones() {
+		// F2: an indented example line INSIDE a ``` fence passes normalize_wrapping
+		// verbatim, so the precondition must not trip on it.
+		assert!(
+			!precondition_rejects("# Title\n\n```\n    let indented = example;\n```\n"),
+			"an indented line inside a fence must be accepted (F2)"
+		);
+		// The SAME indented line OUTSIDE a fence is an unprotected indentation-significant
+		// construct and must be rejected.
+		assert!(
+			precondition_rejects("# Title\n\n    let indented = example;\n"),
+			"the same indented line outside a fence must be rejected"
 		);
 	}
 }

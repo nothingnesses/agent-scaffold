@@ -911,7 +911,7 @@ risk_class = "low_risk"
 [[step]]
 slug = "uniform-agent-isolation"
 title = "every spawned agent runs worktree-isolated; the orchestrator batch-merges parallel outputs (`Q-61`)"
-status = "in-progress"
+status = "complete"
 order = 69
 blocked_by = []
 folds = []
@@ -919,6 +919,10 @@ waiver = []
 
 [step.provenance]
 decisions = ["Q-61"]
+
+[[step.increment]]
+id = "uniform-agent-isolation-inc1"
+risk_class = "risky"
 
 [[question]]
 id = "Q-1"

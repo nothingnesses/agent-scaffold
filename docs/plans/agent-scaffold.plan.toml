@@ -1093,16 +1093,19 @@ risk_class = "risky"
 
 [[step]]
 slug = "principle-by-name-projection"
-title = "project per-phase principles BY NAME via a phase->principle-names map, dropping the fragile numeric citations (`Q-64`)"
-status = "next"
+title = "project per-phase principles BY NAME via a phase->principle-names map in the driver, generalizing the escalate-only projection (`Q-64`)"
+status = "complete"
 order = 81
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-64"]
+
+[[step.increment]]
+id = "principle-by-name-projection-inc1"
+risk_class = "risky"
 
 [[step]]
 slug = "roles-findings-naming-slots"

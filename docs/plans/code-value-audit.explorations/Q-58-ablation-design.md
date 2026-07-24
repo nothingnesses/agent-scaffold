@@ -1,0 +1,90 @@
+# Q-58 output-content ablation: DESIGN (Q-52 falsifiable-deletion applied to `next`'s output)
+
+Explorer lens: experiment designer. This record DESIGNS the ablation the human decided (Q-58, 2026-07-24) to run; it does not run it and changes no product code. It grounds every variant and the oracle in `src/next.rs` by `file:line`.
+
+## Framing: Q-52's falsifiable-deletion method, applied to output content
+
+Q-52 (the code-value audit) uses FALSIFIABLE DELETION: a line of CODE earns its keep iff deleting it produces an OBSERVABLE degradation (a test flips from pass to fail). If nothing observable changes, the line is dead weight and can go. Q-58 lifts the same test from code to the workflow driver's OUTPUT: a line of `next` output earns its keep iff removing it OBSERVABLY DEGRADES a resuming agent's next-action correctness, measured against a deterministic oracle. The oracle plays the role the failing test plays in Q-52: it is the observable that the deletion must move. If FULL and a reduced variant score the same, the deleted content earned nothing and the cheaper carrier wins.
+
+Concrete motivation (measured on this repo, pre-fix): `next` emitted 150145 bytes / 148 lines, of which the derived ACTIVE LOOP block was 799 bytes and the remaining ~149 KB was a VERBATIM echo of the ledger's `## RESUME STATE` (27 dated anchors, 1 live). A source-side fix landed (bound `## RESUME STATE` to the single live `##`-heading anchor via `extract_resume_state`, `src/next.rs:969-988`); the echo is now ~6 KB. The ablation resolves the deeper carrier mechanism empirically, and its finding must respect the Q-59 constraint that whichever carrier wins still carries a currency signal (checkpoint-commit / last-updated projected as "current / N commits stale / tree dirty").
+
+What `next` emits, as the substrate the variants slice (`render_human`, `src/next.rs:1017-1043`):
+1. A header: `task` / `source` / `metrics` (`src/next.rs:1019-1024`).
+2. The ACTIVE LOOP block (`render_active_loop`, `src/next.rs:1046-1075`): the `step / increment` unit and `phase -> transition` line, `state`, `streak`, `rounds`, `isolation`, the derived `next:` action, `role`, `prompt` path, the `context:` slots, the `reminders:`, and the one-line `summary:`.
+3. The verbatim RESUME STATE echo (`src/next.rs:1036-1041`), appended only when the ledger carries a `## RESUME STATE` section.
+The `--json` form (`NextProjection`, `src/next.rs:98-118`; emitted at `src/main.rs:1203-1205`) is the same content as a typed projection, with `resume_state` as a single string field (`src/next.rs:113`).
+
+## 1. Output variants to ablate
+
+Each variant is defined precisely by what it INCLUDES / EXCLUDES from the substrate above. All variants are produced by SLICING the shipped `next` output and `--json`, never by changing product code (see the harness in section 5). Byte/token sizes are the current post-source-fix figures on this repo; the harness also measures a WORST-CASE (27-anchor) ledger to expose the knee the source fix already partly walked back.
+
+- V0 FULL (the shipped output). Header + full ACTIVE LOOP block + verbatim RESUME STATE echo (`src/next.rs:1017-1043`, including the `resume_state` tail at `1036-1041`). This is `next` as run today. Cost: header + ~799 B block + ~6 KB echo (pre-fix ~149 KB echo).
+- V1 ACTIVE-LOOP-ONLY. Header + ACTIVE LOOP block, and NO RESUME STATE echo (equivalent to `resume_state == None`, i.e. skip `src/next.rs:1036-1041`; reachable in the product by an absent ledger section, `extract_resume_state` returning `None` at `src/next.rs:983-987`). Isolates whether the DERIVED block alone (the `LoopState` projection) preserves next-action correctness. Cost: ~799 B.
+- V2 PLUS-CURRENT-ANCHOR. Header + ACTIVE LOOP block + ONLY the single live transient anchor of RESUME STATE (the `## RESUME STATE`-bounded live block the landed `##`-boundary fix already isolates; the 26 superseded dated anchors under `## Superseded ...` are excluded because a `## ` heading terminates the section, `src/next.rs:974-976, 978-981`). This is close to what the shipped tool now emits post-fix; it is broken out as its own variant so the ablation can attribute value to the LIVE anchor separately from the block and from the superseded history. Cost: ~6 KB.
+- V3 STRUCTURED-ONLY. The `--json` `NextProjection` (`src/next.rs:98-118`) with the prose `resume_state` string REPLACED by a structured projection of the transient: the derived `active_loop` fields (already typed: `state`, `step`, `increment`, `phase`, `risk_class`, `consecutive_clean`, `required_streak`, `total_rounds`, `round_cap`, `valid_transitions`, `next_instruction`, `src/next.rs:129-161`) plus a typed currency field (Q-59: checkpoint-commit / last-updated -> `current | N-commits-stale | tree-dirty`) plus a small typed transient object (the non-derivable sub-state named in the Stage-1 boundary note, `src/next.rs:22-25`: mid-round `awaiting-triage`, pending-fold, active-worktree/commit). Tests whether a machine-readable projection carries the same next-action signal at far lower token cost than prose. Cost: small, bounded, no free-text echo.
+- V4 ACTIVE-LOOP-MINUS-GUIDANCE (confound control; optional but recommended). V1 with the pre-computed advisory lines removed: drop the `next:` line (`src/next.rs:1063`, printing `state.next_action()`), the `summary:` line (`src/next.rs:1074`), and the `role:` line (`src/next.rs:1064`), leaving only the FACTS (`state`, `streak`, `rounds`, `context` slots, `reminders`). This separates "the block STATES the answer" from "the block states the FACTS the answer needs," and is the antidote to the oracle-circularity threat in section 6: it forces the consuming agent to DERIVE the next action rather than copy the `next:` line the oracle itself is built from.
+
+Note that V0-V2 and V4 all still contain the derived block, whose `next:` line is `state.next_action()` verbatim; V4 exists precisely so the coarse next-action is not spoon-fed in at least one arm.
+
+## 2. The deterministic next-action ORACLE
+
+The oracle, for a given repo state, yields the CORRECT next action plus its binding constraints, so a consuming agent's answer can be scored deterministically. It is TWO-TIER, because `next` itself distinguishes what is derivable from the durable files from what is not (the Stage-1 boundary, `src/next.rs:22-25`).
+
+Tier A (DERIVABLE, the workflow state machine). The correct coarse next action is a pure function of the plan + round log, and it is exactly what `next` computes:
+- Active-loop selection: `select_active_loop` (`src/next.rs:589-614`) picks the single active step deterministically (lowest-order in-progress; else lowest-order ready-and-unblocked; else lowest-order blocked; else none).
+- State derivation: for an in-progress step, `build_in_progress_loop` (`src/next.rs:665-726`) groups rounds by increment, `select_active_increment` (`src/next.rs:744-765`) picks the active increment, `has_risk_class_conflict` (`src/next.rs:732-735`) guards the data-fault case, and `derive_in_progress_state` (`src/next.rs:772-790`) maps (peak, required, total_rounds, round_cap, last outcome) to a `LoopState` (`src/next.rs:189-220`).
+- The oracle answer for Tier A is then read straight off the `LoopState`: the recommended action `next_action()` (`src/next.rs:270-284`), the actor `role()` (`src/next.rs:239-250`), and the legal move set `valid_transitions()` (`src/next.rs:253-267`). The binding constraints are the `context` slots `build_context` fills for that state (`src/next.rs:873-901`: ledger path, isolation tier, and the state-specific `review_findings` / `triage_findings` / `blocked_by` slots) and the phase reminders (`src/next.rs:833-863`, including the escalate-only human-input-contract reminder and the agent-spawn isolation fragment).
+Because Tier A is a deterministic projection of the durable files, the oracle GENERATES it by running the shipped `next --json` on the state and reading `active_loop.state` and its enum-method outputs. This is the transition-table the tests already pin one row at a time (`src/next.rs:1187-1305`).
+
+Tier B (NON-DERIVABLE transient sub-state). The Stage-1 boundary (`src/next.rs:22-25`) states the mid-round `awaiting-triage` sub-state is NOT derivable from the round log (a `round` record is written only after triage), so it is carried ONLY by the verbatim RESUME STATE block. The finer correct next action in such a state (for example: a fix is half-applied on worktree X at commit Y, so the next action is "finish the in-flight triage on that worktree," not the coarse "spawn a reviewer") cannot be read off `LoopState`. For these states the oracle ground truth is HAND-LABELED from git reality (what actually happened next at that commit), NOT taken from the RESUME STATE prose being tested (see the staleness threat in section 6). Tier B also carries the Q-59 currency judgment: whether the durable state was current, N commits stale, or the tree dirty, and hence whether the agent must reconcile before acting.
+
+Oracle output schema (per state): `{ role, transition_in: [valid_transitions], action_gist, constraints: {ledger, isolation_tier, findings_paths...}, transient_substate: <Tier B or null>, currency_gate: current|stale|dirty }`. Everything except `action_gist` and `transient_substate` is a closed set or an exact path, so most of the score is a deterministic set/string match, not a judgment.
+
+## 3. Scoring method
+
+For each (variant x state x model x trial): emit the variant, hand it to a FRESH consuming agent (no shared context across variants) under one fixed instruction ("You are resuming this session. State the single next action, the role that performs it, the binding constraints and file paths, the isolation tier, and whether the durable state is current or must be reconciled first. Answer as JSON."). Capture the agent's structured answer and score it against the oracle.
+
+Correctness and partial credit (normalized to [0,1]):
+- Role correct (closed set, deterministic match): 1 point.
+- Transition/action correct (agent's stated move is in the oracle `valid_transitions` and the `action_gist` matches; deterministic set-membership for the move, LLM-judge for the gist with the oracle answer supplied): 2 points.
+- Binding constraints correct (the named findings/ledger paths and resolved isolation tier match the oracle `constraints`; deterministic path match): 2 points.
+- Transient sub-state correct, where Tier B is non-null (the agent identifies the in-flight sub-state and its implied first move; LLM-judge against the hand-labeled Tier B): 2 points.
+- Currency gate correct (the agent correctly asserts current vs must-reconcile; deterministic): 1 point.
+Score = points earned / points applicable (Tier B and currency terms drop out of the denominator for states where they do not apply). Report the mean over trials with a confidence interval.
+
+Confound controls:
+- FRESH agent per variant, so there is no within-session learning; randomize the ORDER in which states are run.
+- Model held fixed within a comparison; REPLICATE across at least two models (one strong, one context-limited/cheap) so the knee is shown to be model-robust rather than an artifact of one model's verbosity tolerance.
+- Repo-state sampling STRATIFIED across the `LoopState` space: at least one state per transition-table row (reuse the fixtures at `src/next.rs:1187-1305` as generators), plus real historical states reconstructed by checking out prior checkpoint commits, plus deliberately constructed mid-round Tier-B states. Do not over-weight `ReadyToPlan`.
+- N replicate trials per cell to average agent variance; report mean and variance, not a single draw.
+- The gist/Tier-B judge is BLIND to which variant produced the answer.
+
+## 4. Token-cost / task-success KNEE
+
+- X-axis: OUTPUT token cost per variant, measured by tokenizing the emitted bytes of each variant on each sampled state (so V0's cost tracks the real echo size, which is state-dependent; measure both the post-fix ~6 KB ledger and a synthetic worst-case 27-anchor ledger).
+- Y-axis: mean oracle score (task-success) for that variant, averaged over states x trials, reported per model.
+- Plot success vs cost as a Pareto frontier. The KNEE is the minimal-cost variant whose mean score is statistically INDISTINGUISHABLE from V0 FULL (score >= V0 - epsilon with overlapping confidence intervals). The winning carrier is the cheapest variant on that success plateau that ALSO carries the Q-59 currency signal (which, by construction, favors V3 structured-only, whose typed currency field is cheap; V1/V2 would need the signal added).
+- Falsifiable-deletion reading of the plot: the per-state delta (V0 score minus reduced-variant score) IS the value the deleted content earned. If the delta's confidence interval includes 0, the deleted content did not earn its keep and the reduced carrier wins for that state class. Expect the interesting signal in the mid-round Tier-B states: if V1 drops below V0 there but V2 (live anchor) recovers it, the LIVE anchor earns its keep and the superseded anchors do not; if V3 matches V2 at a fraction of the tokens, structured-only wins the knee.
+
+## 5. Harness sketch (throwaway experiment scaffolding)
+
+Q-58 says build NOTHING tool-side until the ablation reports, so this is an EXPERIMENT harness in a scratch/experiment directory, not a product feature, and it uses the SHIPPED `next` binary unchanged.
+- State materializer: for each sampled state, either (a) check out a historical checkpoint commit, or (b) construct a fixture `plan.toml` + `workflow.jsonl` + ledger, or (c) reuse the existing `#[cfg(test)]` round/step fixtures (`src/next.rs:1088-1121`) via a throwaway example that is NOT shipped in the crate. No product code changes.
+- Variant emitter (pure output-slicing over the shipped tool):
+  - V0: run `agent-scaffold next` (human text) as-is (`run_next`, `src/main.rs:1139-1210`).
+  - V1: take V0 and strip the tail from the `RESUME STATE (verbatim ...)` marker onward (the block appended at `src/next.rs:1036-1041`).
+  - V2: run `next` against a ledger trimmed to the live `## RESUME STATE` anchor (the `##`-boundary the landed fix relies on, `extract_resume_state`, `src/next.rs:969-988`), so only the live anchor echoes.
+  - V3: run `agent-scaffold next --json` (`src/main.rs:1203-1205`) and, in the harness, replace the `resume_state` string with the typed transient + currency object (the harness computes the currency field from `git` since the ledger's checkpoint commit; the tool is not touched).
+  - V4: take V1 and delete the `next:`, `role:`, and `summary:` lines (`src/next.rs:1063-1064, 1074`).
+- Consuming-agent runner: send each variant to a fresh agent under the fixed instruction (section 3); collect the JSON answer.
+- Oracle generator: run `next --json` on the state and read `active_loop.state` + its enum methods for Tier A (`src/next.rs:239-284`); read Tier B and the currency gate from a hand-labeled fixture map keyed by state id.
+- Scorer: a small script comparing agent JSON against oracle JSON per the section-3 rubric; logs `(variant, state, model, trial, cost_tokens, score)` to a CSV in the scratch dir. Knee analysis (section 4) is a plotting script over that CSV.
+- Q-59 hook: the harness computes and injects the currency signal for every variant it emits, so the ablation can score the currency gate and so the winning carrier's currency-signal cost is measured, not assumed. Building the currency field into the PRODUCT is deferred until the ablation names the carrier.
+
+## 6. Threats to validity
+
+- Oracle circularity (the central threat). The oracle's Tier A is derived from the same `next_action()` / `valid_transitions()` / `role()` code (`src/next.rs:239-284`) that V0-V2 and V4's block print (the `next:` line is `next_action()` verbatim, `src/next.rs:1063`). So the COARSE next-action score saturates for any variant that includes the block, and cannot by itself discriminate carriers. Mitigations: (a) most of the discriminating signal lives in Tier B (transient sub-state) and the currency gate, which no single line spoon-feeds; (b) V4 removes the advisory lines so at least one arm tests DERIVATION not copying; (c) the judge is blind. The honest limit: this ablation can prove the ECHO's value (V0 vs V1/V2/V3), not the ACTIVE LOOP block's, because the block's next action IS the oracle. Proving the block's value would need a different oracle not built from `LoopState`.
+- Single-repo sample. Every state comes from this one self-hosted repo, whose plan/ledger verbosity conventions may not generalize; the knee found here may be specific to this plan. Mitigations: include synthetic states with different transient shapes; caveat external validity explicitly; treat the result as calibration for THIS repo's driver, to be re-run under a different adopting project.
+- Agent variance. Consuming agents are stochastic; a single trial per cell is noise. Mitigations: N replicates, confidence intervals, CI-overlap for the knee rather than point estimates. Report PER MODEL, because a verbose-tolerant model may score V0 and V1 equally (masking a real cost) while a context-limited model may score V1 ABOVE V0 (the echo actively buries the signal); averaging those two hides the effect the ablation is meant to find.
+- Tier-B staleness poisoning. Reconstructed historical states may carry RESUME STATE prose that was already stale or self-contradictory at that commit (the very defect Q-58 found: the prose anchor corrected at commit `a949f34`). If Tier B ground truth were taken FROM that prose, a stale anchor would poison the oracle. Mitigation: hand-label Tier B from git reality (what actually happened next), never from the prose under test.
+- Spoon-feed / task-framing (Hawthorne). The instruction "state the next action" primes the agent; a more naturalistic task (actually resume and take the first step) is higher-fidelity but harder to score deterministically. Noted as a fidelity-vs-measurability trade-off; the structured-answer framing is chosen for deterministic scoring, with V4 as the derivation check.

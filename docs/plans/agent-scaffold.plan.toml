@@ -1023,15 +1023,18 @@ risk_class = "low_risk"
 [[step]]
 slug = "single-source-recommendation-rule"
 title = "render the recommendation-in-options rule into the Preflight from a single canonical source (`Q-60`)"
-status = "in-progress"
+status = "complete"
 order = 76
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-60"]
+
+[[step.increment]]
+id = "single-source-recommendation-rule-inc1"
+risk_class = "risky"
 
 [[step]]
 slug = "driver-isolation-reminder-scope"

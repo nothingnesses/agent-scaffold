@@ -1115,8 +1115,8 @@ risk_class = "risky"
 
 [[step]]
 slug = "roles-findings-naming-slots"
-title = "add generated `{{roles}}` and `{{findings_naming}}` AGENTS.md slots single-sourced with the driver's values, killing the existing `next.rs` duplicates (`Q-64`)"
-status = "next"
+title = "add a generated `{{findings_naming}}` AGENTS.md slot single-sourced with the driver's path values, killing the `next.rs` duplicate; `{{roles}}` dropped (no genuine duplicate) (`Q-64`)"
+status = "in-progress"
 order = 82
 blocked_by = []
 folds = []

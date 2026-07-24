@@ -25,13 +25,13 @@
 /// human-input contract presents every decision the orchestrator puts to the
 /// human the same way (the viable options or approaches, the trade-offs of each,
 /// a recommendation, and the reasoning, with the reasoning judged against the
-/// plan's Project Principles BY NAME), settled once here and rendered from this
+/// plan's Project Principles BY NAME), settled once and rendered from this
 /// single source so its copies cannot drift.
 ///
 /// A `&'static str` because the rule takes no computed input; `build_assets`
 /// substitutes it into every `{{recommendation_rule}}` slot and the drift-guard
 /// test byte-compares it against the committed scaffold.
-pub(crate) const RECOMMENDATION_RULE_FRAGMENT: &str = "The human-input contract's presentation format is settled here once and rendered from this single source, so its copies cannot drift: wherever the orchestrator puts a decision to the human, it presents that decision the same way, as the viable options or approaches, the trade-offs of each, a recommendation, and the reasoning, with the reasoning judged against the plan's Project Principles by name.";
+pub(crate) const RECOMMENDATION_RULE_FRAGMENT: &str = "The human-input contract's presentation format is settled once and rendered from this single source, so its copies cannot drift: wherever the orchestrator puts a decision to the human, it presents that decision the same way, as the viable options or approaches, the trade-offs of each, a recommendation, and the reasoning, with the reasoning judged against the plan's Project Principles by name.";
 
 #[cfg(test)]
 mod tests {
@@ -55,7 +55,7 @@ mod tests {
 		// independent of the scaffold output.
 		assert!(
 			RECOMMENDATION_RULE_FRAGMENT
-				.contains("settled here once and rendered from this single source"),
+				.contains("settled once and rendered from this single source"),
 			"the recommendation rule must state it is the single canonical source"
 		);
 		assert!(

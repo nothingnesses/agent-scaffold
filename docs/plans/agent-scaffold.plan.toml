@@ -1071,15 +1071,20 @@ risk_class = "low_risk"
 [[step]]
 slug = "generated-projection"
 title = "demote AGENTS.md to a slot-wise generated projection: build the Option-A endorsed core now, gate the contested `workflow.toml` / phase-machine margin (`Q-64`)"
-status = "in-progress"
+status = "complete"
 order = 79
 blocked_by = []
 folds = []
 increment = []
-waiver = []
 
 [step.provenance]
 decisions = ["Q-64"]
+
+[[step.waiver]]
+id = "generated-projection-w1"
+unit = "step"
+reason = "review-skipped"
+evidence_tier = "self-declared"
 
 [[step]]
 slug = "agents-md-drift-guard"

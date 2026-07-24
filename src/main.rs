@@ -11,6 +11,7 @@
 
 mod agents_md_drift;
 mod checks;
+mod findings_naming;
 mod isolation_policy;
 mod manifest;
 #[macro_use]
@@ -286,6 +287,15 @@ fn build_assets(
 		"recommendation_rule".to_string(),
 		recommendation_rule::RECOMMENDATION_RULE_FRAGMENT.to_string(),
 	);
+	// The `{{findings_naming}}` block: the one canonical findings-file naming
+	// convention (the reviewer/triager/backstop-re-check basename shapes and the
+	// `docs/plans/<task>.reviews/` directory), authored once as named-token templates
+	// in `findings_naming.rs` and rendered here with every token left in its `<...>`
+	// human form. The SAME templates fill the `next` driver's `review_findings` /
+	// `triage_findings` paths, so the human convention and the driver's paths cannot
+	// drift; the drift-guard test catches a hand edit of the committed fragment or a
+	// stale fragment after a source edit.
+	builtin.insert("findings_naming".to_string(), findings_naming::convention_fragment());
 	// The `{{modules}}` block: the concatenated guidance partials of the enabled
 	// modules (the `--module` selections closed under `requires`). Empty when no
 	// module is enabled, so a pack with no modules (the built-in one) leaves the

@@ -144,6 +144,7 @@ const RESERVED_VARS: &[&str] = &[
 	"workflow_control",
 	"isolation_policy",
 	"recommendation_rule",
+	"findings_naming",
 ];
 
 /// An error loading a pack: reading or parsing its files, or resolving the

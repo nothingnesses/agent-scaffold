@@ -26,6 +26,7 @@
 
 use {
 	crate::{
+		findings_naming,
 		isolation_policy::ISOLATION_POLICY_FRAGMENT,
 		metrics::{
 			RiskClass,
@@ -877,11 +878,8 @@ fn build_context(
 	let mut slots = BTreeMap::new();
 	slots.insert("ledger".to_string(), context.ledger_path.to_string());
 	slots.insert("isolation_tier".to_string(), context.isolation_tier.to_string());
-	let review_findings = format!(
-		"docs/plans/{}.reviews/{}-reviewer-<disambiguator>.md",
-		context.task, facts.step
-	);
-	let triage_findings = format!("docs/plans/{}.reviews/{}-triage.md", context.task, facts.step);
+	let review_findings = findings_naming::review_findings_path(context.task, &facts.step);
+	let triage_findings = findings_naming::triage_findings_path(context.task, &facts.step);
 	match state {
 		LoopState::AwaitingFirstReview | LoopState::AwaitingReviewers => {
 			slots.insert("review_findings".to_string(), review_findings);

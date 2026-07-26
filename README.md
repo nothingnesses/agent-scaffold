@@ -205,7 +205,7 @@ agent-scaffold render --check --strict docs/plans/my-task.plan.toml
 
 ### Validating and projecting workflow state
 
-Two read-only subcommands inspect the state a running workflow keeps (they never write anything).
+`validate` and `status` are read-only: they inspect the state a running workflow keeps and never write anything. A third command, `audit` (below), is advisory and read-mostly: it writes only its own report.
 
 `validate` checks the workflow's metrics log against its record schema. With `--plan` it also checks a Markdown plan's structured regions (the Roadmap table and the Open Questions queue) against the plan schema, and with `--source` it checks a `<task>.plan.toml` structured source (its schema and internal cross-references). With `--workflow` it cross-references the plan status against the round log: every Roadmap step marked `complete` must have converging round records in the log (or a recorded waiver), so a step marked done without its review loop (or that never reached the clean-round streak its risk class requires) is caught. The workflow check reads the plan from a TOML `--source` when that source declares `[meta].primary = "toml"` (a TOML-only project needs no `--plan`), else from the Markdown `--plan`. It reports every malformed record, region, or cross-reference and every workflow disagreement, and exits non-zero if any exist, so it can gate a commit or run in CI:
 
@@ -234,6 +234,23 @@ agent-scaffold status --plan docs/plans/my-task.md
 
 # Machine-readable projection:
 agent-scaffold status --source docs/plans/my-task.plan.toml --json
+```
+
+### Auditing code value
+
+`audit` builds an advisory, static report of code that may not be earning its keep: dead-code and unused-dependency suspicions, plus author-declared suppression reasons (an `#[allow(dead_code)]` with its stated rationale) that are shown as fences rather than proposed for removal. It is read-mostly: it writes only its own report, `docs/plans/<task>.code-value-report.md` (or `--out`), and never edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything. A human reads the report and decides each candidate; nothing is removed automatically.
+
+Every report leads with a mandatory caveat: a passing audit is necessary but not sufficient and is only relative to the named signal set, so "nothing flagged" is never proof the codebase has no dead code. The report is projected from a typed intermediate, which `--json` prints to stdout (writing no file) for another tool to consume:
+
+```sh
+# Write the Markdown report to docs/plans/my-task.code-value-report.md:
+agent-scaffold audit --source docs/plans/my-task.plan.toml
+
+# Print the machine intermediate instead of writing a file:
+agent-scaffold audit --source docs/plans/my-task.plan.toml --json
+
+# Audit a crate elsewhere and write the report to a chosen path:
+agent-scaffold audit --dir path/to/crate --out reports/code-value.md
 ```
 
 ## Bring your own pack

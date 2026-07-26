@@ -10,6 +10,7 @@
 //! pack's guidance template; the other assets are dropped verbatim.
 
 mod agents_md_drift;
+mod audit;
 mod checks;
 mod findings_naming;
 mod isolation_policy;
@@ -372,6 +373,8 @@ enum Command {
 	Checks(ChecksArgs),
 	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
 	Render(RenderArgs),
+	/// Advisory: build a static code-value report of code that may not be earning its keep (dead-code and unused-dependency suspicions, plus author-declared suppression reasons that are not candidates), leading with a mandatory "not evidence of absence" caveat. Read-mostly: it writes ONLY its own report (`docs/plans/<task>.code-value-report.md`, or --out) and NEVER edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything; a human decides each candidate. With --json it prints the machine intermediate to stdout and writes no file.
+	Audit(AuditArgs),
 }
 
 /// Arguments for the `scaffold` subcommand.
@@ -534,6 +537,27 @@ struct ChecksArgs {
 	staged: bool,
 }
 
+/// Arguments for the `audit` subcommand. Mirrors `next`'s plan-source flags for deriving
+/// `<task>` and `checks`'s `--dir` for the crate root; `--json`-or-write branches like `next`.
+#[derive(Args)]
+struct AuditArgs {
+	/// Path to a Markdown plan whose filename derives `<task>` for the default report path. Only the filename is read (the content is not parsed in this tier).
+	#[arg(long)]
+	plan: Option<PathBuf>,
+	/// Path to a `<task>.plan.toml` source whose filename derives `<task>` for the default report path (preferred over --plan). Only the filename is read. With neither --source nor --plan, `<task>` falls back to `task`.
+	#[arg(long)]
+	source: Option<PathBuf>,
+	/// The Rust crate root to audit (its `Cargo.toml` and `src/`); defaults to the current directory. The signal harvests read it; this tier only records it.
+	#[arg(long, default_value = ".")]
+	dir: PathBuf,
+	/// Emit the machine intermediate as pretty JSON on stdout and write no file, instead of writing the Markdown report.
+	#[arg(long)]
+	json: bool,
+	/// Override the report output path. Defaults to `docs/plans/<task>.code-value-report.md`.
+	#[arg(long)]
+	out: Option<PathBuf>,
+}
+
 /// A derived, best-effort projection of the workflow state, serialised by
 /// `status`. Every part is optional so a missing plan or metrics file yields a
 /// partial projection rather than a failure; nothing here is a source of truth
@@ -572,6 +596,7 @@ fn main() -> io::Result<()> {
 		Command::Next(args) => run_next(args),
 		Command::Checks(args) => run_checks(args),
 		Command::Render(args) => run_render(args),
+		Command::Audit(args) => run_audit(args),
 	}
 }
 
@@ -1112,6 +1137,13 @@ fn default_ledger_path(task: &str) -> PathBuf {
 	PathBuf::from(format!("docs/plans/{task}.ledger.md"))
 }
 
+/// The default code-value report path for a task, by the
+/// `docs/plans/<task>.code-value-report.md` convention: a generated artifact beside the
+/// plan, like `render` writes `<task>.md`. Overridable with `audit --out`.
+fn default_report_path(task: &str) -> PathBuf {
+	PathBuf::from(format!("docs/plans/{task}.code-value-report.md"))
+}
+
 /// The `status --resume` slice: print the ledger's `## RESUME STATE` block verbatim,
 /// reusing the shared `next::extract_resume_state`. The ledger path is `--ledger-fragment`
 /// or the `docs/plans/<task>.ledger.md` default (with `<task>` derived from the plan
@@ -1205,6 +1237,38 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		println!("{json}");
 	} else {
 		println!("{}", next::render_human(&projection));
+	}
+	Ok(())
+}
+
+/// The `audit` subcommand: derive `<task>` from the plan source (the same way `next`
+/// does), build the code-value report, and EITHER print the machine intermediate as JSON
+/// (`--json`, writing nothing) OR write the projected Markdown to `--out` (default
+/// `docs/plans/<task>.code-value-report.md`), branching exactly as `run_next` does.
+/// Advisory and read-mostly: it writes ONLY its own report and never touches `src/`,
+/// `Cargo.toml`, the plan, the sidecars, or the metrics log, and never deletes anything.
+///
+/// Increment 1 (Q-52) builds an EMPTY report: the schema, the Markdown projection, and the
+/// mandatory caveat. No signal harvest runs yet, so `--dir` (the crate root the later
+/// harvests run `cargo check` and `cargo-machete` against) is accepted into the CLI
+/// contract now but not yet walked; the empty report is the caveat plus four empty sections.
+fn run_audit(args: AuditArgs) -> io::Result<()> {
+	let task = next::derive_task(&args.source, &args.plan);
+	// The crate root the later signal-harvest increments read; Increment 1 harvests
+	// nothing, so the flag lands in the CLI contract whole here without being walked.
+	let _crate_root: &Path = &args.dir;
+	let report = audit::CodeValueReport::empty(task.clone());
+
+	if args.json {
+		// The typed intermediate to stdout, writing nothing (mirrors `next --json`).
+		let json = serde_json::to_string_pretty(&report).map_err(io::Error::other)?;
+		println!("{json}");
+	} else {
+		// Project to Markdown and write only this one report, atomically (the same
+		// never-a-partial-file writer `render` uses).
+		let out = args.out.clone().unwrap_or_else(|| default_report_path(&task));
+		plan::write_rendered(&out, &format!("{}\n", audit::render_markdown(&report)))?;
+		println!("wrote {}", out.display());
 	}
 	Ok(())
 }

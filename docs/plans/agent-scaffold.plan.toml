@@ -1173,7 +1173,7 @@ waiver = []
 [[step]]
 slug = "code-value-audit-static"
 title = "build the cheap static-only code-value report as an advisory `docs/plans/<task>.code-value-report.md` (rustc `dead_code` + `#[allow/expect(dead_code)]` markers + `cargo-machete`), excluding the CLI/output/pack contract + `#[cfg]`-gated + FFI surfaces and carrying a `not evidence of absence` caveat; never auto-deletes; no deletion experiment (`Q-52`)"
-status = "not-started"
+status = "in-progress"
 order = 86
 blocked_by = []
 folds = []

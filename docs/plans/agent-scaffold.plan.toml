@@ -1203,6 +1203,32 @@ waiver = []
 [step.provenance]
 decisions = ["Q-52"]
 
+[[step]]
+slug = "reviewer-reproducible-evidence"
+title = "require every reviewer finding to carry reproducible evidence PROPORTIONAL to its claim (a runnable / mutation demonstration for a behavioral or correctness claim; an exact command or a `file:line` citation for a doc / design / style claim), with the triager reproducing the evidence and dismissing any testable claim that does not reproduce; folded into `pack/prompts/reviewer.md`, `pack/prompts/triager.md`, and `pack/AGENTS.md` (`Q-66`)"
+status = "next"
+order = 88
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-66"]
+
+[[step]]
+slug = "planner-folds-decisions"
+title = "name the PLANNER as the folder of every non-trivial decided decision at the human-input-contract / Socratic-mode / checkpoint points in `pack/AGENTS.md`, and reinforce that the orchestrator's closed list of direct-on-main integration edits EXCLUDES authoring new questions or steps (`Q-67`)"
+status = "not-started"
+order = 89
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-67"]
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1634,6 +1660,20 @@ RENAME: worth it. A name that says scaffold keeps implying a one-shot generator 
 CANDIDATE NAME DIRECTIONS to seed the pass: DESCRIPTIVE (lowest cognitive cost, fits the project's clarity and project-for-humans values), for example `agentflow`, `flowgate` (the workflow plus the convergence gate it enforces), `agentctl` (a CLI-conventional control tool); METAPHOR (drives the crew but never does the work, which is the orchestrator rule), for example `cox` or `coxswain` (steers and paces a rowing crew without rowing, precise but obscure), `maestro` or `podium` (conducts an ensemble from one score, the structured plan; the conductor does not play), `helm`. Orchestrator lean: a DESCRIPTIVE name over a metaphor (this project values clarity over cleverness), with `agentflow` or `flowgate` as front-runners, but let the `Q-64` explorers pressure-test the identity first and let the name fall out of it.
 
 Judged against the plan principles: P8 (structured data first, project for humans) and P1 (cleaner long-term architecture) argue the public name should accurately project the tool's identity. This is `exploring`, resolved TOGETHER WITH `Q-64` (its identity conclusion determines the name); no separate design pass is owed beyond `Q-64`'s, this question rides along with it. DECIDED (human, 2026-07-23): renamed to `agent-flow` (descriptive), release-timed to a stable release-ready state so the name can be claimed on crates.io. Reserve `agent-flow` on crates.io at 0.0.2 with the first real release under the new name at 0.0.3; the final agent-scaffold publish (0.0.2) links to agent-flow and states that the agent-scaffold name is free to reclaim by opening an issue on the agent-flow GitHub repo. Identity is a structured workflow validator plus advisory driver (scaffold is one bootstrap subcommand), NOT a meta-harness (category error: agents invoke the tool, it never runs the LLM loop). Folded into `rename-to-agent-flow`; decision receipt `type:"decision"` `q_id:"Q-65"` in `docs/metrics/workflow.jsonl`."""
+
+[[question]]
+id = "Q-66"
+status = "decided"
+folded_into = "reviewer-reproducible-evidence"
+receipt = "Q-66"
+ask = """whether every reviewer finding must carry reproducible evidence, and of what strength, so a finding can be reproduced and adjudicated on its evidence rather than taken on the reviewer's word. DECIDED (Socratic, human, 2026-07-26): TIERED REPRODUCIBLE EVIDENCE (Option B). Every reviewer finding must carry reproducible evidence PROPORTIONAL to its claim. For a BEHAVIORAL or correctness claim (a panic, non-determinism, a wrong output, or "this test is vacuous"), the reviewer provides a RUNNABLE demonstration; the strongest form is a MUTATION, to prove "test T does not really cover code C", break C and show T still passes (the pseudo-tested-method logic that the reserved `Kind::Mutation` variant `src/checks.rs:94-95` and the deferred `code-value-audit-deletion-experiment` step 87 build on, sharing the same isolated-worktree machinery; the reviewer runs the demonstration in its own isolated worktree, which every spawned agent already gets under the uniform-isolation rule). For a DOC, DESIGN, or style claim (stale help text, an em-dash, a naming-collision risk), the reproducible evidence is an EXACT command (grep, diff, or build output) or a `file:line` citation, NOT a contrived test. The TRIAGER reproduces whatever the reviewer provided and DISMISSES any testable claim whose demonstration does not reproduce. Rationale: the requirement makes findings falsifiable and checkable (Ground decisions in evidence, plan Principle 6; Reproducible, plan Principle 7), which is the AGENTS.md workflow guidance "Verify, don't trust" and "Cite sources rather than asserting from memory" applied to the review loop, and "Tests must actually exercise the code they claim to" made enforceable through the mutation demonstration; the counterweight is that the evidence is SCALED to the claim type so it never forces a contrived test where a command or a citation suffices (proportional, not maximal; Minimal by default, plan Principle 2). Chosen over a runnable test for EVERY finding (rejected: forces contrived tests for doc and style claims, over-maximal), over a triager-enforced reviewer-SHOULD (rejected: leaves the evidence optional, so a bare assertion can still stand), and over keeping the current process (rejected: a finding can be taken on the reviewer's word). The work this schedules folds the rule into `pack/prompts/reviewer.md`, `pack/prompts/triager.md`, and `pack/AGENTS.md` (the Reviewers and Triager role bullets and/or the Findings files section), then regenerates the deployed `.agents/` copies via `just scaffold-self`. Folded into `reviewer-reproducible-evidence`; decision receipt `type:"decision"` `q_id:"Q-66"` in `docs/metrics/workflow.jsonl` (Q-66 is past the `Q-44` baseline, so W4 enforces the receipt). Decision and reasoning in `reviewer-reproducible-evidence`."""
+
+[[question]]
+id = "Q-67"
+status = "decided"
+folded_into = "planner-folds-decisions"
+receipt = "Q-67"
+ask = """how to fix the actor ambiguity that let the orchestrator start to FOLD a decision itself, given that AGENTS.md names the PLANNER as the decision-folder only on the request-interrupt path (the "non-trivial ... routes to the planner to fold into the plan" line) while the human-input-contract paragraph uses actor-less passive voice ("a resolved decision is recorded ... and folded into the step it affects"), the Socratic-mode paragraph only says the mode "reuses the intake and Open-Questions machinery", and the checkpoint rule ("the orchestrator updates this queue") blurs the boundary that reserves the direct-on-main edits to the orchestrator. DECIDED (human, 2026-07-26): NAME THE PLANNER as the folder of every non-trivial decided decision, at each point of use. Make explicit, at the human-input-contract, Socratic-mode, and checkpoint points in `pack/AGENTS.md`, that folding a non-trivial decided decision into the plan (authoring a `[[question]]` or a `[[step]]`) is the PLANNER's job, routed by the orchestrator; and reinforce that the orchestrator's closed list of direct-on-main integration edits (a step's status flip, an increment declaration, a round record, and the ledger's resume anchor) EXCLUDES authoring new questions or steps, so "the orchestrator updates this queue" at a checkpoint means surfacing and pushing the open items, not authoring the decided entries. Rationale: name the actor at the point of use rather than through a cross-reference chain to the request-interrupt path (the AGENTS.md workflow guidance "Make documentation self-contained"; aligned with plan Principle 8 "Structured data first, project for humans" and its one-source-of-truth thinking, keeping ONE authoritative statement of the actor boundary that the other points reinforce), and keep the who-may-edit-what boundary crisp (the AGENTS.md workflow guidance "No silent scope expansion"; plan Principle 1 "Prefer the cleaner long-term architecture over the smallest diff"). Chosen (its receipt bundles both decisions into this one planner pass) over doing Q-66 only and tracking the ambiguity separately (rejected: leaves the live actor-boundary bug unfixed) and over capturing just the diagnosis for now (rejected: the fix is small, and the ambiguity already caused a real misstep). The work this schedules edits `pack/AGENTS.md` only (guidance, no prompt or source change), then regenerates the deployed `AGENTS.md` and `.agents/AGENTS.reference.md` via `just scaffold-self`. Folded into `planner-folds-decisions`; decision receipt `type:"decision"` `q_id:"Q-67"` in `docs/metrics/workflow.jsonl` (Q-67 is past the `Q-44` baseline, so W4 enforces the receipt). Decision and reasoning in `planner-folds-decisions`."""
 
 [[principle]]
 n = 1

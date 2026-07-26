@@ -1223,15 +1223,18 @@ risk_class = "risky"
 [[step]]
 slug = "planner-folds-decisions"
 title = "name the PLANNER as the folder of every non-trivial decided decision at the human-input-contract / Socratic-mode / checkpoint points in `pack/AGENTS.md` (`Q-67`)"
-status = "in-progress"
+status = "complete"
 order = 89
 blocked_by = []
 folds = []
-increment = []
 waiver = []
 
 [step.provenance]
 decisions = ["Q-67"]
+
+[[step.increment]]
+id = "planner-folds-decisions-inc1"
+risk_class = "low_risk"
 
 [[question]]
 id = "Q-1"

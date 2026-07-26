@@ -1186,6 +1186,10 @@ decisions = ["Q-52"]
 id = "code-value-audit-static-inc1"
 risk_class = "low_risk"
 
+[[step.increment]]
+id = "code-value-audit-static-inc2"
+risk_class = "low_risk"
+
 [[step]]
 slug = "code-value-audit-deletion-experiment"
 title = "add the deletion-experiment signal to the code-value report (`cargo-mutants` body-nulling for fns + item-granularity remove-then-build/test), realized as the reserved `Kind::Mutation` module reusing `checks`'s isolated worktree, gated behind an evidence gate: a measured count of cases where `clippy -D warnings` passed but the deletion experiment would catch real dead code (`Q-52`)"

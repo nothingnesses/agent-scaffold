@@ -16,6 +16,7 @@ orphan_tasks = [
   "q64-capture",
   "q64-q65-fold",
   "q65-capture",
+  "q66-q67-fold",
   "uniform-isolation",
   "workflow-hardening",
 ]

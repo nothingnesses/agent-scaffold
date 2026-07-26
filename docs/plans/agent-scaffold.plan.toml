@@ -1223,7 +1223,7 @@ risk_class = "risky"
 [[step]]
 slug = "planner-folds-decisions"
 title = "name the PLANNER as the folder of every non-trivial decided decision at the human-input-contract / Socratic-mode / checkpoint points in `pack/AGENTS.md`, and reinforce that the orchestrator's closed list of direct-on-main integration edits EXCLUDES authoring new questions or steps (`Q-67`)"
-status = "not-started"
+status = "in-progress"
 order = 89
 blocked_by = []
 folds = []

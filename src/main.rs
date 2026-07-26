@@ -547,14 +547,14 @@ struct AuditArgs {
 	/// Path to a `<task>.plan.toml` source whose filename derives `<task>` for the default report path (preferred over --plan). Only the filename is read. With neither --source nor --plan, `<task>` falls back to `task`.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// The Rust crate root to audit (its `Cargo.toml` and `src/`); defaults to the current directory. The signal harvests read it; this tier only records it.
+	/// The Rust crate root to audit (its `Cargo.toml` and `src/`); defaults to the current directory. The signal harvests will read it; this tier accepts it into the CLI contract but does not yet read it.
 	#[arg(long, default_value = ".")]
 	dir: PathBuf,
 	/// Emit the machine intermediate as pretty JSON on stdout and write no file, instead of writing the Markdown report.
 	#[arg(long)]
 	json: bool,
-	/// Override the report output path. Defaults to `docs/plans/<task>.code-value-report.md`.
-	#[arg(long)]
+	/// Override the report output path. Defaults to `docs/plans/<task>.code-value-report.md`. Conflicts with --json, which writes no file.
+	#[arg(long, conflicts_with = "json")]
 	out: Option<PathBuf>,
 }
 

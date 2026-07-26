@@ -33,6 +33,16 @@ use {
 /// never sufficient.
 pub(crate) const AUDIT_CAVEAT: &str = "This report is advisory. \"Nothing flagged\" is necessary but not sufficient, and is only relative to the named signal set (rustc dead-code under this project's lint configuration, source suppression markers, and cargo-machete's source-grep heuristic). Suppressed, cfg-gated (non-analysed targets), FFI, dynamically dispatched, and reflection-reached code is not covered. A passing audit is not proof the codebase has no dead code.";
 
+/// The canonical per-signal human labels, single-sourced (the same discipline `AUDIT_CAVEAT`
+/// uses) so the signal-set disclosure line and each row's provenance name the same oracle
+/// with the same spelling and cannot drift as later increments touch one but not the other.
+/// The `SignalSet` disclosure, `DeadCodeSource`'s per-row label, and the constant label the
+/// `UnusedDep` projection uses all read from these three (Structured data first, project for
+/// humans: one source, projected in both places).
+const LABEL_RUSTC_DEAD_CODE: &str = "rustc dead-code";
+const LABEL_SOURCE_SCAN: &str = "source scan";
+const LABEL_CARGO_MACHETE: &str = "cargo-machete";
+
 /// The whole code-value report: the typed intermediate `--json` serialises and the
 /// Markdown projection reads. `generated_from` records which signals actually ran, so an
 /// absent signal WIDENS the caveat's "not covered" disclosure rather than silently passing.
@@ -101,16 +111,20 @@ impl SignalSet {
 	/// disagree on the set or its order.
 	fn each(&self) -> [(bool, &'static str); 3] {
 		[
-			(self.rustc_dead_code, "rustc dead-code"),
-			(self.source_scan, "source suppression / FFI scan"),
-			(self.cargo_machete, "cargo-machete unused dependencies"),
+			(self.rustc_dead_code, LABEL_RUSTC_DEAD_CODE),
+			(self.source_scan, LABEL_SOURCE_SCAN),
+			(self.cargo_machete, LABEL_CARGO_MACHETE),
 		]
 	}
 }
 
 /// One audit row. The kind is an enum whose variants carry ONLY their own evidence, so an
 /// illegal combination (a dependency row with a symbol span, a dead-code row with a
-/// machete caveat) cannot be represented. Serialised with a `"kind"` discriminator.
+/// machete caveat) cannot be represented. Provenance is also constrained per variant (Make
+/// illegal states unrepresentable): a `DeadCode` row's `source` is one of its two real
+/// oracles (`DeadCodeSource`, never machete), and an `UnusedDep` row carries no `source`
+/// field at all because only cargo-machete ever produces one. Serialised with a `"kind"`
+/// discriminator.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 // Increment 1 constructs these variants only under `cfg(test)`; the release-build
@@ -134,8 +148,8 @@ pub(crate) enum AuditRecord {
 		symbol: String,
 		/// The lint that flagged it (for example `dead_code`, `unused_variables`).
 		lint: String,
-		/// Which signal produced this row.
-		source: Signal,
+		/// Which of the two dead-code oracles produced this row (never machete).
+		source: DeadCodeSource,
 		/// `Some(..)` reclassifies the row as shown-but-not-a-candidate, with its reason.
 		exclusion: Option<Exclusion>,
 	},
@@ -147,8 +161,6 @@ pub(crate) enum AuditRecord {
 		crate_name: String,
 		/// The `Cargo.toml:line` of the dependency entry.
 		manifest: Span,
-		/// Which signal produced this row.
-		source: Signal,
 		/// Machete's per-row imprecision note.
 		caveat: &'static str,
 	},
@@ -178,7 +190,10 @@ pub(crate) struct Span {
 	pub(crate) line: u32,
 }
 
-/// Which signal produced a row. A closed set (Make illegal states unrepresentable).
+/// Which oracle produced a `DeadCode` row. A closed set narrowed to the two oracles that
+/// genuinely emit a dead-code row (Make illegal states unrepresentable): the rustc harvest
+/// and the source scan for cfg-gated items rustc never compiles. Never cargo-machete, which
+/// only ever produces an `UnusedDep` row, so that case is not representable.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(
@@ -188,12 +203,10 @@ pub(crate) struct Span {
 		reason = "the signal-harvest increments (2-4) and the tests construct these; Increment 1 ships the schema and an empty report, so the release build has no producer yet"
 	)
 )]
-pub(crate) enum Signal {
+pub(crate) enum DeadCodeSource {
 	/// The rustc dead-code harvest from `cargo check --message-format=json`.
-	RustcBuildJson,
-	/// The `cargo-machete` unused-dependency harvest.
-	CargoMachete,
-	/// The line-oriented source scan for suppression markers and FFI attributes.
+	Rustc,
+	/// The line-oriented source scan for cfg-gated items rustc never compiles.
 	SourceScan,
 }
 
@@ -237,13 +250,13 @@ pub(crate) enum Exclusion {
 	ContractSurface,
 }
 
-impl Signal {
-	/// The human label for the Markdown.
+impl DeadCodeSource {
+	/// The human label for the Markdown, read from the single-sourced per-signal labels so
+	/// a row's provenance and the signal-set disclosure name the same oracle identically.
 	fn label(&self) -> &'static str {
 		match self {
-			Signal::RustcBuildJson => "rustc dead-code",
-			Signal::CargoMachete => "cargo-machete",
-			Signal::SourceScan => "source scan",
+			DeadCodeSource::Rustc => LABEL_RUSTC_DEAD_CODE,
+			DeadCodeSource::SourceScan => LABEL_SOURCE_SCAN,
 		}
 	}
 }
@@ -317,12 +330,10 @@ pub(crate) fn render_markdown(report: &CodeValueReport) -> String {
 			AuditRecord::UnusedDep {
 				crate_name,
 				manifest,
-				source,
 				caveat,
 			} => unused_dep_candidates.push(format!(
-				"- `{crate_name}` at `{}` (from {}); caveat: {caveat}",
+				"- `{crate_name}` at `{}` (from {LABEL_CARGO_MACHETE}); caveat: {caveat}",
 				manifest.anchor(),
-				source.label()
 			)),
 			AuditRecord::DeclaredReason {
 				span,
@@ -414,7 +425,7 @@ mod tests {
 					},
 					symbol: "unused_fn".to_string(),
 					lint: "dead_code".to_string(),
-					source: Signal::RustcBuildJson,
+					source: DeadCodeSource::Rustc,
 					exclusion: None,
 				},
 				AuditRecord::DeadCode {
@@ -424,7 +435,7 @@ mod tests {
 					},
 					symbol: "ffi_entry".to_string(),
 					lint: "dead_code".to_string(),
-					source: Signal::RustcBuildJson,
+					source: DeadCodeSource::Rustc,
 					exclusion: Some(Exclusion::Ffi),
 				},
 				AuditRecord::UnusedDep {
@@ -433,7 +444,6 @@ mod tests {
 						file: PathBuf::from("Cargo.toml"),
 						line: 20,
 					},
-					source: Signal::CargoMachete,
 					caveat: "used only via a macro or a re-export can be a false positive",
 				},
 				AuditRecord::DeclaredReason {
@@ -475,7 +485,7 @@ mod tests {
 		assert!(markdown.contains("Signals run: none (this report analysed nothing yet)."));
 		assert!(markdown.contains("Signals not run"));
 		assert!(markdown.contains("rustc dead-code"));
-		assert!(markdown.contains("cargo-machete unused dependencies"));
+		assert!(markdown.contains("cargo-machete"));
 		// Every bucket is present and empty.
 		assert!(markdown.contains("## Candidates: dead code\n\n_None._"));
 		assert!(markdown.contains("## Candidates: unused dependencies\n\n_None._"));
@@ -500,7 +510,7 @@ mod tests {
 		// grouping (candidate versus excluded versus fence) the verdict is derived from.
 		let markdown = render_markdown(&populated_report());
 		let expected = format!(
-			"# Code-value audit: demo\n\n> {AUDIT_CAVEAT}\n\nSignals run: rustc dead-code, source suppression / FFI scan, cargo-machete unused dependencies.\n\n## Candidates: dead code\n\n- `unused_fn` at `src/foo.rs:12` (lint `dead_code`, from rustc dead-code)\n\n## Candidates: unused dependencies\n\n- `leftover` at `Cargo.toml:20` (from cargo-machete); caveat: used only via a macro or a re-export can be a false positive\n\n## Author-declared reasons (Chesterton's Fences)\n\n- `Check::budget` at `src/checks.rs:135` (`allow`): parsed for the schema; used by the later mutation module\n- `bare_field` at `src/pack.rs:37` (`allow`): no machine-readable reason (see the adjacent comment)\n\n## Excluded (shown, not candidates)\n\n- `ffi_entry` at `src/bar.rs:3` (lint `dead_code`, from rustc dead-code); excluded: FFI"
+			"# Code-value audit: demo\n\n> {AUDIT_CAVEAT}\n\nSignals run: rustc dead-code, source scan, cargo-machete.\n\n## Candidates: dead code\n\n- `unused_fn` at `src/foo.rs:12` (lint `dead_code`, from rustc dead-code)\n\n## Candidates: unused dependencies\n\n- `leftover` at `Cargo.toml:20` (from cargo-machete); caveat: used only via a macro or a re-export can be a false positive\n\n## Author-declared reasons (Chesterton's Fences)\n\n- `Check::budget` at `src/checks.rs:135` (`allow`): parsed for the schema; used by the later mutation module\n- `bare_field` at `src/pack.rs:37` (`allow`): no machine-readable reason (see the adjacent comment)\n\n## Excluded (shown, not candidates)\n\n- `ffi_entry` at `src/bar.rs:3` (lint `dead_code`, from rustc dead-code); excluded: FFI"
 		);
 		assert_eq!(markdown, expected);
 	}
@@ -509,7 +519,7 @@ mod tests {
 	fn all_signals_run_disclosure_lists_none_not_run() {
 		// When every signal ran, the disclosure lists them as run and omits the not-run line.
 		let markdown = render_markdown(&populated_report());
-		assert!(markdown.contains("Signals run: rustc dead-code, source suppression / FFI scan, cargo-machete unused dependencies."));
+		assert!(markdown.contains("Signals run: rustc dead-code, source scan, cargo-machete."));
 		assert!(!markdown.contains("Signals not run"));
 	}
 
@@ -535,7 +545,7 @@ mod tests {
 					},
 					symbol: "cfg_only".to_string(),
 					lint: "dead_code".to_string(),
-					source: Signal::SourceScan,
+					source: DeadCodeSource::SourceScan,
 					exclusion: Some(Exclusion::CfgGated),
 				},
 				AuditRecord::DeadCode {
@@ -545,7 +555,7 @@ mod tests {
 					},
 					symbol: "hushed".to_string(),
 					lint: "dead_code".to_string(),
-					source: Signal::RustcBuildJson,
+					source: DeadCodeSource::Rustc,
 					exclusion: Some(Exclusion::Suppressed),
 				},
 				AuditRecord::DeadCode {
@@ -555,7 +565,7 @@ mod tests {
 					},
 					symbol: "handler".to_string(),
 					lint: "dead_code".to_string(),
-					source: Signal::RustcBuildJson,
+					source: DeadCodeSource::Rustc,
 					exclusion: Some(Exclusion::ContractSurface),
 				},
 				AuditRecord::DeclaredReason {
@@ -571,7 +581,9 @@ mod tests {
 		};
 		let markdown = render_markdown(&report);
 		// A missing signal is disclosed as widening the caveat.
-		assert!(markdown.contains("Signals not run (their coverage is absent, widening the caveat above): cargo-machete unused dependencies."));
+		assert!(markdown.contains(
+			"Signals not run (their coverage is absent, widening the caveat above): cargo-machete."
+		));
 		// The source-scan signal label and the `expect` marker label.
 		assert!(markdown.contains("from source scan"));
 		assert!(markdown.contains("(`expect`): declared for the schema"));

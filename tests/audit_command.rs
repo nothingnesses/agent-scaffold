@@ -90,6 +90,31 @@ fn out_override_writes_the_given_path_and_not_the_default() {
 }
 
 #[test]
+fn json_and_out_conflict_is_rejected() {
+	let dir = scratch("json-out-conflict");
+	fs::create_dir_all(dir.join("custom")).unwrap();
+	// `--json` writes no file and `--out` names a file to write, so requesting both is an
+	// impossible combination. clap rejects it at parse time (fail fast and loudly) rather
+	// than silently ignoring `--out`, so the run fails and writes nothing.
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+		.arg("audit")
+		.args(["--source", "docs/plans/demo.plan.toml", "--json", "--out", "custom/report.md"])
+		.current_dir(&dir)
+		.output()
+		.unwrap();
+	assert!(!output.status.success(), "audit --json --out should be rejected as a conflict");
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	// The diagnostic names the two mutually-exclusive flags rather than dropping `--out`.
+	assert!(
+		stderr.contains("--out") && stderr.contains("--json"),
+		"stderr should name the conflicting flags: {stderr}"
+	);
+	// Nothing was written for the rejected request.
+	assert!(!dir.join("custom/report.md").exists());
+	let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn no_plan_source_falls_back_to_the_task_slug() {
 	let dir = scratch("no-source");
 	fs::create_dir_all(dir.join("docs/plans")).unwrap();

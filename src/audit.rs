@@ -75,7 +75,7 @@ impl CodeValueReport {
 
 /// Which of the Tier-0 signals actually ran for a report. A `false` signal did NOT run,
 /// so its coverage is absent and the projection says so (an absent signal widens the
-/// caveat rather than reading as a clean pass). Named booleans rather than a `Vec<Signal>`
+/// caveat rather than reading as a clean pass). Named booleans rather than a free `Vec` of signal flags
 /// so the "ran vs not run" state is explicit and cannot carry a duplicate.
 #[derive(Debug, Serialize)]
 pub(crate) struct SignalSet {

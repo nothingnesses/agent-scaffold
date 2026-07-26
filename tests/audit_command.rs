@@ -2,8 +2,8 @@
 //! (`main` -> `run_audit`), covering the two behaviours a unit test cannot observe: that
 //! `--json` prints the machine intermediate and writes NO file, and that the report path
 //! is derived from the plan-source filename (`docs/plans/<task>.code-value-report.md`) or
-//! overridden by `--out`. Increment 1 emits an EMPTY report, so these assert the caveat
-//! and the empty record list, not any harvested candidate.
+//! overridden by `--out`. The scratch dirs have no `src/`, so the source scan runs but finds
+//! no markers; these assert the caveat and the empty record list, not any harvested candidate.
 
 use std::{
 	fs,
@@ -45,7 +45,7 @@ fn json_prints_the_intermediate_and_writes_no_file() {
 	let (ok, stdout) = audit(&dir, &["--source", "docs/plans/demo.plan.toml", "--json"]);
 	assert!(ok, "audit --json should exit 0");
 	// The typed intermediate is on stdout: the task, the single-sourced caveat, and an
-	// empty record list (Increment 1 runs no signal).
+	// empty record list (the scratch dir has no `src/`, so the source scan runs but finds nothing).
 	assert!(stdout.contains("\"task\": \"demo\""), "stdout: {stdout}");
 	assert!(stdout.contains("\"caveat\":"), "stdout: {stdout}");
 	assert!(stdout.contains("\"records\": []"), "stdout: {stdout}");
@@ -66,7 +66,7 @@ fn default_out_path_is_derived_from_the_source_filename() {
 	assert!(stdout.contains("wrote docs/plans/demo.code-value-report.md"), "stdout: {stdout}");
 	let body = fs::read_to_string(&report).unwrap();
 	// The report leads with its title and the mandatory caveat, and its record sections are
-	// empty in Increment 1.
+	// empty (the scratch dir has no `src/`, so the source scan finds no markers).
 	assert!(body.starts_with("# Code-value audit: demo\n"), "body: {body}");
 	assert!(body.contains("This report is advisory."), "body: {body}");
 	assert!(body.contains("## Candidates: dead code\n\n_None._"), "body: {body}");

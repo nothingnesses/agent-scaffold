@@ -298,15 +298,19 @@ impl Span {
 /// One suppression or FFI marker the source scan found, with the site it annotates. This is
 /// the ground truth the exclusion hook (`reclassify`) reads and the fence inventory
 /// (`declared_reasons`) projects: a dead-code candidate a later increment harvests at the
-/// same `file` + `symbol` is reclassified from a candidate to a shown-not-candidate row by the
-/// marker recorded here.
+/// same `file` + `item_line` is reclassified from a candidate to a shown-not-candidate row by
+/// the marker recorded here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ScannedMarker {
 	/// The file the marker was found in, relative to the scanned crate root.
 	pub(crate) file: PathBuf,
-	/// The 1-based line of the attribute (the fence itself), the evidence anchor.
+	/// The 1-based line of the attribute (the fence itself), the evidence anchor for the fence.
 	pub(crate) line: u32,
-	/// The item the marker annotates: the next code line's leading identifier (a heuristic).
+	/// The 1-based line of the annotated item (the `fn` / `struct` signature line, which is the
+	/// coordinate rustc reports a dead-code candidate by). The `reclassify` join key.
+	pub(crate) item_line: u32,
+	/// The item the marker annotates: the next code line's leading identifier (a heuristic). A
+	/// display label only; the join key is `item_line`, not this.
 	pub(crate) symbol: String,
 	/// What the marker declares or suppresses.
 	pub(crate) kind: MarkerKind,
@@ -334,11 +338,14 @@ pub(crate) enum MarkerKind {
 /// site in a deterministic order (files sorted, then by line).
 ///
 /// This is a HEURISTIC line scan, not a syntax parse (Minimal by default: no `syn`
-/// dependency). A marker split across lines (as `src/audit.rs`'s own multi-line `cfg_attr`
-/// blocks are), an inner `#![...]` attribute, or an unusually written attribute may be missed,
-/// and the annotated symbol is the next code line's leading identifier by a simple token
-/// heuristic. This is acceptable for an advisory inventory. A `root` with no `src` directory
-/// yields an empty scan (the audited dir need not be a crate).
+/// dependency), so it can both UNDER-report and OVER-report. It may MISS a marker split across
+/// lines (as `src/audit.rs`'s own multi-line `cfg_attr` blocks are), an inner `#![...]`
+/// attribute, or an unusually written attribute, and the annotated symbol is the next code
+/// line's leading identifier by a simple token heuristic. It may also OVER-report: a
+/// block-comment body line not led by `*`, or a raw string, that contains `extern "C"` records
+/// a spurious FFI marker, and an `#[allow(dead_code)]` commented out on its own line is read as
+/// a real suppression fence. This is acceptable for an advisory inventory. A `root` with no
+/// `src` directory yields an empty scan (the audited dir need not be a crate).
 pub(crate) fn scan_source(root: &Path) -> io::Result<Vec<ScannedMarker>> {
 	let src = root.join("src");
 	if !src.is_dir() {
@@ -365,7 +372,15 @@ fn collect_rs_files(
 	out: &mut Vec<PathBuf>,
 ) -> io::Result<()> {
 	for entry in fs::read_dir(dir)? {
-		let path = entry?.path();
+		let entry = entry?;
+		// Skip symlinks and do not recurse into them: a symlinked directory can form a cycle
+		// (for example `src/loop -> src`) that this unbounded recursion would follow to a
+		// stack-overflow abort. Not following symlinks makes the walk cycle-safe by construction
+		// (fail-safe, so a pathological tree cannot crash the tool).
+		if entry.file_type()?.is_symlink() {
+			continue;
+		}
+		let path = entry.path();
 		if path.is_dir() {
 			collect_rs_files(&path, out)?;
 		} else if path.extension().is_some_and(|extension| extension == "rs") {
@@ -408,7 +423,9 @@ fn scan_file(
 			}
 			continue;
 		}
-		// This is the annotated item; attach every pending attribute to its symbol.
+		// This is the annotated item; attach every pending attribute to its symbol. `line` here is
+		// the item line (the join coordinate rustc reports), distinct from each attribute's own
+		// fence line.
 		let symbol = extract_symbol(trimmed);
 		let mut recorded_ffi = false;
 		for (attr_line, kind) in pending.drain(..) {
@@ -418,16 +435,19 @@ fn scan_file(
 			out.push(ScannedMarker {
 				file: file.to_path_buf(),
 				line: attr_line,
+				item_line: line,
 				symbol: symbol.clone(),
 				kind,
 			});
 		}
 		// A bare `extern "C" fn`/block is an FFI entry point in its own right; skip it only when
-		// a `#[no_mangle]` attribute already recorded this same site.
+		// a `#[no_mangle]` attribute already recorded this same site. Its fence line and item line
+		// are the same line.
 		if !recorded_ffi && trimmed.contains("extern \"C\"") {
 			out.push(ScannedMarker {
 				file: file.to_path_buf(),
 				line,
+				item_line: line,
 				symbol,
 				kind: MarkerKind::Ffi,
 			});
@@ -592,14 +612,17 @@ pub(crate) fn declared_reasons(markers: &[ScannedMarker]) -> Vec<AuditRecord> {
 }
 
 /// The exclusion hook the rustc harvest (increment 3) will consume. Given the markers the
-/// source scan found and a dead-code candidate's site (its `file` and `symbol`, as a rustc
-/// diagnostic reports them), decide whether the candidate is shown-but-not-a-candidate and
-/// why: an FFI marker at the site reclassifies it `Exclusion::Ffi`, a suppression marker
-/// reclassifies it `Exclusion::Suppressed`, and no marker leaves it a candidate (`None`). FFI
-/// takes precedence when a site carries both (a foreign entry point is the stronger structural
-/// reason it is statically unreachable). Increment 2 harvests no dead-code candidates yet, so
-/// this has no caller in the report path and is exercised only by its unit tests; increment 3
-/// connects it.
+/// source scan found and a dead-code candidate's site (its `file` and item `line`, the
+/// `file:line` coordinate a rustc diagnostic reports it by), decide whether the candidate is
+/// shown-but-not-a-candidate and why: an FFI marker at the site reclassifies it
+/// `Exclusion::Ffi`, a suppression marker reclassifies it `Exclusion::Suppressed`, and no
+/// marker leaves it a candidate (`None`). FFI takes precedence when a site carries both (a
+/// foreign entry point is the stronger structural reason it is statically unreachable). The
+/// join is on `(file, item_line)`, not `(file, symbol)`: two items in one file that reduce to
+/// the same leading-identifier symbol have distinct item lines, so the collision is
+/// structurally impossible and the key is rustc's own coordinate rather than a lossy symbol
+/// heuristic. Increment 2 harvests no dead-code candidates yet, so this has no caller in the
+/// report path and is exercised only by its unit tests; increment 3 connects it.
 #[cfg_attr(
 	not(test),
 	allow(
@@ -610,11 +633,11 @@ pub(crate) fn declared_reasons(markers: &[ScannedMarker]) -> Vec<AuditRecord> {
 pub(crate) fn reclassify(
 	markers: &[ScannedMarker],
 	file: &Path,
-	symbol: &str,
+	line: u32,
 ) -> Option<Exclusion> {
 	let mut suppressed = false;
 	for marker in markers {
-		if marker.file.as_path() != file || marker.symbol != symbol {
+		if marker.file.as_path() != file || marker.item_line != line {
 			continue;
 		}
 		match marker.kind {
@@ -973,11 +996,17 @@ mod tests {
 			"#[expect(dead_code, reason = \"declared for later\")]\n",
 			"fn expect_with_reason() {}\n",
 			"\n",
+			"#[allow(dead_code, reason = \"kept for foo(bar)\")]\n",
+			"fn paren_reason() {}\n",
+			"\n",
 			"#[cfg_attr(not(test), allow(dead_code))]\n",
 			"struct CfgSplit;\n",
 			"\n",
 			"#[allow(unused)]\n",
 			"fn not_dead_code() {}\n",
+			"\n",
+			"#[allow(unused, reason = \"silences unused, dead_code, unreachable\")]\n",
+			"fn dead_code_only_in_reason() {}\n",
 			"\n",
 			"#[no_mangle]\n",
 			"pub extern \"C\" fn exported() {}\n",
@@ -1013,6 +1042,22 @@ mod tests {
 		// the plain item contribute nothing.
 		assert!(markers.iter().all(|marker| marker.symbol != "not_dead_code"));
 		assert!(markers.iter().all(|marker| marker.symbol != "plain_item"));
+		// A `dead_code` appearing ONLY inside the reason string is not a lint-list name, so it
+		// produces no marker: the reason-stripping guard in `lint_list_has_dead_code` excludes it.
+		// (The reason lists `unused, dead_code, unreachable`; removing that guard would let the
+		// comma-split find the `dead_code` token in the reason and wrongly fence this item.)
+		assert!(markers.iter().all(|marker| marker.symbol != "dead_code_only_in_reason"));
+		// A reason string with an inner `(` exercises the balanced-parenthesis argument scan in
+		// `attr_args`: the arg list closes on the matching outer `)`, not the `)` inside
+		// `foo(bar)`, so the reason is captured whole. (Without balancing the arg list would close
+		// early at the inner `)` and the reason would not resolve.)
+		assert_eq!(
+			find_marker(&markers, "paren_reason").kind,
+			MarkerKind::Suppression {
+				marker: Marker::Allow,
+				reason: Some("kept for foo(bar)".to_string()),
+			}
+		);
 		// A bare `#[allow(dead_code)]`: Allow, no reason.
 		assert_eq!(
 			find_marker(&markers, "bare_allow").kind,
@@ -1056,8 +1101,9 @@ mod tests {
 	fn declared_reasons_are_the_suppressions_only() {
 		let markers = scan_fixture();
 		let records = declared_reasons(&markers);
-		// Four suppressions become fences; the two FFI markers do not.
-		assert_eq!(records.len(), 4);
+		// Five suppressions become fences (bare_allow, allow_with_reason, expect_with_reason,
+		// paren_reason, CfgSplit); the two FFI markers and the two non-dead-code negatives do not.
+		assert_eq!(records.len(), 5);
 		assert!(records.iter().all(|record| matches!(record, AuditRecord::DeclaredReason { .. })));
 		// The bare-reason fence carries `None`; its marker form is `Allow`.
 		let AuditRecord::DeclaredReason {
@@ -1081,15 +1127,24 @@ mod tests {
 	fn reclassify_maps_a_site_to_its_exclusion() {
 		let markers = scan_fixture();
 		let file = Path::new("src/fixture.rs");
-		// An FFI site -> Ffi; a suppressed site -> Suppressed; an unmarked or absent site -> None.
-		assert_eq!(reclassify(&markers, file, "exported"), Some(Exclusion::Ffi));
-		assert_eq!(reclassify(&markers, file, "other_ffi"), Some(Exclusion::Ffi));
-		assert_eq!(reclassify(&markers, file, "bare_allow"), Some(Exclusion::Suppressed));
-		assert_eq!(reclassify(&markers, file, "expect_with_reason"), Some(Exclusion::Suppressed));
-		assert_eq!(reclassify(&markers, file, "plain_item"), None);
-		assert_eq!(reclassify(&markers, file, "not_dead_code"), None);
-		// A different file is not the same site.
-		assert_eq!(reclassify(&markers, Path::new("src/other.rs"), "bare_allow"), None);
+		// The join key is the annotated item's line (rustc's `file:line`), looked up here by
+		// symbol so the test does not hard-code fixture line numbers.
+		let item_line = |symbol: &str| find_marker(&markers, symbol).item_line;
+		// An FFI site -> Ffi; a suppressed site -> Suppressed; an unmarked line -> None.
+		assert_eq!(reclassify(&markers, file, item_line("exported")), Some(Exclusion::Ffi));
+		assert_eq!(reclassify(&markers, file, item_line("other_ffi")), Some(Exclusion::Ffi));
+		assert_eq!(
+			reclassify(&markers, file, item_line("bare_allow")),
+			Some(Exclusion::Suppressed)
+		);
+		assert_eq!(
+			reclassify(&markers, file, item_line("expect_with_reason")),
+			Some(Exclusion::Suppressed)
+		);
+		// A line carrying no marker (beyond the fixture's own lines) is not a candidate site.
+		assert_eq!(reclassify(&markers, file, 9999), None);
+		// The same item line in a different file is not the same site.
+		assert_eq!(reclassify(&markers, Path::new("src/other.rs"), item_line("bare_allow")), None);
 	}
 
 	#[test]
@@ -1099,10 +1154,12 @@ mod tests {
 		// unreachable. There is no FFI in the tree today, so this and the fixture FFI cases are
 		// how the FFI path is exercised at all.
 		let file = PathBuf::from("src/both.rs");
+		// Both attributes annotate the same item (item line 3), on distinct fence lines (1 and 2).
 		let markers = vec![
 			ScannedMarker {
 				file: file.clone(),
 				line: 1,
+				item_line: 3,
 				symbol: "dual".to_string(),
 				kind: MarkerKind::Suppression {
 					marker: Marker::Allow,
@@ -1112,11 +1169,12 @@ mod tests {
 			ScannedMarker {
 				file: file.clone(),
 				line: 2,
+				item_line: 3,
 				symbol: "dual".to_string(),
 				kind: MarkerKind::Ffi,
 			},
 		];
-		assert_eq!(reclassify(&markers, &file, "dual"), Some(Exclusion::Ffi));
+		assert_eq!(reclassify(&markers, &file, 3), Some(Exclusion::Ffi));
 	}
 
 	#[test]

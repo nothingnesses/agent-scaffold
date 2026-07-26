@@ -547,7 +547,7 @@ struct AuditArgs {
 	/// Path to a `<task>.plan.toml` source whose filename derives `<task>` for the default report path (preferred over --plan). Only the filename is read. With neither --source nor --plan, `<task>` falls back to `task`.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// The Rust crate root to audit (its `Cargo.toml` and `src/`); defaults to the current directory. The signal harvests will read it; this tier accepts it into the CLI contract but does not yet read it.
+	/// The Rust crate root to audit (its `Cargo.toml` and `src/`); defaults to the current directory. The source scan reads `src/**/*.rs` under it now for suppression and FFI markers; the rustc dead-code and cargo-machete harvests (later increments) are its remaining readers.
 	#[arg(long, default_value = ".")]
 	dir: PathBuf,
 	/// Emit the machine intermediate as pretty JSON on stdout and write no file, instead of writing the Markdown report.

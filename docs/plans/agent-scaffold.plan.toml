@@ -1207,7 +1207,7 @@ decisions = ["Q-52"]
 [[step]]
 slug = "reviewer-reproducible-evidence"
 title = "require every reviewer finding to carry reproducible evidence PROPORTIONAL to its claim (a runnable / mutation demonstration for a behavioral or correctness claim; an exact command or a `file:line` citation for a doc / design / style claim), with the triager reproducing the evidence and dismissing any testable claim that does not reproduce; folded into `pack/prompts/reviewer.md`, `pack/prompts/triager.md`, and `pack/AGENTS.md` (`Q-66`)"
-status = "next"
+status = "in-progress"
 order = 88
 blocked_by = []
 folds = []

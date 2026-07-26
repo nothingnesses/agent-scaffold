@@ -1248,16 +1248,18 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 /// Advisory and read-mostly: it writes ONLY its own report and never touches `src/`,
 /// `Cargo.toml`, the plan, the sidecars, or the metrics log, and never deletes anything.
 ///
-/// Increment 1 (Q-52) builds an EMPTY report: the schema, the Markdown projection, and the
-/// mandatory caveat. No signal harvest runs yet, so `--dir` (the crate root the later
-/// harvests run `cargo check` and `cargo-machete` against) is accepted into the CLI
-/// contract now but not yet walked; the empty report is the caveat plus four empty sections.
+/// Increment 2 (Q-52) runs the source scan over `--dir`'s `src/**/*.rs`, populating the
+/// author-declared-reason fences (the `#[allow/expect(dead_code)]` markers) and flagging the
+/// `source_scan` signal. The rustc dead-code and `cargo-machete` harvests (later increments)
+/// do not run yet, so those signals stay unrun and the caveat discloses their absence.
 fn run_audit(args: AuditArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
-	// The crate root the later signal-harvest increments read; Increment 1 harvests
-	// nothing, so the flag lands in the CLI contract whole here without being walked.
-	let _crate_root: &Path = &args.dir;
-	let report = audit::CodeValueReport::empty(task.clone());
+	// The increment-2 source scan reads the crate's `src/**/*.rs` under `--dir` for
+	// author-declared suppression fences and FFI entry points; the rustc and cargo-machete
+	// harvests (later increments) do not run yet.
+	let markers = audit::scan_source(&args.dir)?;
+	let report =
+		audit::CodeValueReport::from_source_scan(task.clone(), audit::declared_reasons(&markers));
 
 	if args.json {
 		// The typed intermediate to stdout, writing nothing (mirrors `next --json`).

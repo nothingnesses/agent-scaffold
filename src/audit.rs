@@ -23,7 +23,14 @@
 
 use {
 	serde::Serialize,
-	std::path::PathBuf,
+	std::{
+		fs,
+		io,
+		path::{
+			Path,
+			PathBuf,
+		},
+	},
 };
 
 /// The single-sourced mandatory caveat: the "not evidence of absence" text carried both
@@ -60,15 +67,24 @@ pub(crate) struct CodeValueReport {
 }
 
 impl CodeValueReport {
-	/// Build the Increment 1 report for `task`: no signals run, so the record list is
-	/// empty and the caveat widens to disclose that nothing was analysed. Later increments
-	/// replace this with a signal-harvesting builder; the schema and projection do not change.
-	pub(crate) fn empty(task: String) -> Self {
+	/// Build the Increment 2 report for `task`: the source scan ran (so `source_scan` is
+	/// flagged) and its author-declared-reason `records` populate the report. The rustc and
+	/// cargo-machete harvests (increments 3-4) have not run, so their signals stay `false` and
+	/// widen the caveat's "not covered" disclosure. The schema and projection do not change;
+	/// later increments only add record producers.
+	pub(crate) fn from_source_scan(
+		task: String,
+		records: Vec<AuditRecord>,
+	) -> Self {
 		CodeValueReport {
 			task,
-			generated_from: SignalSet::none(),
+			generated_from: SignalSet {
+				rustc_dead_code: false,
+				source_scan: true,
+				cargo_machete: false,
+			},
 			caveat: AUDIT_CAVEAT,
-			records: Vec::new(),
+			records,
 		}
 	}
 }
@@ -88,15 +104,6 @@ pub(crate) struct SignalSet {
 }
 
 impl SignalSet {
-	/// The Increment 1 state: no signal has run yet.
-	fn none() -> Self {
-		SignalSet {
-			rustc_dead_code: false,
-			source_scan: false,
-			cargo_machete: false,
-		}
-	}
-
 	/// The human labels of the signals that ran, in a fixed order.
 	fn ran(&self) -> Vec<&'static str> {
 		self.each().into_iter().filter(|(ran, _)| *ran).map(|(_, label)| label).collect()
@@ -127,14 +134,16 @@ impl SignalSet {
 /// discriminator.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-// Increment 1 constructs these variants only under `cfg(test)`; the release-build
-// producers are the signal-harvest increments (2-4). This is the cfg-split form (as
-// `LoopState::Done` at `src/next.rs:218`), where `allow` is correct rather than `expect`.
+// `DeadCode` and `UnusedDep` are constructed only under `cfg(test)` until the rustc and
+// cargo-machete harvests (increments 3-4) land; the increment-2 source scan already
+// constructs `DeclaredReason` in the release build. This is the cfg-split form (as
+// `LoopState::Done` at `src/next.rs:218`), where `allow` is correct rather than `expect`, and
+// it covers the two variants that still have no release producer.
 #[cfg_attr(
 	not(test),
 	allow(
 		dead_code,
-		reason = "the signal-harvest increments (2-4) and the tests construct these; Increment 1 ships the schema and an empty report, so the release build has no producer yet"
+		reason = "DeadCode and UnusedDep are constructed by the rustc and cargo-machete harvests (increments 3-4) and the tests; only DeclaredReason has a release producer (the increment-2 source scan) so far"
 	)
 )]
 pub(crate) enum AuditRecord {
@@ -210,16 +219,10 @@ pub(crate) enum DeadCodeSource {
 	SourceScan,
 }
 
-/// A source suppression marker form.
-#[derive(Debug, Serialize)]
+/// A source suppression marker form. The source scan (increment 2) constructs both variants
+/// in the release build, so no cfg-split `allow(dead_code)` is needed here.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-#[cfg_attr(
-	not(test),
-	allow(
-		dead_code,
-		reason = "the signal-harvest increments (2-4) and the tests construct these; Increment 1 ships the schema and an empty report, so the release build has no producer yet"
-	)
-)]
 pub(crate) enum Marker {
 	/// `#[allow(dead_code)]`.
 	Allow,
@@ -230,13 +233,13 @@ pub(crate) enum Marker {
 /// Why a harvested item is shown but excluded from the candidate set. A closed set: the
 /// exclusion is always derived from ground truth (a marker, a cfg attribute, an FFI
 /// attribute, or the compiler's own reachability), never a hand-curated denylist.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(
 	not(test),
 	allow(
 		dead_code,
-		reason = "the signal-harvest increments (2-4) and the tests construct these; Increment 1 ships the schema and an empty report, so the release build has no producer yet"
+		reason = "the rustc harvest (increment 3, via reclassify) and the tests construct these; increment 2 builds reclassify but has no release caller yet, so the release build still constructs no Exclusion"
 	)
 )]
 pub(crate) enum Exclusion {
@@ -288,6 +291,340 @@ impl Span {
 	fn anchor(&self) -> String {
 		format!("{}:{}", self.file.display(), self.line)
 	}
+}
+
+// -- Source scan (increment 2): author-declared reasons and FFI markers --
+
+/// One suppression or FFI marker the source scan found, with the site it annotates. This is
+/// the ground truth the exclusion hook (`reclassify`) reads and the fence inventory
+/// (`declared_reasons`) projects: a dead-code candidate a later increment harvests at the
+/// same `file` + `symbol` is reclassified from a candidate to a shown-not-candidate row by the
+/// marker recorded here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ScannedMarker {
+	/// The file the marker was found in, relative to the scanned crate root.
+	pub(crate) file: PathBuf,
+	/// The 1-based line of the attribute (the fence itself), the evidence anchor.
+	pub(crate) line: u32,
+	/// The item the marker annotates: the next code line's leading identifier (a heuristic).
+	pub(crate) symbol: String,
+	/// What the marker declares or suppresses.
+	pub(crate) kind: MarkerKind,
+}
+
+/// What a scanned marker carries, each variant with only its own evidence: a
+/// `#[allow/expect(dead_code)]` suppression (an author-declared reason / fence) or a
+/// `#[no_mangle]` / `extern "C"` foreign entry point.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum MarkerKind {
+	/// A `#[allow/expect(dead_code)]` suppression, with its form and its `reason = "..."`
+	/// string when present (`None` for a bare marker whose reason lives in an adjacent comment).
+	Suppression {
+		/// The `allow` or `expect` form.
+		marker: Marker,
+		/// The `reason = "..."` string when present.
+		reason: Option<String>,
+	},
+	/// A `#[no_mangle]` or `extern "C"` foreign entry point.
+	Ffi,
+}
+
+/// Scan the crate's `src/**/*.rs` under `root` for `#[allow/expect(dead_code)]` suppression
+/// markers and `#[no_mangle]` / `extern "C"` FFI markers, returning one `ScannedMarker` per
+/// site in a deterministic order (files sorted, then by line).
+///
+/// This is a HEURISTIC line scan, not a syntax parse (Minimal by default: no `syn`
+/// dependency). A marker split across lines (as `src/audit.rs`'s own multi-line `cfg_attr`
+/// blocks are), an inner `#![...]` attribute, or an unusually written attribute may be missed,
+/// and the annotated symbol is the next code line's leading identifier by a simple token
+/// heuristic. This is acceptable for an advisory inventory. A `root` with no `src` directory
+/// yields an empty scan (the audited dir need not be a crate).
+pub(crate) fn scan_source(root: &Path) -> io::Result<Vec<ScannedMarker>> {
+	let src = root.join("src");
+	if !src.is_dir() {
+		return Ok(Vec::new());
+	}
+	let mut files = Vec::new();
+	collect_rs_files(&src, &mut files)?;
+	// `read_dir` order is unspecified, so sort for a deterministic scan (and report) order.
+	files.sort();
+	let mut markers = Vec::new();
+	for file in &files {
+		let contents = fs::read_to_string(file)?;
+		// Echo the path relative to the crate root, so the report is identical on any machine.
+		let relative = file.strip_prefix(root).unwrap_or(file);
+		scan_file(relative, &contents, &mut markers);
+	}
+	Ok(markers)
+}
+
+/// Recursively collect `*.rs` files under `dir` into `out`, using only `std::fs` (no
+/// walk-crate dependency). The caller sorts the full list for a deterministic scan order.
+fn collect_rs_files(
+	dir: &Path,
+	out: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+	for entry in fs::read_dir(dir)? {
+		let path = entry?.path();
+		if path.is_dir() {
+			collect_rs_files(&path, out)?;
+		} else if path.extension().is_some_and(|extension| extension == "rs") {
+			out.push(path);
+		}
+	}
+	Ok(())
+}
+
+/// Scan one file's `contents` (line by line, 1-based) for suppression and FFI markers,
+/// appending each to `out` under the relative `file` path. An attribute attaches to the next
+/// non-attribute, non-comment, non-blank line (the annotated item); comments and blank lines
+/// between an attribute and its item do not break the association. An `extern "C"` on the item
+/// line itself is an FFI entry point unless a `#[no_mangle]` already recorded that site.
+fn scan_file(
+	file: &Path,
+	contents: &str,
+	out: &mut Vec<ScannedMarker>,
+) {
+	// The suppression / no_mangle attributes seen since the last item, each with its own line,
+	// waiting to attach to the next item line.
+	let mut pending: Vec<(u32, MarkerKind)> = Vec::new();
+	for (index, raw) in contents.lines().enumerate() {
+		let line = (index + 1) as u32;
+		let trimmed = raw.trim_start();
+		if trimmed.is_empty() || is_comment(trimmed) {
+			continue;
+		}
+		if is_attr_line(trimmed) {
+			if let Some((marker, reason)) = parse_suppression(trimmed) {
+				pending.push((
+					line,
+					MarkerKind::Suppression {
+						marker,
+						reason,
+					},
+				));
+			} else if trimmed.contains("no_mangle") {
+				pending.push((line, MarkerKind::Ffi));
+			}
+			continue;
+		}
+		// This is the annotated item; attach every pending attribute to its symbol.
+		let symbol = extract_symbol(trimmed);
+		let mut recorded_ffi = false;
+		for (attr_line, kind) in pending.drain(..) {
+			if matches!(kind, MarkerKind::Ffi) {
+				recorded_ffi = true;
+			}
+			out.push(ScannedMarker {
+				file: file.to_path_buf(),
+				line: attr_line,
+				symbol: symbol.clone(),
+				kind,
+			});
+		}
+		// A bare `extern "C" fn`/block is an FFI entry point in its own right; skip it only when
+		// a `#[no_mangle]` attribute already recorded this same site.
+		if !recorded_ffi && trimmed.contains("extern \"C\"") {
+			out.push(ScannedMarker {
+				file: file.to_path_buf(),
+				line,
+				symbol,
+				kind: MarkerKind::Ffi,
+			});
+		}
+	}
+}
+
+/// Whether a trimmed line is an attribute (`#[...]` outer or `#![...]` inner), which is never
+/// the annotated item.
+fn is_attr_line(trimmed: &str) -> bool {
+	trimmed.starts_with("#[") || trimmed.starts_with("#![")
+}
+
+/// Whether a trimmed line is a comment (line, doc, or a block-comment body), which does not
+/// separate an attribute from its item. A `*`-led line catches block-comment continuations.
+fn is_comment(trimmed: &str) -> bool {
+	trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*')
+}
+
+/// Parse a trimmed outer-attribute line into its `#[allow/expect(dead_code)]` marker and its
+/// optional `reason = "..."` string, or `None` when the line is not a dead-code suppression.
+/// Only `dead_code` in the lint list counts: `#[allow(unused)]` does not match, and a
+/// `dead_code` mentioned only inside a `reason` string does not match (the lint names precede
+/// any `reason`). Handles the `#[cfg_attr(..., allow(dead_code))]` form by reading the inner
+/// `allow(...)` / `expect(...)`.
+fn parse_suppression(trimmed: &str) -> Option<(Marker, Option<String>)> {
+	if !trimmed.starts_with("#[") {
+		return None;
+	}
+	// Check `expect` before `allow`: a line carries at most one of them.
+	for (keyword, marker) in [("expect(", Marker::Expect), ("allow(", Marker::Allow)] {
+		if let Some(args) = attr_args(trimmed, keyword) {
+			if lint_list_has_dead_code(args) {
+				return Some((marker, extract_reason(args)));
+			}
+		}
+	}
+	None
+}
+
+/// The balanced-parenthesis argument string of the first `keyword` (`"allow("` or `"expect("`)
+/// in `attr`, or `None` when it is absent. Balancing lets a `reason` string containing
+/// parentheses not close the argument list early.
+fn attr_args<'a>(
+	attr: &'a str,
+	keyword: &str,
+) -> Option<&'a str> {
+	let start = attr.find(keyword)? + keyword.len();
+	let mut depth = 1usize;
+	for (offset, byte) in attr[start ..].bytes().enumerate() {
+		match byte {
+			b'(' => depth += 1,
+			b')' => {
+				depth -= 1;
+				if depth == 0 {
+					return Some(&attr[start .. start + offset]);
+				}
+			}
+			_ => {}
+		}
+	}
+	None
+}
+
+/// Whether the lint list in an `allow`/`expect` argument string names `dead_code`. Only the
+/// names before any `reason = "..."` count, so a `dead_code` inside the reason text does not
+/// match.
+fn lint_list_has_dead_code(args: &str) -> bool {
+	let names = match args.find("reason") {
+		Some(index) => &args[.. index],
+		None => args,
+	};
+	names.split(',').any(|name| name.trim() == "dead_code")
+}
+
+/// The `reason = "..."` string of an `allow`/`expect` argument string, or `None` when absent. A
+/// heuristic: it reads the first double-quoted run after `reason` and does not handle escaped
+/// quotes (the tree's reasons have none).
+fn extract_reason(args: &str) -> Option<String> {
+	let after = &args[args.find("reason")? ..];
+	let open = after.find('"')?;
+	let rest = &after[open + 1 ..];
+	let close = rest.find('"')?;
+	Some(rest[.. close].to_string())
+}
+
+/// The item name an attribute annotates: the first token of the item line that is not a
+/// visibility or item keyword and starts with an identifier character, trimmed to its leading
+/// identifier. A heuristic that resolves fields (`pub budget: ...` -> `budget`), enum variants
+/// (`Done,` -> `Done`), and functions (`$vis fn parse(...)` -> `parse`); it falls back to the
+/// trimmed line when no identifier is found.
+fn extract_symbol(item_line: &str) -> String {
+	for token in item_line.split_whitespace() {
+		if is_skippable_prefix(token) {
+			continue;
+		}
+		if let Some(identifier) = leading_identifier(token) {
+			return identifier;
+		}
+	}
+	item_line.trim().to_string()
+}
+
+/// Whether a token is a visibility or item keyword to skip before the item name (`pub`,
+/// `pub(crate)`, `fn`, `struct`, and the like).
+fn is_skippable_prefix(token: &str) -> bool {
+	token.starts_with("pub(")
+		|| matches!(
+			token,
+			"pub"
+				| "fn" | "struct"
+				| "enum" | "trait"
+				| "const" | "static"
+				| "type" | "mod"
+				| "union" | "unsafe"
+				| "async" | "impl"
+				| "extern" | "default"
+				| "move" | "dyn"
+				| "let" | "mut"
+				| "ref"
+		)
+}
+
+/// The leading identifier of `token` (alphanumeric or `_`, starting with a letter or `_`), or
+/// `None` when the token does not start with an identifier character (for example `$vis` or a
+/// string literal).
+fn leading_identifier(token: &str) -> Option<String> {
+	let first = token.chars().next()?;
+	if !(first.is_ascii_alphabetic() || first == '_') {
+		return None;
+	}
+	Some(
+		token
+			.chars()
+			.take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+			.collect(),
+	)
+}
+
+/// The author-declared-reason records the scan found: every `#[allow/expect(dead_code)]`
+/// suppression becomes a `DeclaredReason` fence (explicitly NOT a candidate). FFI markers are
+/// not fences; they feed `reclassify` only, so they produce no record here.
+pub(crate) fn declared_reasons(markers: &[ScannedMarker]) -> Vec<AuditRecord> {
+	markers
+		.iter()
+		.filter_map(|marker| match &marker.kind {
+			MarkerKind::Suppression {
+				marker: form,
+				reason,
+			} => Some(AuditRecord::DeclaredReason {
+				span: Span {
+					file: marker.file.clone(),
+					line: marker.line,
+				},
+				symbol: marker.symbol.clone(),
+				marker: form.clone(),
+				reason: reason.clone(),
+			}),
+			MarkerKind::Ffi => None,
+		})
+		.collect()
+}
+
+/// The exclusion hook the rustc harvest (increment 3) will consume. Given the markers the
+/// source scan found and a dead-code candidate's site (its `file` and `symbol`, as a rustc
+/// diagnostic reports them), decide whether the candidate is shown-but-not-a-candidate and
+/// why: an FFI marker at the site reclassifies it `Exclusion::Ffi`, a suppression marker
+/// reclassifies it `Exclusion::Suppressed`, and no marker leaves it a candidate (`None`). FFI
+/// takes precedence when a site carries both (a foreign entry point is the stronger structural
+/// reason it is statically unreachable). Increment 2 harvests no dead-code candidates yet, so
+/// this has no caller in the report path and is exercised only by its unit tests; increment 3
+/// connects it.
+#[cfg_attr(
+	not(test),
+	allow(
+		dead_code,
+		reason = "the rustc harvest (increment 3) is the caller; increment 2 builds and unit-tests the hook but has no dead-code candidates to reclassify yet"
+	)
+)]
+pub(crate) fn reclassify(
+	markers: &[ScannedMarker],
+	file: &Path,
+	symbol: &str,
+) -> Option<Exclusion> {
+	let mut suppressed = false;
+	for marker in markers {
+		if marker.file.as_path() != file || marker.symbol != symbol {
+			continue;
+		}
+		match marker.kind {
+			MarkerKind::Ffi => return Some(Exclusion::Ffi),
+			MarkerKind::Suppression {
+				..
+			} => suppressed = true,
+		}
+	}
+	suppressed.then_some(Exclusion::Suppressed)
 }
 
 /// Project a report to the deterministic Markdown: a head carrying the mandatory caveat
@@ -470,9 +807,25 @@ mod tests {
 		}
 	}
 
+	/// The all-signals-unrun report the projection must still render (the caveat plus four empty
+	/// sections). No release path produces this now that the source scan always runs, so it is a
+	/// test fixture for the projection's empty-disclosure branch.
+	fn none_report(task: &str) -> CodeValueReport {
+		CodeValueReport {
+			task: task.to_string(),
+			generated_from: SignalSet {
+				rustc_dead_code: false,
+				source_scan: false,
+				cargo_machete: false,
+			},
+			caveat: AUDIT_CAVEAT,
+			records: Vec::new(),
+		}
+	}
+
 	#[test]
 	fn empty_report_is_caveat_plus_empty_sections() {
-		let report = CodeValueReport::empty("mytask".to_string());
+		let report = none_report("mytask");
 		let markdown = render_markdown(&report);
 		// The caveat leads the report head (line 3, after the title and its blank line), so a
 		// reader sees the "not evidence of absence" framing before any finding.
@@ -498,7 +851,7 @@ mod tests {
 	#[test]
 	fn caveat_is_the_single_sourced_field() {
 		// The head caveat is the SAME const as the JSON `caveat` field, so they cannot drift.
-		let report = CodeValueReport::empty("t".to_string());
+		let report = none_report("t");
 		assert_eq!(report.caveat, AUDIT_CAVEAT);
 		let markdown = render_markdown(&report);
 		assert!(markdown.contains(&format!("> {}", report.caveat)));
@@ -603,5 +956,193 @@ mod tests {
 		assert!(json.contains("\"kind\": \"unused-dep\""));
 		assert!(json.contains("\"kind\": \"declared-reason\""));
 		assert!(json.contains("\"rustc_dead_code\": true"));
+	}
+
+	/// A fixture crate source covering every attribute form the marker scan must resolve, so
+	/// the parser is tested against inputs, not the (evolving) live tree. Built with `concat!`
+	/// of per-line literals so no source line here looks like a bare attribute to the scanner
+	/// (the scan of `src/audit.rs` itself must not pick these fixture lines up).
+	fn marker_fixture() -> &'static str {
+		concat!(
+			"#[allow(dead_code)]\n",
+			"fn bare_allow() {}\n",
+			"\n",
+			"#[allow(dead_code, reason = \"kept for the schema\")]\n",
+			"fn allow_with_reason() {}\n",
+			"\n",
+			"#[expect(dead_code, reason = \"declared for later\")]\n",
+			"fn expect_with_reason() {}\n",
+			"\n",
+			"#[cfg_attr(not(test), allow(dead_code))]\n",
+			"struct CfgSplit;\n",
+			"\n",
+			"#[allow(unused)]\n",
+			"fn not_dead_code() {}\n",
+			"\n",
+			"#[no_mangle]\n",
+			"pub extern \"C\" fn exported() {}\n",
+			"\n",
+			"extern \"C\" fn other_ffi() {}\n",
+			"\n",
+			"fn plain_item() {}\n",
+		)
+	}
+
+	/// Scan `marker_fixture` under a fixed relative file, so the tests read the markers a real
+	/// scan would produce.
+	fn scan_fixture() -> Vec<ScannedMarker> {
+		let mut markers = Vec::new();
+		scan_file(Path::new("src/fixture.rs"), marker_fixture(), &mut markers);
+		markers
+	}
+
+	fn find_marker<'a>(
+		markers: &'a [ScannedMarker],
+		symbol: &str,
+	) -> &'a ScannedMarker {
+		markers
+			.iter()
+			.find(|marker| marker.symbol == symbol)
+			.unwrap_or_else(|| panic!("no marker for `{symbol}`"))
+	}
+
+	#[test]
+	fn marker_scan_resolves_each_attribute_form() {
+		let markers = scan_fixture();
+		// Only dead-code suppressions and FFI entry points are markers: `#[allow(unused)]` and
+		// the plain item contribute nothing.
+		assert!(markers.iter().all(|marker| marker.symbol != "not_dead_code"));
+		assert!(markers.iter().all(|marker| marker.symbol != "plain_item"));
+		// A bare `#[allow(dead_code)]`: Allow, no reason.
+		assert_eq!(
+			find_marker(&markers, "bare_allow").kind,
+			MarkerKind::Suppression {
+				marker: Marker::Allow,
+				reason: None,
+			}
+		);
+		// `#[allow(dead_code, reason = "...")]`: Allow with the reason captured.
+		assert_eq!(
+			find_marker(&markers, "allow_with_reason").kind,
+			MarkerKind::Suppression {
+				marker: Marker::Allow,
+				reason: Some("kept for the schema".to_string()),
+			}
+		);
+		// `#[expect(dead_code, reason = "...")]`: Expect with the reason captured.
+		assert_eq!(
+			find_marker(&markers, "expect_with_reason").kind,
+			MarkerKind::Suppression {
+				marker: Marker::Expect,
+				reason: Some("declared for later".to_string()),
+			}
+		);
+		// `#[cfg_attr(not(test), allow(dead_code))]`: Allow, no reason.
+		assert_eq!(
+			find_marker(&markers, "CfgSplit").kind,
+			MarkerKind::Suppression {
+				marker: Marker::Allow,
+				reason: None,
+			}
+		);
+		// FFI: `#[no_mangle]` + `extern "C"` records the site once (deduped), and a bare
+		// `extern "C" fn` records its own site.
+		assert_eq!(find_marker(&markers, "exported").kind, MarkerKind::Ffi);
+		assert_eq!(find_marker(&markers, "other_ffi").kind, MarkerKind::Ffi);
+		assert_eq!(markers.iter().filter(|marker| marker.symbol == "exported").count(), 1);
+	}
+
+	#[test]
+	fn declared_reasons_are_the_suppressions_only() {
+		let markers = scan_fixture();
+		let records = declared_reasons(&markers);
+		// Four suppressions become fences; the two FFI markers do not.
+		assert_eq!(records.len(), 4);
+		assert!(records.iter().all(|record| matches!(record, AuditRecord::DeclaredReason { .. })));
+		// The bare-reason fence carries `None`; its marker form is `Allow`.
+		let AuditRecord::DeclaredReason {
+			marker,
+			reason,
+			..
+		} = records
+			.iter()
+			.find(
+				|record| matches!(record, AuditRecord::DeclaredReason { symbol, .. } if symbol == "bare_allow"),
+			)
+			.expect("bare_allow fence")
+		else {
+			panic!("expected a declared reason");
+		};
+		assert_eq!(*marker, Marker::Allow);
+		assert_eq!(*reason, None);
+	}
+
+	#[test]
+	fn reclassify_maps_a_site_to_its_exclusion() {
+		let markers = scan_fixture();
+		let file = Path::new("src/fixture.rs");
+		// An FFI site -> Ffi; a suppressed site -> Suppressed; an unmarked or absent site -> None.
+		assert_eq!(reclassify(&markers, file, "exported"), Some(Exclusion::Ffi));
+		assert_eq!(reclassify(&markers, file, "other_ffi"), Some(Exclusion::Ffi));
+		assert_eq!(reclassify(&markers, file, "bare_allow"), Some(Exclusion::Suppressed));
+		assert_eq!(reclassify(&markers, file, "expect_with_reason"), Some(Exclusion::Suppressed));
+		assert_eq!(reclassify(&markers, file, "plain_item"), None);
+		assert_eq!(reclassify(&markers, file, "not_dead_code"), None);
+		// A different file is not the same site.
+		assert_eq!(reclassify(&markers, Path::new("src/other.rs"), "bare_allow"), None);
+	}
+
+	#[test]
+	fn reclassify_prefers_ffi_when_a_site_carries_both() {
+		// A hand-built site carrying both a suppression and an FFI marker: FFI wins, because a
+		// foreign entry point is the stronger structural reason the item is statically
+		// unreachable. There is no FFI in the tree today, so this and the fixture FFI cases are
+		// how the FFI path is exercised at all.
+		let file = PathBuf::from("src/both.rs");
+		let markers = vec![
+			ScannedMarker {
+				file: file.clone(),
+				line: 1,
+				symbol: "dual".to_string(),
+				kind: MarkerKind::Suppression {
+					marker: Marker::Allow,
+					reason: None,
+				},
+			},
+			ScannedMarker {
+				file: file.clone(),
+				line: 2,
+				symbol: "dual".to_string(),
+				kind: MarkerKind::Ffi,
+			},
+		];
+		assert_eq!(reclassify(&markers, &file, "dual"), Some(Exclusion::Ffi));
+	}
+
+	#[test]
+	fn extract_symbol_reads_the_annotated_item_name() {
+		assert_eq!(extract_symbol("pub budget: Option<String>,"), "budget");
+		assert_eq!(extract_symbol("Done,"), "Done");
+		assert_eq!(extract_symbol("$vis fn parse(text: &str) -> Option<Self> {"), "parse");
+		assert_eq!(extract_symbol("pub(crate) fn run() {}"), "run");
+		assert_eq!(extract_symbol("description: String,"), "description");
+	}
+
+	#[test]
+	fn source_scan_finds_known_live_suppression_sites() {
+		// A smoke test over the real crate: assert KNOWN sites are present by symbol WITHOUT
+		// pinning a total (the count changes as the tree evolves, and `src/audit.rs`'s own
+		// multi-line `cfg_attr` markers are deliberately not seen by this single-line scan).
+		let markers = scan_source(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("scan the crate");
+		let has_suppression = |file: &str, symbol: &str| {
+			markers.iter().any(|marker| {
+				marker.file.as_path() == Path::new(file)
+					&& marker.symbol == symbol
+					&& matches!(marker.kind, MarkerKind::Suppression { .. })
+			})
+		};
+		assert!(has_suppression("src/checks.rs", "budget"), "checks.rs budget fence");
+		assert!(has_suppression("src/checks.rs", "threshold"), "checks.rs threshold fence");
+		assert!(has_suppression("src/manifest.rs", "description"), "manifest.rs description fence");
 	}
 }

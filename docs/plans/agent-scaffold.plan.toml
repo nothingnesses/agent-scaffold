@@ -1238,7 +1238,7 @@ risk_class = "low_risk"
 
 [[step]]
 slug = "decision-folder-currency"
-title = "name the PLANNER as the folder in the three remaining passive decision-folding passages (the Socratic-mode and ledger paragraphs of `pack/prompts/orchestrator.md`, and the ledger paragraph of `pack/AGENTS.md`), and regenerate the deployed copies (`Q-67`)"
+title = "name the PLANNER as the folder at the four remaining actor-ambiguous decision-folding points (the checkpoint / queue-push, Socratic-mode, and ledger paragraphs of `pack/prompts/orchestrator.md`, and the ledger paragraph of `pack/AGENTS.md`), and regenerate the deployed copies (`Q-67`)"
 status = "next"
 order = 90
 blocked_by = []

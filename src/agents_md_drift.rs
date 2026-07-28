@@ -1,5 +1,6 @@
-//! Whole-file drift guard for the generated `AGENTS.md` and its tool-owned copy
-//! `.agents/AGENTS.reference.md`.
+//! Whole-file drift guard for the scaffold files this repo dogfoods: the generated
+//! `AGENTS.md`, its tool-owned copy `.agents/AGENTS.reference.md`, and every deployed
+//! role prompt under `.agents/prompts/`.
 //!
 //! The per-fragment guards (`isolation_policy.rs`, `workflow_spec.rs`) each pin ONE
 //! generated slot inside the committed scaffold with a `.contains()` check. Nothing
@@ -27,6 +28,25 @@
 //! applied so the guard keeps passing on incidental reflow if a future pack edit
 //! introduces wrapped prose, rather than turning a formatter reflow into a false
 //! failure.
+//!
+//! THE ROLE PROMPTS ARE DERIVED, NOT ENUMERATED. `include_str!` needs a literal path,
+//! so extending the two-file pattern to the role prompts would mean one constant and
+//! one comparison per prompt, a set that goes stale the moment the pack gains another
+//! prompt. The prompt coverage instead derives its guarded set from the render itself:
+//! every rendered asset whose `dest` starts with `.agents/prompts/` is compared against
+//! the committed file read from `CARGO_MANIFEST_DIR`, so a prompt added to the pack is
+//! guarded without editing this file. The trade-off taken knowingly is reduced
+//! hermeticity: reading the working tree at test time is weaker than a compile-time
+//! `include_str!` snapshot, which is acceptable for a repo-local guard whose whole
+//! purpose is to inspect the working tree (and the `include_str!` sides above are
+//! repo-local in the same sense).
+//!
+//! `.agents/prompts/checks-reviewer.md` is deliberately NOT guarded, and needs no
+//! explicit exclusion to stay that way: it is module-gated in `src/manifest.rs` (emitted
+//! only under `--module checks`) and the self-scaffold config pinned in
+//! `self_scaffold_assets` selects no modules, so it is absent from the render and so
+//! from the derived set. The repo commits no copy of it, so a guard that expected one
+//! would fail on a correct tree.
 
 #[cfg(test)]
 mod tests {
@@ -48,25 +68,53 @@ mod tests {
 	/// the same generated guidance.
 	const COMMITTED_REFERENCE: &str = include_str!("../.agents/AGENTS.reference.md");
 
-	/// Re-render the self-scaffold asset set and return the contents of the asset at
-	/// `dest`. This replicates the exact `just scaffold-self` invocation
-	/// (`scaffold --principles default --instrument`): the built-in pack, the default
-	/// principle selection, the default `Summary` detail, no `--var` overrides, and no
-	/// `--module` selections. Any divergence from that config would compare the
-	/// committed files against the wrong render, so it is pinned here to match the
-	/// justfile recipe.
-	fn self_scaffold_asset(dest: &str) -> String {
+	/// The destination prefix that selects the deployed role prompts out of the rendered
+	/// asset set. Narrower than the full set of copied assets on purpose: the other
+	/// copied assets the self-scaffold emits (`.agents/user-prompts/*`,
+	/// `.agents/LEDGER.template.md`, `.agents/principles.toml`, `.agents/workflow.toml`)
+	/// carry the same gap and are not covered here, which is a scope call rather than an
+	/// oversight.
+	const PROMPT_DEST_PREFIX: &str = ".agents/prompts/";
+
+	/// Re-render the self-scaffold asset set. This replicates the exact
+	/// `just scaffold-self` invocation (`scaffold --principles default --instrument`):
+	/// the built-in pack, the default principle selection, the default `Summary` detail,
+	/// no `--var` overrides, and no `--module` selections. Any divergence from that
+	/// config would compare the committed files against the wrong render, so it is
+	/// pinned here to match the justfile recipe. The absent `--module` selection is also
+	/// what keeps the module-gated `checks-reviewer` prompt out of the derived set (see
+	/// the module doc).
+	fn self_scaffold_assets() -> Vec<manifest::Asset> {
 		let source = manifest::builtin();
 		let principles = pack_principles(&source).expect("the built-in principles.toml parses");
 		let selected = pack::resolve_selection(&principles, "default")
 			.expect("the default principle selection resolves");
-		let assets = build_assets(&source, &selected, pack::Detail::Summary, &HashMap::new(), true, &[])
-			.expect("build_assets succeeds for the self-scaffold config");
-		assets
+		build_assets(&source, &selected, pack::Detail::Summary, &HashMap::new(), true, &[])
+			.expect("build_assets succeeds for the self-scaffold config")
+	}
+
+	/// The contents of the freshly rendered self-scaffold asset at `dest`.
+	fn self_scaffold_asset(dest: &str) -> String {
+		self_scaffold_assets()
 			.into_iter()
 			.find(|asset| asset.dest == dest)
 			.unwrap_or_else(|| panic!("the self-scaffold render includes an asset at {dest}"))
 			.contents
+	}
+
+	/// The committed copy of the scaffolded asset at `dest`, read from the crate root at
+	/// test time. This is the less hermetic read the derived guarded set buys (see the
+	/// module doc); `include_str!` cannot serve here because it needs a literal path. A
+	/// missing file panics rather than being skipped, since a deployed copy that
+	/// disappeared is itself drift the guard exists to catch.
+	fn committed_asset(dest: &str) -> String {
+		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(dest);
+		std::fs::read_to_string(&path).unwrap_or_else(|error| {
+			panic!(
+				"failed to read the committed {dest} at {}: {error}. The self-scaffold render produces this file, so the repo must commit it; run `just scaffold-self`",
+				path.display()
+			)
+		})
 	}
 
 	/// Assert the precondition that `normalize_wrapping`'s safety argument depends on
@@ -307,8 +355,14 @@ mod tests {
 		// such a construct enters the guidance.
 		assert_no_unprotected_construct("committed AGENTS.md", COMMITTED_AGENTS);
 		assert_no_unprotected_construct("rendered AGENTS.md", &rendered_agents);
-		assert_no_unprotected_construct("committed .agents/AGENTS.reference.md", COMMITTED_REFERENCE);
-		assert_no_unprotected_construct("rendered .agents/AGENTS.reference.md", &rendered_reference);
+		assert_no_unprotected_construct(
+			"committed .agents/AGENTS.reference.md",
+			COMMITTED_REFERENCE,
+		);
+		assert_no_unprotected_construct(
+			"rendered .agents/AGENTS.reference.md",
+			&rendered_reference,
+		);
 
 		assert_eq!(
 			normalize_wrapping(&rendered_agents),
@@ -320,6 +374,52 @@ mod tests {
 			normalize_wrapping(COMMITTED_REFERENCE),
 			".agents/AGENTS.reference.md has drifted from a fresh pack render (ignoring prettier wrapping); run `just scaffold-self`"
 		);
+	}
+
+	#[test]
+	fn the_committed_role_prompts_match_a_fresh_render() {
+		// Whole-file drift guard on the DEPLOYED role prompts, the coverage the generated
+		// guidance above already had and these did not. Before this, the prompt copies
+		// appeared in the test suite only as destination strings in the manifest's
+		// expected-asset list, which asserts what the scaffold EMITS and never that the
+		// committed copy still matches it, so editing a `pack/prompts/<role>.md` and
+		// forgetting to regenerate shipped a stale prompt with every check green.
+		//
+		// It is a two-way correspondence check, not a one-way staleness check: because it
+		// compares a fresh render against the committed bytes, a pack edit with a stale
+		// copy and a hand edit of the copy with the pack left alone both fail, and the fix
+		// in either direction is to make the pack authoritative and run
+		// `just scaffold-self`.
+		let prompts: Vec<_> = self_scaffold_assets()
+			.into_iter()
+			.filter(|asset| asset.dest.starts_with(PROMPT_DEST_PREFIX))
+			.collect();
+
+		// A derived set can go vacuously empty (the prompts move, the manifest renames the
+		// destination directory) and a guard over an empty set passes silently, which is
+		// worse than no guard because it reads as coverage. Pin that the filter matched.
+		assert!(
+			!prompts.is_empty(),
+			"the self-scaffold render dropped no asset under {PROMPT_DEST_PREFIX}, so this guard checked nothing; if the role prompts moved, point PROMPT_DEST_PREFIX at their new destination"
+		);
+
+		for asset in prompts {
+			let dest = asset.dest.as_str();
+			let committed = committed_asset(dest);
+
+			// The precondition normalize_wrapping's safety argument depends on, asserted on
+			// both sides of every guarded file for the same reason as above: without it a
+			// prompt could gain a nested list, indented code, or a multi-space inline span
+			// and the equality check below would keep passing over masked drift.
+			assert_no_unprotected_construct(&format!("committed {dest}"), &committed);
+			assert_no_unprotected_construct(&format!("rendered {dest}"), &asset.contents);
+
+			assert_eq!(
+				normalize_wrapping(&asset.contents),
+				normalize_wrapping(&committed),
+				"{dest} has drifted from a fresh render of the pack's prompts (ignoring prettier wrapping): either its `pack/prompts/` source was edited without regenerating, or the committed copy was hand edited. Edit the pack source, not the copy, then run `just scaffold-self`"
+			);
+		}
 	}
 
 	#[test]
@@ -348,7 +448,8 @@ mod tests {
 		);
 
 		// A dropped word is real drift and must survive.
-		let dropped_word = "# Title\n\nThe quick fox jumps over the lazy dog.\n\n- first item\n- second item\n";
+		let dropped_word =
+			"# Title\n\nThe quick fox jumps over the lazy dog.\n\n- first item\n- second item\n";
 		assert_ne!(
 			normalize_wrapping(canonical),
 			normalize_wrapping(dropped_word),
@@ -356,7 +457,8 @@ mod tests {
 		);
 
 		// A dropped list item is real drift and must survive.
-		let dropped_item = "# Title\n\nThe quick brown fox jumps over the lazy dog.\n\n- first item\n";
+		let dropped_item =
+			"# Title\n\nThe quick brown fox jumps over the lazy dog.\n\n- first item\n";
 		assert_ne!(
 			normalize_wrapping(canonical),
 			normalize_wrapping(dropped_item),
@@ -382,7 +484,8 @@ mod tests {
 		let previous_hook = std::panic::take_hook();
 		std::panic::set_hook(Box::new(|_| {}));
 		let rejected =
-			std::panic::catch_unwind(|| assert_no_unprotected_construct("fixture", content)).is_err();
+			std::panic::catch_unwind(|| assert_no_unprotected_construct("fixture", content))
+				.is_err();
 		std::panic::set_hook(previous_hook);
 		rejected
 	}

@@ -48,9 +48,8 @@
 //! The render in each case is the pinned self-scaffold config (see `self_scaffold_assets`),
 //! and both sides of each comparison go through `assert_no_unprotected_construct` and then
 //! `normalize_wrapping`. Check 3 is a filter over a rendered set, not a directory listing
-//! and not a hand-written list, which is what makes it self-extending: an `[[asset]]` row
-//! added to `pack/pack.toml` whose `dest` falls under the prefix is guarded with no edit
-//! here. Checks 1 and 2 embed their committed side with `include_str!` and check 3 cannot,
+//! and not a hand-written list, which is what makes it self-extending. Checks 1 and 2 embed
+//! their committed side with `include_str!` and check 3 cannot,
 //! since that macro needs a literal path, so it reads the working tree at test time. That
 //! is what the self-extension costs: less hermetic than a compile-time snapshot, which is
 //! acceptable for a repo-local guard whose purpose is to inspect the working tree.

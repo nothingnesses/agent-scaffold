@@ -1,6 +1,8 @@
-//! Whole-file drift guard for the scaffold files this repo dogfoods: the generated
-//! `AGENTS.md`, its tool-owned copy `.agents/AGENTS.reference.md`, and every deployed
-//! role prompt under `.agents/prompts/`.
+//! Whole-file drift guard for scaffold files this repo dogfoods: the generated
+//! `AGENTS.md`, its tool-owned copy `.agents/AGENTS.reference.md`, and the role prompts
+//! the COVERAGE block at the end of this comment defines. Read that block before relying
+//! on what is and is not guarded; it is the one place in this file that states coverage,
+//! and the rest of the file cites it rather than restating it.
 //!
 //! The per-fragment guards (`isolation_policy.rs`, `workflow_spec.rs`) each pin ONE
 //! generated slot inside the committed scaffold with a `.contains()` check. Nothing
@@ -17,10 +19,10 @@
 //! render against the committed file would therefore fail on formatter reflow alone,
 //! not on real drift (this is why the per-fragment guards use `.contains()`, and it
 //! composes with the Q-57 decision that incidental formatter reflow is not a
-//! finding). So both sides are passed through `normalize_wrapping`, which collapses
-//! ONLY the whitespace degrees of freedom prettier exercises (see its doc comment for
-//! the exact transform and the argument that, under its stated precondition, it cannot
-//! mask a content change) before the equality check.
+//! finding). So both sides are passed through `normalize_wrapping`, which collapses the
+//! whitespace degrees of freedom prettier exercises (see its doc comment for the exact
+//! transform and the argument that, under its stated precondition, it cannot mask a
+//! content change) before the equality check.
 //!
 //! Empirically, at the time this guard was written the raw render is already
 //! byte-identical to both committed files (the pack authors each paragraph on a single
@@ -29,30 +31,74 @@
 //! introduces wrapped prose, rather than turning a formatter reflow into a false
 //! failure.
 //!
-//! THE ROLE PROMPTS ARE DERIVED, NOT ENUMERATED. `include_str!` needs a literal path,
-//! so extending the two-file pattern to the role prompts would mean one constant and
-//! one comparison per prompt, a set that goes stale the moment the pack gains another
-//! prompt. The prompt coverage instead derives its guarded set from the render itself:
-//! every rendered asset whose `dest` starts with `.agents/prompts/` is compared against
-//! the committed file read from `CARGO_MANIFEST_DIR`, so a prompt added to the pack
-//! MANIFEST is guarded without editing this file. Read "manifest" strictly: the set comes
-//! from the `[[asset]]` rows of `pack/pack.toml`, NOT from a directory listing of
-//! `pack/prompts/`, so a file dropped into `pack/prompts/` with no matching row is
-//! neither rendered nor guarded and the suite stays green. That orphan is not a hole in
-//! this guard, because an unregistered file is never emitted and so has no committed copy
-//! that could go stale; it is the manifest, not the guard, that decides what ships.
-//! The trade-off taken knowingly is reduced
-//! hermeticity: reading the working tree at test time is weaker than a compile-time
-//! `include_str!` snapshot, which is acceptable for a repo-local guard whose whole
-//! purpose is to inspect the working tree (and the `include_str!` sides above are
-//! repo-local in the same sense).
+//! COVERAGE. Stated once, here, and operationally. Coverage claims in this module drifted
+//! from what the code does at enough separate sites that fixing one contradicted another,
+//! so the guarded set is defined by naming the filter rather than a category, the
+//! complement is a rule rather than a list, and the residuals are numbered for other
+//! comments to cite. Write a coverage claim here or not at all.
 //!
-//! `.agents/prompts/checks-reviewer.md` is deliberately NOT guarded, and needs no
-//! explicit exclusion to stay that way: it is module-gated in `src/manifest.rs` (emitted
-//! only under `--module checks`) and the self-scaffold config pinned in
-//! `self_scaffold_assets` selects no modules, so it is absent from the render and so
-//! from the derived set. The repo commits no copy of it, so a guard that expected one
-//! would fail on a correct tree.
+//! GUARDED SET. Three comparisons make up the drift coverage; the other tests in this
+//! file exercise the helpers and add none.
+//!
+//! 1. The committed root `AGENTS.md` against its fresh render.
+//! 2. The committed `.agents/AGENTS.reference.md` against its fresh render.
+//! 3. For each rendered asset whose `dest` starts with `PROMPT_DEST_PREFIX`: that asset
+//!    against the file committed at the same relative path under `CARGO_MANIFEST_DIR`.
+//!
+//! The render in each case is the pinned self-scaffold config (see `self_scaffold_assets`),
+//! and both sides of each comparison go through `assert_no_unprotected_construct` and then
+//! `normalize_wrapping`. Check 3 is a filter over a rendered set, not a directory listing
+//! and not a hand-written list, which is what makes it self-extending: an `[[asset]]` row
+//! added to `pack/pack.toml` whose `dest` falls under the prefix is guarded with no edit
+//! here. Checks 1 and 2 embed their committed side with `include_str!` and check 3 cannot,
+//! since that macro needs a literal path, so it reads the working tree at test time. That
+//! is what the self-extension costs: less hermetic than a compile-time snapshot, which is
+//! acceptable for a repo-local guard whose purpose is to inspect the working tree.
+//!
+//! COMPLEMENT, AS A RULE. Anything else the scaffold emits, or the repo commits, is
+//! unguarded by this module. A rule rather than an inventory, because an inventory carries
+//! an obligation to stay complete that prose reliably fails; the `.agents/user-prompts/`
+//! copies, `.agents/LEDGER.template.md`, the `.toml` copies under `.agents/`, and the
+//! `docs/plans/TEMPLATE` family illustrate the rule and do not bound it. Leaving them
+//! uncovered is a scope call whose cost is uneven: widening to the Markdown copies is a
+//! small change to check 3's filter, since they are prose under the same prettier settings
+//! and already satisfy the precondition, while the TOML copies need a comparison of their
+//! own, since `.agents/principles.toml` carries lines outside canonical whitespace form
+//! (indented multi-line array continuations among them) that
+//! `assert_no_unprotected_construct` rejects, and `normalize_wrapping` is a Markdown prose
+//! transform with no business canonicalizing TOML.
+//!
+//! R1, THE DERIVED-SET RESIDUAL (accepted, not a defect to fix here). Check 3 maps render
+//! -> committed and asserts nothing in the other direction, so a committed file under the
+//! prefix that the pinned render does not emit is invisible to it. Reached by deleting an
+//! asset row from `pack/pack.toml`, by module-tagging one (the pinned config selects no
+//! modules, so a tagged row is not rendered), by changing a row's `dest`, or by hand-placing
+//! a stale extra file in `.agents/prompts/`: the copy is orphaned and the suite stays green.
+//! The mirror case is harmless, since an unregistered file never ships: a file sitting in
+//! `pack/prompts/` with no manifest row is neither rendered nor guarded, and has no
+//! committed copy that could go stale. The standing benign instance is
+//! `.agents/prompts/checks-reviewer.md`, whose row is module-gated in `src/manifest.rs`, so
+//! the pinned render omits it, check 3 omits it, and the repo commits no copy for it to
+//! drift from; it needs no explicit exclusion and has none. The non-vacuity assertion in the
+//! prompt test catches check 3 collapsing entirely (the filter matching nothing at all), not
+//! a partial collapse.
+//!
+//! R2, THE CROSS-LINE JOIN RESIDUAL (accepted, not a defect to fix here).
+//! `assert_no_unprotected_construct` inspects one line at a time and asserts nothing about
+//! the join `normalize_wrapping` performs across lines. So a construct whose lines are each
+//! in canonical whitespace form, but whose meaning depends on those lines NOT being joined,
+//! passes the precondition and is joined anyway, which can mask a content change inside it.
+//! A raw HTML block is the known instance: prettier keeps such a block verbatim rather than
+//! reflowing it, and `is_hard_start` does not recognise it, so its lines are treated as
+//! paragraph continuations. Any line-structured construct `is_hard_start` misses reaches the
+//! same place, which is why that predicate's precision belongs to this residual rather than
+//! to presentation. Accepted rather than fixed because the tightening that would close it
+//! (treat an unrecognised line-structured block as verbatim) was implemented and measured to
+//! reject an ordinary soft-wrapped paragraph, which is the incidental formatter reflow this
+//! guard exists to tolerate; a fix has to preserve soft-wrap tolerance, not just add a
+//! rejection. No guarded file carries such a construct today, so R2 is latent.
+//!
+//! End of COVERAGE. Comments past this point cite it and do not restate it.
 
 #[cfg(test)]
 mod tests {
@@ -74,27 +120,9 @@ mod tests {
 	/// the same generated guidance.
 	const COMMITTED_REFERENCE: &str = include_str!("../.agents/AGENTS.reference.md");
 
-	/// The destination prefix that selects the deployed role prompts out of the rendered
-	/// asset set. Narrower than the full set of copied assets on purpose, and the
-	/// remainder is LARGER than what is guarded: every other asset the self-scaffold emits
-	/// and the repo commits carries the same drift gap, uncovered by any test. Examples,
-	/// NOT AN EXHAUSTIVE LIST, in two groups: the remaining `.agents/` copies
-	/// (`.agents/user-prompts/*`, `.agents/LEDGER.template.md`, `.agents/principles.toml`,
-	/// `.agents/workflow.toml`) and the `docs/plans/TEMPLATE*` family. Do not read either
-	/// group as complete; the authoritative asset list is
-	/// `builtin_manifest_lists_the_expected_assets` in `src/manifest.rs`, and everything in
-	/// it outside this prefix, other than the two files the `include_str!` guards above
-	/// cover, is unguarded.
-	///
-	/// Leaving them so is a scope call rather than an oversight, and the cost is not
-	/// uniform. Widening to the Markdown copies is close to a one-line change here: they
-	/// are prose under the same prettier settings and already satisfy the precondition.
-	/// The TOML assets are not: `.agents/principles.toml` has lines outside canonical
-	/// whitespace form (indented multi-line array continuations among them) that
-	/// `assert_no_unprotected_construct` rejects on sight, and `normalize_wrapping` is a
-	/// Markdown prose transform that has no business canonicalizing TOML even where it
-	/// happens not to trip, so those need a comparison of their own and a decision to go
-	/// with it.
+	/// The `dest` prefix check 3 filters the rendered asset set by. What that makes
+	/// guarded, what the complement rule leaves out, and the R1 residual it carries are in
+	/// the COVERAGE block of the module doc.
 	const PROMPT_DEST_PREFIX: &str = ".agents/prompts/";
 
 	/// Re-render the self-scaffold asset set. This replicates the exact
@@ -102,9 +130,8 @@ mod tests {
 	/// the built-in pack, the default principle selection, the default `Summary` detail,
 	/// no `--var` overrides, and no `--module` selections. Any divergence from that
 	/// config would compare the committed files against the wrong render, so it is
-	/// pinned here to match the justfile recipe. The absent `--module` selection is also
-	/// what keeps the module-gated `checks-reviewer` prompt out of the derived set (see
-	/// the module doc).
+	/// pinned here to match the justfile recipe. The absent `--module` selection is
+	/// load-bearing for what check 3 covers; see R1 in COVERAGE.
 	fn self_scaffold_assets() -> Vec<manifest::Asset> {
 		let source = manifest::builtin();
 		let principles = pack_principles(&source).expect("the built-in principles.toml parses");
@@ -126,8 +153,9 @@ mod tests {
 	/// The committed copy of the scaffolded asset at `dest`, read from the crate root at
 	/// test time. This is the less hermetic read the derived guarded set buys (see the
 	/// module doc); `include_str!` cannot serve here because it needs a literal path. A
-	/// missing file panics rather than being skipped, since a deployed copy that
-	/// disappeared is itself drift the guard exists to catch.
+	/// missing file panics rather than being skipped, since a copy that disappeared while
+	/// its asset row remains is drift the guard exists to catch. The reverse case, a
+	/// committed file the render does not produce, is R1 and is not reached from here.
 	fn committed_asset(dest: &str) -> String {
 		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(dest);
 		std::fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -138,21 +166,17 @@ mod tests {
 		})
 	}
 
-	/// Assert the precondition that `normalize_wrapping`'s safety argument depends on
-	/// (see its doc comment): every NON-FENCED line of the guarded text `content` is
-	/// already in canonical whitespace form, so equal normalization still implies
-	/// identical non-whitespace content and block structure. Without this, the flat
-	/// files could one day gain a nested list, indented code, or a whitespace-significant
-	/// inline span and the guard would pass while real drift slipped through. This
-	/// converts that latent gap into a loud failure at the moment such a construct is
-	/// added.
+	/// Assert the precondition that `normalize_wrapping`'s safety argument depends on (see
+	/// its doc comment): each non-fenced line of the guarded text `content` is already in
+	/// canonical whitespace form, so equal normalization still implies identical
+	/// non-whitespace content and block structure. Without this, the flat files could one
+	/// day gain a nested list, indented code, or a whitespace-significant inline span and
+	/// the guard would pass while real drift slipped through. This converts that latent gap
+	/// into a loud failure at the moment such a construct is added.
 	///
-	/// IT IS A PER-LINE CHECK AND SO NOT TOTAL. It inspects each non-fenced line on its
-	/// own and asserts nothing about the cross-line join `normalize_wrapping` performs, so
-	/// a construct whose lines are each canonical but which must not be joined (a raw HTML
-	/// block is the known instance) passes here and is masked there. Read the UNPROTECTED
-	/// CONSTRUCTS paragraph of `normalize_wrapping` before relying on this as a complete
-	/// precondition check; that gap is an accepted residual, not an oversight.
+	/// It is a per-line check, so it does not cover the class of constructs described by
+	/// residual R2 in COVERAGE. Do not read a pass here as the precondition being fully
+	/// established.
 	///
 	/// A line is in canonical form when it already equals
 	/// `line.split_whitespace().collect::<Vec<_>>().join(" ")`, i.e. no leading or
@@ -163,8 +187,7 @@ mod tests {
 	/// run: any such run makes the line differ from its canonical form, so it trips.
 	/// A leading space or tab catches nested or continuation-indented list items and
 	/// 4-space indented code; a trailing or internal whitespace run catches multi-space
-	/// (or tab/NBSP-separated) inline code and any intra-line whitespace run. Every
-	/// non-fenced line of the current committed files is already in canonical form.
+	/// (or tab/NBSP-separated) inline code and any intra-line whitespace run.
 	///
 	/// FENCED CODE IS EXEMPT. Fence state is tracked with the SAME rule
 	/// `normalize_wrapping` uses (a line whose `trim_start()` begins with ``` or ~~~
@@ -181,7 +204,7 @@ mod tests {
 		let mut in_fence = false;
 		for (index, line) in content.lines().enumerate() {
 			let number = index + 1;
-			// A fence delimiter line toggles verbatim mode; it and every line inside the
+			// A fence delimiter line toggles verbatim mode; it and the lines inside the
 			// fence pass through normalize_wrapping unchanged, so they are exempt here.
 			let trimmed_start = line.trim_start();
 			if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
@@ -199,19 +222,18 @@ mod tests {
 		}
 	}
 
-	/// Whether `line` (already trimmed and space-collapsed) begins its own logical
-	/// line rather than continuing the previous one: an ATX heading, an unordered or
-	/// ordered list item, a blockquote, a table row, or a thematic break. Prettier
-	/// keeps each of these on its own line and only joins a paragraph's or list item's
-	/// wrapped CONTINUATION lines, so `normalize_wrapping` treats a hard-start line as
-	/// a fresh logical line and joins only the soft (continuation) lines onto it.
+	/// Whether `line` (already trimmed and space-collapsed) begins its own logical line
+	/// rather than continuing the previous one: an ATX heading, an unordered or ordered
+	/// list item, a blockquote, a table row, or a thematic break. Prettier keeps each of
+	/// these on its own line and joins just a paragraph's or list item's wrapped
+	/// CONTINUATION lines, so `normalize_wrapping` treats a hard-start line as a fresh
+	/// logical line and joins the soft (continuation) lines onto it.
 	///
-	/// Precision here affects only how closely the canonical form mirrors prettier and
-	/// how readable a failure diff is; it does NOT affect correctness. The transform
-	/// only ever deletes or collapses whitespace and is applied identically to both
-	/// sides, so misclassifying a structural line can at most change a newline into a
-	/// space (or vice versa) on both sides equally; it can never merge two distinct
-	/// non-whitespace tokens into one.
+	/// The set of markers this recognises is part of residual R2 in COVERAGE, not a
+	/// presentation detail: a line-structured construct missing from the list above is
+	/// classified soft and joined onto the preceding logical line, which is how R2 is
+	/// reached. Widen the list before adding such a construct to a guarded file, and see
+	/// R2 first for why widening it is not by itself a safe fix.
 	fn is_hard_start(line: &str) -> bool {
 		let bytes = line.as_bytes();
 		// Heading (`#`), blockquote (`>`), or table row (`|`).
@@ -252,78 +274,46 @@ mod tests {
 		}
 	}
 
-	/// Canonicalize the wrapping/whitespace degrees of freedom prettier exercises
-	/// under `proseWrap=never`, so a formatter reflow of the render does not read as
-	/// drift, while every real content change survives.
+	/// Canonicalize the wrapping/whitespace degrees of freedom prettier exercises under
+	/// `proseWrap=never`, so a formatter reflow of the render does not read as drift, while
+	/// a real content change survives.
 	///
 	/// EXACT transform. Outside fenced code blocks, the input is grouped into blocks
-	/// separated by blank lines. Within a block, each hard-start line (see
-	/// `is_hard_start`: heading, list item, blockquote, table row, thematic break)
-	/// starts a new logical line, and every following soft (continuation) line is
-	/// joined onto it with a single space; runs of inter-word whitespace collapse to a
-	/// single space and leading/trailing whitespace is trimmed. Runs of blank lines
-	/// collapse to a single block boundary, and a trailing boundary is dropped so a
-	/// differing final-newline count does not register. Lines inside a fenced code
-	/// block (delimited by ``` or ~~~) pass through VERBATIM, since prettier never
-	/// reflows code and whitespace there is significant.
+	/// separated by blank lines. Within a block, each hard-start line (see `is_hard_start`:
+	/// heading, list item, blockquote, table row, thematic break) starts a new logical line,
+	/// and each following soft (continuation) line is joined onto it with a single space;
+	/// runs of inter-word whitespace collapse to a single space and leading/trailing
+	/// whitespace is trimmed. Runs of blank lines collapse to a single block boundary, and a
+	/// trailing boundary is dropped so a differing final-newline count does not register.
+	/// Lines inside a fenced code block (delimited by ``` or ~~~) pass through VERBATIM,
+	/// since prettier never reflows code and whitespace there is significant.
 	///
-	/// WHY it preserves a content change, AND THE PRECONDITION THAT BUYS THAT. The
-	/// guarantee is NOT absolute: it holds only while the guarded files contain no
-	/// indentation-significant Markdown construct (no line with leading indentation,
-	/// hence no nested or continuation-indented list item and no 4-space indented
-	/// code block) and no whitespace-significant inline construct (no run of two or
-	/// more spaces, including inside an inline code span). The transform trims leading
-	/// and trailing whitespace and collapses inter-word whitespace runs to a single
-	/// space, so it DISCARDS exactly the information those constructs encode: it
-	/// cannot tell a nested list item (`  - child`) from a sibling (`- child`), a
-	/// list-continuation de-indent from a new line, 4-space indented code from a plain
-	/// line, or a multi-space inline code span from a single-spaced one. Under the
-	/// precondition none of those occur, and the transform then only ever deletes or
-	/// collapses WHITESPACE (spaces, tabs, the newlines joined within a block, and
-	/// runs of blank lines) between non-whitespace tokens that carry no significant
-	/// leading or internal whitespace; it never deletes, adds, or reorders a
-	/// non-whitespace character, and it preserves blank-line block boundaries
-	/// (collapsed, not removed) and every fenced code line verbatim. So, GIVEN THE
-	/// PRECONDITION, two inputs normalize equal only when they carry the identical
-	/// ordered stream of non-whitespace characters, the identical block-boundary
-	/// structure up to blank-run collapsing, and byte-identical code fences: that is,
-	/// identical non-whitespace content and block structure. Any real drift, a
-	/// reworded, added, dropped, or reordered word or list item or slot, changes that
-	/// token stream; merging or splitting a paragraph changes the block-boundary
-	/// count; editing a code fence changes a verbatim line. Only prettier's own
-	/// freedoms, where a line is wrapped, how many spaces sit between words, how many
-	/// blank lines separate blocks, are discarded.
+	/// WHY IT PRESERVES A CONTENT CHANGE, AND THE PRECONDITION THAT BUYS THAT. The guarantee
+	/// is conditional. It holds while the guarded text carries no indentation-significant
+	/// construct (a nested or continuation-indented list item, a 4-space indented code block)
+	/// and no whitespace-significant inline construct (a run of two or more spaces, including
+	/// inside an inline code span), because trimming and collapsing whitespace discards
+	/// exactly what those encode: the transform cannot tell `  - child` from `- child`, a
+	/// list-continuation de-indent from a new line, indented code from a plain line, or a
+	/// multi-space inline span from a single-spaced one. Given the precondition, the
+	/// transform deletes and collapses whitespace between non-whitespace tokens and does
+	/// nothing further: it never deletes, adds, or reorders a non-whitespace character, it
+	/// preserves blank-line block boundaries (collapsed, not removed), and it passes fenced
+	/// lines through verbatim. Two inputs then normalize equal just when they carry the same
+	/// ordered stream of non-whitespace characters, the same block-boundary structure up to
+	/// blank-run collapsing, and byte-identical fences. Real drift (a reworded, added,
+	/// dropped, or reordered word, list item, or slot) changes that token stream; merging or
+	/// splitting a paragraph changes the boundary count; editing a fence changes a verbatim
+	/// line. What the comparison discards on both sides: where a line is wrapped, how many
+	/// spaces sit between words, how many blank lines separate blocks, and line-ending style,
+	/// since `str::lines()` strips a trailing CR so a CRLF and an LF file normalize alike.
 	///
-	/// UNPROTECTED CONSTRUCTS. Outside the precondition the transform CAN mask real
-	/// drift. It does not distinguish, and so silently equates: (a) a nested or
-	/// continuation-indented list item and a flat sibling (leading indentation is
-	/// stripped); (b) a 4-space indented code block and ordinary prose (same);
-	/// (c) a multi-space inline code span and a single-spaced one (an inter-word
-	/// space run is collapsed); and (d) a raw HTML block and the same markup broken
-	/// across lines differently (its lines are not hard starts, so they are JOINED).
-	/// The guarded files carry none of these today, so all four are latent, not active.
-	///
-	/// (a) to (c) are pinned by `assert_no_unprotected_construct`, which asserts the
-	/// precondition on the guarded content and fails LOUDLY the day guidance gains one of
-	/// them, converting that latent gap into a fail-safe. (d) IS NOT PINNED, AND THE
-	/// FAIL-SAFE IS THEREFORE NOT TOTAL. Do not read it as covering the whole precondition:
-	/// it is a PER-LINE canonical-whitespace check, and it makes no check whatsoever on the
-	/// cross-line JOIN this function performs. So a construct whose every line is
-	/// individually canonical, but whose meaning depends on those lines not being joined,
-	/// passes the precondition and is then joined anyway. A raw HTML block is the known
-	/// instance (prettier keeps such a block verbatim rather than reflowing it, so a real
-	/// content change inside one could be masked), and the same reasoning admits any future
-	/// line-structured construct `is_hard_start` does not recognise, so (d) is an example
-	/// rather than a closed list.
-	///
-	/// That residual is accepted knowingly rather than fixed, because the obvious
-	/// tightening is worse than the gap: a predicate that treats an unrecognised
-	/// line-structured block as verbatim was implemented and measured, and it rejects an
-	/// ordinary soft-wrapped paragraph, which is exactly the incidental formatter reflow
-	/// this guard exists to tolerate. Hardening therefore has to preserve soft-wrap
-	/// tolerance, not merely add a rejection. `normalize_wrapping` must be hardened (make
-	/// list indentation significant, treat indented code and HTML blocks verbatim) before
-	/// such content is added.
+	/// `assert_no_unprotected_construct` asserts that precondition on both sides of each
+	/// comparison and fails loudly the day guidance gains one of those constructs, so the
+	/// gap is a fail-safe rather than a silent hole. The class it cannot see is residual R2
+	/// in COVERAGE. Harden this transform (make list indentation significant, treat indented
+	/// code and HTML blocks verbatim, without losing the soft-wrap tolerance R2 explains)
+	/// before adding such content to a guarded file.
 	fn normalize_wrapping(input: &str) -> String {
 		let mut out: Vec<String> = Vec::new();
 		// The logical line being accumulated (a paragraph or a list item plus its
@@ -334,7 +324,7 @@ mod tests {
 
 		for raw_line in input.lines() {
 			let trimmed_start = raw_line.trim_start();
-			// A fence delimiter toggles verbatim mode. The delimiter line and every line
+			// A fence delimiter toggles verbatim mode. The delimiter line and the lines
 			// inside the fence are emitted exactly as written, so a real whitespace change
 			// inside code is caught, not masked.
 			if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
@@ -351,7 +341,7 @@ mod tests {
 			let trimmed = raw_line.trim();
 			if trimmed.is_empty() {
 				// A blank line ends the current block. Consecutive blanks collapse to one
-				// boundary, recorded only when the last emitted item is not already one.
+				// boundary, recorded just when the last emitted item is not already one.
 				flush(&mut pending, &mut out);
 				if out.last().is_some_and(|line| !line.is_empty()) {
 					out.push(String::new());
@@ -384,13 +374,13 @@ mod tests {
 
 	#[test]
 	fn the_committed_scaffold_matches_a_fresh_render() {
-		// Whole-file drift guard on the PACK generation path: the committed root
-		// `AGENTS.md` and its reference copy must match a fresh render of the built-in
-		// pack under the self-scaffold config, once prettier's wrapping/whitespace is
-		// normalized away on both sides. This fails on any real content drift, a hand
-		// edit, a dropped slot, or a stale pack source, that the per-fragment guards do
-		// not cover, while tolerating an incidental formatter reflow. The fix is
-		// `just scaffold-self`.
+		// Checks 1 and 2 of COVERAGE, the drift guard on the PACK generation path: the
+		// committed root `AGENTS.md` and its reference copy must match a fresh render of
+		// the built-in pack under the self-scaffold config, once prettier's
+		// wrapping/whitespace is normalized away on both sides. This fails on a real
+		// content drift, a hand edit, a dropped slot, or a stale pack source that the
+		// per-fragment guards do not cover, while tolerating an incidental formatter
+		// reflow. The fix is `just scaffold-self`.
 		let rendered_agents = self_scaffold_asset("AGENTS.md");
 		let rendered_reference = self_scaffold_asset(".agents/AGENTS.reference.md");
 
@@ -425,18 +415,16 @@ mod tests {
 
 	#[test]
 	fn the_committed_role_prompts_match_a_fresh_render() {
-		// Whole-file drift guard on the DEPLOYED role prompts, the coverage the generated
-		// guidance above already had and these did not. Before this, the prompt copies
-		// appeared in the test suite only as destination strings in the manifest's
-		// expected-asset list, which asserts what the scaffold EMITS and never that the
-		// committed copy still matches it, so editing a `pack/prompts/<role>.md` and
-		// forgetting to regenerate shipped a stale prompt with every check green.
+		// Check 3 of COVERAGE. Before it, the prompt copies appeared in the test suite as
+		// destination strings in the manifest's expected-asset list, which asserts what the
+		// scaffold EMITS and never that the committed copy still matches it, so editing a
+		// `pack/prompts/<role>.md` and forgetting to regenerate shipped a stale prompt with
+		// the suite green.
 		//
-		// It is a two-way correspondence check, not a one-way staleness check: because it
-		// compares a fresh render against the committed bytes, a pack edit with a stale
-		// copy and a hand edit of the copy with the pack left alone both fail, and the fix
-		// in either direction is to make the pack authoritative and run
-		// `just scaffold-self`.
+		// Two-way in CONTENT: because it compares a fresh render against the committed
+		// bytes, a pack edit with a stale copy and a hand edit of the copy with the pack
+		// left alone both fail, and the fix in either direction is to edit the pack source
+		// and run `just scaffold-self`. One-way in SET MEMBERSHIP, which is residual R1.
 		let prompts: Vec<_> = self_scaffold_assets()
 			.into_iter()
 			.filter(|asset| asset.dest.starts_with(PROMPT_DEST_PREFIX))
@@ -455,9 +443,9 @@ mod tests {
 			let committed = committed_asset(dest);
 
 			// The precondition normalize_wrapping's safety argument depends on, asserted on
-			// both sides of every guarded file for the same reason as above: without it a
-			// prompt could gain a nested list, indented code, or a multi-space inline span
-			// and the equality check below would keep passing over masked drift.
+			// both sides for the same reason as above: without it a prompt could gain a
+			// nested list, indented code, or a multi-space inline span and the equality
+			// check below would keep passing over masked drift.
 			assert_no_unprotected_construct(&format!("committed {dest}"), &committed);
 			assert_no_unprotected_construct(&format!("rendered {dest}"), &asset.contents);
 
@@ -472,10 +460,9 @@ mod tests {
 	#[test]
 	fn normalization_tolerates_wrapping_but_not_content_change() {
 		// This pins the load-bearing property the whole-file guard relies on: the
-		// normalization discards prettier's reflow but preserves every content change.
-		// The real committed files cannot exercise it (the render is already
-		// byte-identical to them), so a constructed pair stands in as the guard's own
-		// proof-of-concept.
+		// normalization discards prettier's reflow but preserves a content change. The
+		// real committed files cannot exercise it (the render is already byte-identical
+		// to them), so a constructed pair stands in as the guard's own proof-of-concept.
 		let canonical = "# Title\n\nThe quick brown fox jumps over the lazy dog.\n\n- first item\n- second item\n";
 
 		// A soft wrap inside the paragraph normalizes away.

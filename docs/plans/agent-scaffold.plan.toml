@@ -1252,12 +1252,23 @@ decisions = ["Q-67"]
 [[step]]
 slug = "prompt-drift-guard"
 title = "extend the whole-file drift guard to the deployed prompt copies under `.agents/prompts/`, so a `pack/prompts/*` edit that is never regenerated fails `cargo test` instead of shipping a silently stale prompt"
-status = "in-progress"
+status = "complete"
 order = 92
 blocked_by = []
 folds = []
-increment = []
-waiver = []
+
+[[step.increment]]
+id = "prompt-drift-guard-inc1"
+risk_class = "risky"
+
+[[step.waiver]]
+id = "prompt-drift-guard-w1"
+unit = "increment"
+increment = "prompt-drift-guard-inc1"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "prompt-drift-guard-inc1"
+note = "Six review rounds, 15 valid findings, every one low-severity prose in the module comment block and zero mechanism defects. Round 4 reached the cap with the streak at 0 of the 2 its risky class needs, making convergence within the cap unreachable, so the loop escalated. The human authorised a one-character deletion plus a verification round, which found two pre-existing defects rather than any re-seed, then a one-word narrowing plus a final round, which came back clean from both lenses at streak 1. The human accepted convergence there rather than spending a seventh round on an artifact whose mechanism two independent adversarial attackers had failed to break in 17-plus attempts."
 
 [[step]]
 slug = "checks-runner-worktree-name-collision"

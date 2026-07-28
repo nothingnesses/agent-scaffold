@@ -1252,7 +1252,7 @@ decisions = ["Q-67"]
 [[step]]
 slug = "prompt-drift-guard"
 title = "extend the whole-file drift guard to the deployed prompt copies under `.agents/prompts/`, so a `pack/prompts/*` edit that is never regenerated fails `cargo test` instead of shipping a silently stale prompt"
-status = "not-started"
+status = "in-progress"
 order = 92
 blocked_by = []
 folds = []

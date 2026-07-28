@@ -34,8 +34,14 @@
 //! one comparison per prompt, a set that goes stale the moment the pack gains another
 //! prompt. The prompt coverage instead derives its guarded set from the render itself:
 //! every rendered asset whose `dest` starts with `.agents/prompts/` is compared against
-//! the committed file read from `CARGO_MANIFEST_DIR`, so a prompt added to the pack is
-//! guarded without editing this file. The trade-off taken knowingly is reduced
+//! the committed file read from `CARGO_MANIFEST_DIR`, so a prompt added to the pack
+//! MANIFEST is guarded without editing this file. Read "manifest" strictly: the set comes
+//! from the `[[asset]]` rows of `pack/pack.toml`, NOT from a directory listing of
+//! `pack/prompts/`, so a file dropped into `pack/prompts/` with no matching row is
+//! neither rendered nor guarded and the suite stays green. That orphan is not a hole in
+//! this guard, because an unregistered file is never emitted and so has no committed copy
+//! that could go stale; it is the manifest, not the guard, that decides what ships.
+//! The trade-off taken knowingly is reduced
 //! hermeticity: reading the working tree at test time is weaker than a compile-time
 //! `include_str!` snapshot, which is acceptable for a repo-local guard whose whole
 //! purpose is to inspect the working tree (and the `include_str!` sides above are
@@ -69,11 +75,26 @@ mod tests {
 	const COMMITTED_REFERENCE: &str = include_str!("../.agents/AGENTS.reference.md");
 
 	/// The destination prefix that selects the deployed role prompts out of the rendered
-	/// asset set. Narrower than the full set of copied assets on purpose: the other
-	/// copied assets the self-scaffold emits (`.agents/user-prompts/*`,
-	/// `.agents/LEDGER.template.md`, `.agents/principles.toml`, `.agents/workflow.toml`)
-	/// carry the same gap and are not covered here, which is a scope call rather than an
-	/// oversight.
+	/// asset set. Narrower than the full set of copied assets on purpose, and the
+	/// remainder is LARGER than what is guarded: every other asset the self-scaffold emits
+	/// and the repo commits carries the same drift gap, uncovered by any test. Examples,
+	/// NOT AN EXHAUSTIVE LIST, in two groups: the remaining `.agents/` copies
+	/// (`.agents/user-prompts/*`, `.agents/LEDGER.template.md`, `.agents/principles.toml`,
+	/// `.agents/workflow.toml`) and the `docs/plans/TEMPLATE*` family. Do not read either
+	/// group as complete; the authoritative asset list is
+	/// `builtin_manifest_lists_the_expected_assets` in `src/manifest.rs`, and everything in
+	/// it outside this prefix, other than the two files the `include_str!` guards above
+	/// cover, is unguarded.
+	///
+	/// Leaving them so is a scope call rather than an oversight, and the cost is not
+	/// uniform. Widening to the Markdown copies is close to a one-line change here: they
+	/// are prose under the same prettier settings and already satisfy the precondition.
+	/// The TOML assets are not: `.agents/principles.toml` has lines outside canonical
+	/// whitespace form (indented multi-line array continuations among them) that
+	/// `assert_no_unprotected_construct` rejects on sight, and `normalize_wrapping` is a
+	/// Markdown prose transform that has no business canonicalizing TOML even where it
+	/// happens not to trip, so those need a comparison of their own and a decision to go
+	/// with it.
 	const PROMPT_DEST_PREFIX: &str = ".agents/prompts/";
 
 	/// Re-render the self-scaffold asset set. This replicates the exact
@@ -125,6 +146,13 @@ mod tests {
 	/// inline span and the guard would pass while real drift slipped through. This
 	/// converts that latent gap into a loud failure at the moment such a construct is
 	/// added.
+	///
+	/// IT IS A PER-LINE CHECK AND SO NOT TOTAL. It inspects each non-fenced line on its
+	/// own and asserts nothing about the cross-line join `normalize_wrapping` performs, so
+	/// a construct whose lines are each canonical but which must not be joined (a raw HTML
+	/// block is the known instance) passes here and is masked there. Read the UNPROTECTED
+	/// CONSTRUCTS paragraph of `normalize_wrapping` before relying on this as a complete
+	/// precondition check; that gap is an accepted residual, not an oversight.
 	///
 	/// A line is in canonical form when it already equals
 	/// `line.split_whitespace().collect::<Vec<_>>().join(" ")`, i.e. no leading or
@@ -269,14 +297,33 @@ mod tests {
 	/// UNPROTECTED CONSTRUCTS. Outside the precondition the transform CAN mask real
 	/// drift. It does not distinguish, and so silently equates: (a) a nested or
 	/// continuation-indented list item and a flat sibling (leading indentation is
-	/// stripped); (b) a 4-space indented code block and ordinary prose (same); and
+	/// stripped); (b) a 4-space indented code block and ordinary prose (same);
 	/// (c) a multi-space inline code span and a single-spaced one (an inter-word
-	/// space run is collapsed). The guarded files are flat today (no such construct),
-	/// so this is latent, not active. `assert_no_unprotected_construct` pins that
-	/// precondition on the committed content and fails LOUDLY the day guidance gains
-	/// one of these, converting the latent gap into a fail-safe. `normalize_wrapping`
-	/// must be hardened (make list indentation significant, treat indented code
-	/// verbatim) before such content is added.
+	/// space run is collapsed); and (d) a raw HTML block and the same markup broken
+	/// across lines differently (its lines are not hard starts, so they are JOINED).
+	/// The guarded files carry none of these today, so all four are latent, not active.
+	///
+	/// (a) to (c) are pinned by `assert_no_unprotected_construct`, which asserts the
+	/// precondition on the guarded content and fails LOUDLY the day guidance gains one of
+	/// them, converting that latent gap into a fail-safe. (d) IS NOT PINNED, AND THE
+	/// FAIL-SAFE IS THEREFORE NOT TOTAL. Do not read it as covering the whole precondition:
+	/// it is a PER-LINE canonical-whitespace check, and it makes no check whatsoever on the
+	/// cross-line JOIN this function performs. So a construct whose every line is
+	/// individually canonical, but whose meaning depends on those lines not being joined,
+	/// passes the precondition and is then joined anyway. A raw HTML block is the known
+	/// instance (prettier keeps such a block verbatim rather than reflowing it, so a real
+	/// content change inside one could be masked), and the same reasoning admits any future
+	/// line-structured construct `is_hard_start` does not recognise, so (d) is an example
+	/// rather than a closed list.
+	///
+	/// That residual is accepted knowingly rather than fixed, because the obvious
+	/// tightening is worse than the gap: a predicate that treats an unrecognised
+	/// line-structured block as verbatim was implemented and measured, and it rejects an
+	/// ordinary soft-wrapped paragraph, which is exactly the incidental formatter reflow
+	/// this guard exists to tolerate. Hardening therefore has to preserve soft-wrap
+	/// tolerance, not merely add a rejection. `normalize_wrapping` must be hardened (make
+	/// list indentation significant, treat indented code and HTML blocks verbatim) before
+	/// such content is added.
 	fn normalize_wrapping(input: &str) -> String {
 		let mut out: Vec<String> = Vec::new();
 		// The logical line being accumulated (a paragraph or a list item plus its

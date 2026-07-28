@@ -73,11 +73,11 @@
 //! prefix that the pinned render does not emit is invisible to it. Reached by deleting an
 //! asset row from `pack/pack.toml`, by module-tagging one (the pinned config selects no
 //! modules, so a tagged row is not rendered), by changing a row's `dest`, or by hand-placing
-//! a stale extra file in `.agents/prompts/`: the copy is orphaned and the suite stays green.
+//! a stale extra file in `.agents/prompts/`.
 //! The mirror case is harmless, since an unregistered file never ships: a file sitting in
 //! `pack/prompts/` with no manifest row is neither rendered nor guarded, and has no
 //! committed copy that could go stale. The standing benign instance is
-//! `.agents/prompts/checks-reviewer.md`, whose row is module-gated in `src/manifest.rs`, so
+//! `.agents/prompts/checks-reviewer.md`, whose row is module-gated in `pack/pack.toml`, so
 //! the pinned render omits it, check 3 omits it, and the repo commits no copy for it to
 //! drift from; it needs no explicit exclusion and has none. The non-vacuity assertion in the
 //! prompt test catches check 3 collapsing entirely (the filter matching nothing at all), not
@@ -299,7 +299,7 @@ mod tests {
 	/// transform deletes and collapses whitespace between non-whitespace tokens and does
 	/// nothing further: it never deletes, adds, or reorders a non-whitespace character, it
 	/// preserves blank-line block boundaries (collapsed, not removed), and it passes fenced
-	/// lines through verbatim. Two inputs then normalize equal just when they carry the same
+	/// lines through verbatim. Two inputs then normalize equal only when they carry the same
 	/// ordered stream of non-whitespace characters, the same block-boundary structure up to
 	/// blank-run collapsing, and byte-identical fences. Real drift (a reworded, added,
 	/// dropped, or reordered word, list item, or slot) changes that token stream; merging or
@@ -388,8 +388,7 @@ mod tests {
 		// both the fresh render and the committed copy must be free of any
 		// indentation- or whitespace-significant construct, or equal normalization
 		// would no longer imply equal content and the equality checks below could pass
-		// on masked drift. Asserted on both sides so the guard fails loudly the day
-		// such a construct enters the guidance.
+		// on masked drift. Asserted on both sides.
 		assert_no_unprotected_construct("committed AGENTS.md", COMMITTED_AGENTS);
 		assert_no_unprotected_construct("rendered AGENTS.md", &rendered_agents);
 		assert_no_unprotected_construct(

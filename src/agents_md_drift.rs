@@ -59,7 +59,7 @@
 //! an obligation to stay complete that prose reliably fails; the `.agents/user-prompts/`
 //! copies, `.agents/LEDGER.template.md`, the `.toml` copies under `.agents/`, and the
 //! `docs/plans/TEMPLATE` family illustrate the rule and do not bound it. Leaving them
-//! uncovered is a scope call whose cost is uneven: widening to the Markdown copies is a
+//! uncovered is a scope call whose cost is uneven: widening to the Markdown asset copies is a
 //! small change to check 3's filter, since they are prose under the same prettier settings
 //! and already satisfy the precondition, while the TOML copies need a comparison of their
 //! own, since `.agents/principles.toml` carries lines outside canonical whitespace form

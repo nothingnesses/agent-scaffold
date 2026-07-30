@@ -39,6 +39,16 @@
 //!   `Drop`, so it can orphan a worktree and its temp directory; the next run
 //!   reclaims such orphans with a startup prune (see `prune_orphan_worktrees`), so
 //!   "always removed" holds across runs rather than unconditionally within one.
+//!   That across-runs reclamation is BOUNDED BY REGISTRATION, and the bound is
+//!   real, not theoretical: the prune walks the worktrees git has registered to this
+//!   repository, so it reclaims an orphan only once `git worktree add` has
+//!   registered it. A kill in the narrow window between `reserve_runner_worktree`
+//!   creating the directory and that add registering it therefore leaves an EMPTY,
+//!   unregistered directory under the system temp dir which no later run reclaims;
+//!   it is left to the operating system's temp-dir cleanup. Widening the prune to
+//!   sweep the temp dir by prefix would close that window, at the cost of giving it
+//!   authority over other repositories' runner directories (Principle 18, least
+//!   authority), which is not a trade this module makes.
 //! - C. The isolated content reflects the state the run's mode selects. A plain
 //!   run (`Isolation::WorkingTree`) isolates the current tracked WORKING-TREE state
 //!   (committed plus unstaged tracked modifications), captured with `git stash
@@ -323,7 +333,10 @@ impl From<io::Error> for RunError {
 /// remove the worktree, removes the directory if it survives, then prunes the
 /// stale admin entry. `Drop` cannot run on a hard kill (SIGKILL), which is why the
 /// runner also does a startup prune (see `prune_orphan_worktrees`) to reclaim a
-/// worktree orphaned by a prior killed run.
+/// worktree orphaned by a prior killed run. That prune reclaims a REGISTERED
+/// worktree only, so it does not cover a kill landing after
+/// `reserve_runner_worktree` created the directory but before `git worktree add`
+/// registered it; that leaves an empty directory no run reclaims (Invariant B).
 struct WorktreeGuard {
 	/// The main repository's top level (the `-C` target for git worktree ops).
 	repo: PathBuf,
@@ -417,6 +430,24 @@ static NEXT_RUNNER_SEQ: AtomicU64 = AtomicU64::new(0);
 /// (or a hostile temp dir), and reporting it beats looping forever.
 const RUNNER_RESERVE_ATTEMPTS: u32 = 16;
 
+/// Claim `path` exclusively by creating it as a directory. Returns `Ok(true)` when
+/// THIS call created it (the claim is ours), `Ok(false)` when it already existed
+/// (another claimant holds it), and propagates every other error.
+///
+/// `fs::create_dir` is the load-bearing call and MUST NOT become `create_dir_all`:
+/// `create_dir_all` succeeds when the directory already exists, so every claim would
+/// report `Ok(true)` and two callers would silently share one directory. This
+/// exclusivity is the second and decisive layer of `reserve_runner_worktree`'s
+/// uniqueness argument below, so both outcomes are pinned directly by a test
+/// (`a_directory_claim_is_exclusive`) rather than only through their caller.
+fn claim_dir(path: &Path) -> io::Result<bool> {
+	match fs::create_dir(path) {
+		Ok(()) => Ok(true),
+		Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+		Err(error) => Err(error),
+	}
+}
+
 /// Reserve a fresh runner worktree directory owned by `pid` under the system temp
 /// dir, and return its path. This is the ONLY place a `RUNNER_PREFIX` name is
 /// built, so the production runner and the prune test fixtures cannot drift apart
@@ -443,30 +474,57 @@ const RUNNER_RESERVE_ATTEMPTS: u32 = 16;
 ///    improbable (`{pid}` when it is live, `{nanos}` otherwise).
 /// 2. The reservation. `{nanos}` is still only probability, and it is the ONLY
 ///    cross-process discriminator where the pid is a fixture's dead constant, so
-///    the name is not trusted: `fs::create_dir` creates the directory or fails with
-///    `AlreadyExists`, atomically, and that outcome (not an entropy argument) is
+///    the name is not trusted: `claim_dir` (above) creates the directory or reports
+///    it already taken, atomically, and that outcome (not an entropy argument) is
 ///    what makes the returned path exclusively ours. A loser retries with a fresh
 ///    name instead of silently sharing the winner's directory.
 ///
 /// Layer 2 is what closes the cross-process channel that layer 1 leaves open, and
 /// it turns any future mistake in layer 1 into a loud retry rather than two runs
 /// quietly sharing one worktree. `git worktree add` accepts the reserved empty
-/// directory (it refuses only a NON-empty one), so reserving first costs one
-/// `mkdir` and changes nothing downstream.
+/// directory (it refuses only a NON-empty one), so the add itself is unaffected;
+/// reserving is NOT otherwise free downstream, though, and it has two consequences
+/// that are handled rather than assumed away. First, the add no longer gets to
+/// create the leading temp directories, so this creates them itself: a `TMPDIR`
+/// naming a directory that does not exist yet is legal, and it worked before the
+/// reservation existed. Second, a hard kill between the reservation and the add now
+/// leaks an EMPTY, unregistered directory that the repo-scoped startup prune cannot
+/// see (Invariant B states that bound).
 fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
 	let temp = std::env::temp_dir();
+	// `claim_dir` deliberately creates exactly ONE level (creating parents is what
+	// would destroy its exclusivity), so the temp dir's own leading directories are
+	// created here, once, outside the retry loop. Every failure below is reported
+	// with the path it was working on: without that, a bad `TMPDIR` reaches the user
+	// as a bare `No such file or directory (os error 2)` naming neither the operation
+	// nor the path.
+	fs::create_dir_all(&temp).map_err(|error| {
+		io::Error::new(
+			error.kind(),
+			format!("could not create the temp directory {}: {error}", temp.display()),
+		)
+	})?;
 	let mut last_taken = PathBuf::new();
 	for _ in 0 .. RUNNER_RESERVE_ATTEMPTS {
 		let seq = NEXT_RUNNER_SEQ.fetch_add(1, Ordering::Relaxed);
 		let path = temp.join(format!("{RUNNER_PREFIX}{pid}-{}-{seq}", nanos()));
-		match fs::create_dir(&path) {
-			Ok(()) => return Ok(path),
-			// Someone else holds this exact name: retry with a fresh one. Any other
-			// error (an unwritable or missing temp dir) is not a collision, so it
-			// propagates immediately rather than being retried 16 times.
-			Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last_taken = path,
-			Err(error) => return Err(error),
+		// A won claim is exclusively ours. A lost one means someone else holds this
+		// exact name, so retry with a fresh one. Any other error (an unwritable temp
+		// dir) is not a collision, so it propagates immediately rather than being
+		// retried 16 times and then misreported as exhaustion.
+		let claimed = claim_dir(&path).map_err(|error| {
+			io::Error::new(
+				error.kind(),
+				format!(
+					"could not reserve the runner worktree directory {}: {error}",
+					path.display()
+				),
+			)
+		})?;
+		if claimed {
+			return Ok(path);
 		}
+		last_taken = path;
 	}
 	Err(io::Error::new(
 		io::ErrorKind::AlreadyExists,
@@ -813,8 +871,10 @@ fn run_command(
 /// a failure (returns a `Report` with `config_present: false`). Only `lint` and
 /// `format` kinds run in this increment; `test` and `mutation` are skipped. The
 /// worktree is created only when at least one check is actually runnable, and is
-/// removed on every return via the `Drop` guard (a hard kill is the one gap,
-/// reclaimed by the startup prune on the next run).
+/// removed on every return via the `Drop` guard (a hard kill is the one gap: the
+/// next run's startup prune reclaims what the kill left REGISTERED, but not the
+/// empty directory a kill between the reservation and `git worktree add` leaves
+/// unregistered, see Invariant B).
 pub fn run(
 	dir: &Path,
 	mode: Isolation,
@@ -863,7 +923,8 @@ pub fn run(
 	let repo = PathBuf::from(String::from_utf8_lossy(&toplevel_out.stdout).trim());
 
 	// Reclaim any worktree orphaned by a prior hard-killed run before creating a new
-	// one, so a SIGKILL leak self-heals on the next run (Invariant B's caveat).
+	// one, so a SIGKILL that leaked a REGISTERED worktree self-heals on the next run
+	// (Invariant B states what this does and does not cover).
 	prune_orphan_worktrees(&repo);
 
 	// The commit capturing the isolated state: the working tree (or HEAD when clean)
@@ -1606,6 +1667,25 @@ mod tests {
 	}
 
 	#[test]
+	fn a_directory_claim_is_exclusive() {
+		// The decisive layer of the reservation's uniqueness argument, driven directly:
+		// the FIRST claim on a path is won, and any later claim on that same path is
+		// lost. Both outcomes matter, and neither was executed by any other test.
+		//
+		// Asserted through `claim_dir` rather than re-derived from the filesystem on
+		// purpose. Asserting that a reserved path `is_dir()` and that a second
+		// `fs::create_dir` from the test fails would pass here while proving nothing
+		// about this module: it exercises `std`, so it stays green even if the
+		// production call became `create_dir_all`, which succeeds on an existing
+		// directory and would report every claim as won.
+		let dir = scratch("claim-dir");
+		let path = dir.join("claim");
+		assert!(claim_dir(&path).unwrap(), "the first claim on a fresh path is won");
+		assert!(!claim_dir(&path).unwrap(), "a second claim on the same path is lost");
+		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
 	fn concurrent_reservations_never_share_a_runner_worktree_path() {
 		// The property, tested directly instead of sampling the flake it caused. Two
 		// concurrent `run()` calls used to be separated only by a clock reading, so they
@@ -1679,6 +1759,10 @@ mod tests {
 		// position is pinned by a test rather than only by a comment.
 		let dead = reserve_runner_worktree(dead_pid()).unwrap();
 		let live = reserve_runner_worktree(std::process::id()).unwrap();
+		// Remove the reserved fixtures BEFORE asserting, so a failing run reports the
+		// defect instead of also leaking two directories into the temp dir.
+		fs::remove_dir(&dead).unwrap();
+		fs::remove_dir(&live).unwrap();
 		for (path, expected) in [(&dead, dead_pid()), (&live, std::process::id())] {
 			let name = path.file_name().and_then(|name| name.to_str()).unwrap();
 			assert_eq!(
@@ -1687,7 +1771,5 @@ mod tests {
 				"the owning pid must still parse out of {name}"
 			);
 		}
-		fs::remove_dir(&dead).unwrap();
-		fs::remove_dir(&live).unwrap();
 	}
 }

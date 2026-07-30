@@ -1239,12 +1239,15 @@ risk_class = "low_risk"
 [[step]]
 slug = "decision-folder-currency"
 title = "name the PLANNER as the folder at the four remaining actor-ambiguous decision-folding points (the checkpoint / queue-push, Socratic-mode, and ledger paragraphs of `pack/prompts/orchestrator.md`, and the ledger paragraph of `pack/AGENTS.md`), and regenerate the deployed copies (`Q-67`)"
-status = "next"
+status = "complete"
 order = 90
 blocked_by = []
 folds = []
-increment = []
 waiver = []
+
+[[step.increment]]
+id = "decision-folder-currency-inc1"
+risk_class = "low_risk"
 
 [step.provenance]
 decisions = ["Q-67"]

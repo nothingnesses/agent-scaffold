@@ -66,15 +66,20 @@ use {
 			Command,
 			Stdio,
 		},
+		sync::atomic::{
+			AtomicU64,
+			Ordering,
+		},
 	},
 };
 
 /// The file-name prefix of a runner's temporary worktree directory under the
-/// system temp dir: `agent-scaffold-checks-run-{pid}-{nanos}`. The startup prune
-/// (see `prune_orphan_worktrees`) matches this prefix among a repo's registered
-/// worktrees to identify a reclaimable runner orphan; the `-run-` segment keeps it
-/// distinct from the test fixtures' `agent-scaffold-checks-test-` prefix so the
-/// two never collide.
+/// system temp dir: `agent-scaffold-checks-run-{pid}-{nanos}-{seq}` (built in
+/// exactly one place, `reserve_runner_worktree`, which documents each component).
+/// The startup prune (see `prune_orphan_worktrees`) matches this prefix among a
+/// repo's registered worktrees to identify a reclaimable runner orphan; the `-run-`
+/// segment keeps it distinct from the test fixtures' `agent-scaffold-checks-test-`
+/// prefix so the two never collide.
 const RUNNER_PREFIX: &str = "agent-scaffold-checks-run-";
 
 /// The kind of a check: a closed enum (parse-don't-validate), so a `kind` value
@@ -397,9 +402,88 @@ fn pid_is_alive(pid: u32) -> bool {
 	Path::new(&format!("/proc/{pid}")).exists() || !Path::new("/proc").exists()
 }
 
+/// Distinguishes two runner worktree names taken by two THREADS of one process,
+/// which nothing else in the name can do: every thread shares one
+/// `std::process::id()`, and the clock is too coarse to separate them (see
+/// `reserve_runner_worktree`). Process-wide and monotonic, so no two calls in this
+/// process ever draw the same value; `Relaxed` is the right ordering because only
+/// the atomicity of the increment matters, not any ordering against other memory.
+static NEXT_RUNNER_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// How many candidate names `reserve_runner_worktree` tries before failing loudly.
+/// Each attempt draws a fresh sequence value, so a second attempt only ever happens
+/// when a DIFFERENT process already holds the name; a run of 16 consecutive
+/// cross-process collisions is not a race to retry through but a broken assumption
+/// (or a hostile temp dir), and reporting it beats looping forever.
+const RUNNER_RESERVE_ATTEMPTS: u32 = 16;
+
+/// Reserve a fresh runner worktree directory owned by `pid` under the system temp
+/// dir, and return its path. This is the ONLY place a `RUNNER_PREFIX` name is
+/// built, so the production runner and the prune test fixtures cannot drift apart
+/// on the naming or on the uniqueness argument.
+///
+/// The name is `{RUNNER_PREFIX}{pid}-{nanos}-{seq}`, and the pid MUST stay the
+/// first `-`-separated component because `owning_pid` (below) reads it from there
+/// and the prune's liveness gate reads nothing else; a new component is appended
+/// after it, never before. `pid` is a parameter rather than a call to
+/// `std::process::id()` so a test can plant an orphan owned by a dead pid, which is
+/// the state the prune exists to reclaim.
+///
+/// WHY THIS IS UNIQUE, written out because the previous one-line argument here was
+/// wrong and cost the test suite its determinism. It is two independent layers:
+///
+/// 1. The name. `{pid}` separates two PROCESSES, but it separates nothing inside
+///    one: cargo runs a crate's unit tests as threads of a single binary, so every
+///    concurrent `run()` under `cargo test` shares a pid. `{nanos}` cannot carry
+///    that alone either, because `SystemTime::now()` advances in steps of tens of
+///    nanoseconds, so two threads sampling it at the same moment routinely read the
+///    same value. `{seq}` is what actually separates them: a process-wide atomic
+///    counter is unique by construction across all threads and all calls. The three
+///    together cover the in-process case (`{seq}`) and make the cross-process case
+///    improbable (`{pid}` when it is live, `{nanos}` otherwise).
+/// 2. The reservation. `{nanos}` is still only probability, and it is the ONLY
+///    cross-process discriminator where the pid is a fixture's dead constant, so
+///    the name is not trusted: `fs::create_dir` creates the directory or fails with
+///    `AlreadyExists`, atomically, and that outcome (not an entropy argument) is
+///    what makes the returned path exclusively ours. A loser retries with a fresh
+///    name instead of silently sharing the winner's directory.
+///
+/// Layer 2 is what closes the cross-process channel that layer 1 leaves open, and
+/// it turns any future mistake in layer 1 into a loud retry rather than two runs
+/// quietly sharing one worktree. `git worktree add` accepts the reserved empty
+/// directory (it refuses only a NON-empty one), so reserving first costs one
+/// `mkdir` and changes nothing downstream.
+fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
+	let temp = std::env::temp_dir();
+	let mut last_taken = PathBuf::new();
+	for _ in 0 .. RUNNER_RESERVE_ATTEMPTS {
+		let seq = NEXT_RUNNER_SEQ.fetch_add(1, Ordering::Relaxed);
+		let path = temp.join(format!("{RUNNER_PREFIX}{pid}-{}-{seq}", nanos()));
+		match fs::create_dir(&path) {
+			Ok(()) => return Ok(path),
+			// Someone else holds this exact name: retry with a fresh one. Any other
+			// error (an unwritable or missing temp dir) is not a collision, so it
+			// propagates immediately rather than being retried 16 times.
+			Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last_taken = path,
+			Err(error) => return Err(error),
+		}
+	}
+	Err(io::Error::new(
+		io::ErrorKind::AlreadyExists,
+		format!(
+			"could not reserve a unique runner worktree directory after \
+			 {RUNNER_RESERVE_ATTEMPTS} attempts (last tried {})",
+			last_taken.display()
+		),
+	))
+}
+
 /// Parse the owning pid out of a runner worktree directory name of the form
-/// `agent-scaffold-checks-run-{pid}-{nanos}`. Returns `None` when the name does not
-/// carry a parseable pid, so the caller can skip reclamation conservatively.
+/// `agent-scaffold-checks-run-{pid}-{nanos}-{seq}` (see `reserve_runner_worktree`).
+/// Only the first `-`-separated segment after the prefix is read, so appending
+/// further components never changes what this returns. Returns `None` when the name
+/// does not carry a parseable pid, so the caller can skip reclamation
+/// conservatively.
 fn owning_pid(dir_name: &str) -> Option<u32> {
 	dir_name.strip_prefix(RUNNER_PREFIX)?.split('-').next()?.parse().ok()
 }
@@ -786,10 +870,19 @@ pub fn run(
 	// for a plain run, or the index for `--staged`.
 	let commit = isolation_commit(&repo, mode)?;
 
-	// A unique temp path OUTSIDE the repository; git worktree add creates it. The
-	// `RUNNER_PREFIX` (with the embedded pid) is what the startup prune recognises.
-	let worktree_path =
-		std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", std::process::id(), nanos()));
+	// A temp path OUTSIDE the repository, RESERVED for this call rather than merely
+	// named: `reserve_runner_worktree` creates the directory atomically, so no
+	// concurrent call can be handed the same path (its doc comment carries the full
+	// argument, including why the pid alone did not do this). The `RUNNER_PREFIX` and
+	// the leading pid are what the startup prune recognises.
+	let worktree_path = reserve_runner_worktree(std::process::id())?;
+	// The guard takes ownership of the reserved directory BEFORE the add, so a failing
+	// or half-finished `git worktree add` leaves nothing behind: from here every
+	// return path below removes the worktree.
+	let _guard = WorktreeGuard {
+		repo: repo.clone(),
+		path: worktree_path.clone(),
+	};
 	let added =
 		git(&repo, &["worktree", "add", "--detach", &worktree_path.to_string_lossy(), &commit])?;
 	if !added.status.success() {
@@ -798,11 +891,6 @@ pub fn run(
 			String::from_utf8_lossy(&added.stderr).trim()
 		)));
 	}
-	// From here the guard owns cleanup: every return path below removes the worktree.
-	let _guard = WorktreeGuard {
-		repo: repo.clone(),
-		path: worktree_path.clone(),
-	};
 
 	let mut results = Vec::with_capacity(dispatch.len());
 	for (check, run) in dispatch {
@@ -842,9 +930,19 @@ pub fn run(
 	// `_guard` drops here, removing the worktree.
 }
 
-/// Nanoseconds since the epoch, for a unique temp path. Falls back to a fixed
-/// value if the clock is before the epoch (which cannot happen on a sane system);
-/// the process id in the path already provides per-process uniqueness.
+/// Nanoseconds since the epoch, one component of a runner worktree name. Falls
+/// back to a fixed value if the clock is before the epoch (which cannot happen on a
+/// sane system).
+///
+/// This does NOT make a name unique and must not be relied on as if it did. Two
+/// readings taken at the same moment on different threads routinely agree, because
+/// `SystemTime::now()` advances in steps of tens of nanoseconds rather than one, so
+/// this carries roughly 25 ns of resolution and no guarantee at all. Its job is
+/// narrow: to make a collision between two separate PROCESSES improbable, which
+/// matters where the pid is a test fixture's dead constant and so discriminates
+/// nothing. Uniqueness itself comes from the atomic sequence and the `create_dir`
+/// reservation in `reserve_runner_worktree`; a constant returned here would still
+/// be correct, only slower.
 fn nanos() -> u128 {
 	std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
@@ -1457,9 +1555,10 @@ mod tests {
 
 		// Plant the orphan: a registered worktree under a runner-prefixed temp path
 		// owned by a DEAD pid, exactly the shape a SIGKILLed run leaves behind
-		// (registered but never removed by its `Drop`).
-		let orphan =
-			std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", dead_pid(), nanos()));
+		// (registered but never removed by its `Drop`). The path comes from the same
+		// reservation the runner uses, so this fixture cannot drift from production
+		// naming and cannot collide with a concurrent test.
+		let orphan = reserve_runner_worktree(dead_pid()).unwrap();
 		git_ok(&dir, &["worktree", "add", "--detach", &orphan.to_string_lossy(), "HEAD"]);
 		assert!(orphan.exists());
 		// Two worktrees now: main plus the planted orphan.
@@ -1486,10 +1585,11 @@ mod tests {
 		git_ok(&dir, &["commit", "-q", "-m", "init"]);
 
 		// A live-owner worktree (current pid) and a dead-owner worktree, both
-		// registered to this repo and both matching the runner-prefix filter.
-		let live =
-			std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", std::process::id(), nanos()));
-		let dead = std::env::temp_dir().join(format!("{RUNNER_PREFIX}{}-{}", dead_pid(), nanos()));
+		// registered to this repo and both matching the runner-prefix filter. Both
+		// paths come from the runner's own reservation, so neither can collide with a
+		// concurrent `run()` or with the other prune fixture.
+		let live = reserve_runner_worktree(std::process::id()).unwrap();
+		let dead = reserve_runner_worktree(dead_pid()).unwrap();
 		git_ok(&dir, &["worktree", "add", "--detach", &live.to_string_lossy(), "HEAD"]);
 		git_ok(&dir, &["worktree", "add", "--detach", &dead.to_string_lossy(), "HEAD"]);
 		assert!(live.exists() && dead.exists());
@@ -1503,5 +1603,91 @@ mod tests {
 		// Clean up the deliberately-left live worktree.
 		git_ok(&dir, &["worktree", "remove", "--force", &live.to_string_lossy()]);
 		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn concurrent_reservations_never_share_a_runner_worktree_path() {
+		// The property, tested directly instead of sampling the flake it caused. Two
+		// concurrent `run()` calls used to be separated only by a clock reading, so they
+		// could be handed ONE path and take over each other's worktree; every unit test
+		// in this crate runs as a thread of one process, so the pid separated nothing.
+		//
+		// This asserts the property that has to hold whatever supplies the uniqueness:
+		// THREADS threads released together on a `Barrier`, each taking PER_THREAD
+		// paths, yield THREADS * PER_THREAD DISTINCT paths and no error. It exercises
+		// `reserve_runner_worktree`, the call that yields the final path and the only
+		// place a `RUNNER_PREFIX` name is built, so it covers the production runner and
+		// the prune fixtures alike rather than pinning a generator nothing uses.
+		//
+		// Deliberately NOT asserted at the string level: the reservation, not the name,
+		// is what makes a path exclusively ours, and the raw name still repeats at the
+		// clock's rate by design (see `reserve_runner_worktree`). A string-level
+		// assertion would fail against correct code and push a later change into adding
+		// entropy this does not need.
+		const THREADS: usize = 8;
+		const PER_THREAD: usize = 250;
+
+		let barrier = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
+		let takers: Vec<_> = (0 .. THREADS)
+			.map(|_| {
+				let barrier = std::sync::Arc::clone(&barrier);
+				std::thread::spawn(move || {
+					// Released together, so the threads contend for the same instant of the
+					// clock rather than running one after another.
+					barrier.wait();
+					(0 .. PER_THREAD)
+						.map(|_| reserve_runner_worktree(std::process::id()))
+						.collect::<Vec<_>>()
+				})
+			})
+			.collect();
+
+		let mut reserved = Vec::with_capacity(THREADS * PER_THREAD);
+		let mut failures = Vec::new();
+		for taker in takers {
+			for outcome in taker.join().expect("a reserving thread panicked") {
+				match outcome {
+					Ok(path) => reserved.push(path),
+					Err(error) => failures.push(error.to_string()),
+				}
+			}
+		}
+
+		// Remove the reserved directories BEFORE asserting, so a failing run reports the
+		// defect instead of also littering the temp dir with a few thousand entries.
+		for path in &reserved {
+			let _ = fs::remove_dir(path);
+		}
+
+		assert!(failures.is_empty(), "reservations failed: {failures:?}");
+		let distinct: std::collections::HashSet<&PathBuf> = reserved.iter().collect();
+		assert_eq!(
+			distinct.len(),
+			THREADS * PER_THREAD,
+			"{} of {} concurrent reservations shared a path with another",
+			THREADS * PER_THREAD - distinct.len(),
+			THREADS * PER_THREAD
+		);
+	}
+
+	#[test]
+	fn a_reserved_path_still_carries_its_owning_pid_as_the_first_component() {
+		// The prune's liveness gate reads the owner from the FIRST `-`-separated segment
+		// after the prefix, so a disambiguator appended in the wrong position would make
+		// `owning_pid` return the wrong pid (or none) and could let the prune reclaim a
+		// LIVE run's worktree. That is the damaging way to get this fix wrong, so the
+		// position is pinned by a test rather than only by a comment.
+		let dead = reserve_runner_worktree(dead_pid()).unwrap();
+		let live = reserve_runner_worktree(std::process::id()).unwrap();
+		for (path, expected) in [(&dead, dead_pid()), (&live, std::process::id())] {
+			let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+			assert_eq!(
+				owning_pid(name),
+				Some(expected),
+				"the owning pid must still parse out of {name}"
+			);
+		}
+		fs::remove_dir(&dead).unwrap();
+		fs::remove_dir(&live).unwrap();
 	}
 }

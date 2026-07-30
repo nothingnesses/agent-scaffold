@@ -45,7 +45,12 @@
 //!   registered it. A kill in the narrow window between `reserve_runner_worktree`
 //!   creating the directory and that add registering it therefore leaves an EMPTY,
 //!   unregistered directory under the system temp dir which no later run reclaims;
-//!   it is left to the operating system's temp-dir cleanup. Widening the prune to
+//!   it is left to the operating system's temp-dir cleanup. Registration is
+//!   NECESSARY BUT NOT SUFFICIENT: the prune additionally requires the worktree path
+//!   GIT RECORDED to sit under the CURRENT process's `std::env::temp_dir()`, and git
+//!   records that path symlink-resolved, so a registered orphan recorded outside
+//!   this process's temp dir (a `TMPDIR` reached through a symlink, or a run killed
+//!   under a different `TMPDIR`) is never reclaimed either. Widening the prune to
 //!   sweep the temp dir by prefix would close that window, at the cost of giving it
 //!   authority over other repositories' runner directories (Principle 18, least
 //!   authority), which is not a trade this module makes.
@@ -491,13 +496,28 @@ fn claim_dir(path: &Path) -> io::Result<bool> {
 /// leaks an EMPTY, unregistered directory that the repo-scoped startup prune cannot
 /// see (Invariant B states that bound).
 fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
+	reserve_runner_worktree_with(pid, claim_dir)
+}
+
+/// `reserve_runner_worktree` (above) with its claim injected, which is the only way
+/// to drive the outcome the filesystem will not produce on demand. Every real claim
+/// in this repository WINS: production takes one path at a time and the prune
+/// fixtures take theirs sequentially, so nothing ever exercises the lost-claim
+/// verdict, the retry, or the exhaustion error at their use site, and each of those
+/// can be deleted with a green suite. Production passes `claim_dir` and is otherwise
+/// unchanged; the whole reservation, including the temp-dir creation above the loop,
+/// lives here so the tests drive the same code the runner does.
+fn reserve_runner_worktree_with(
+	pid: u32,
+	claim: impl Fn(&Path) -> io::Result<bool>,
+) -> io::Result<PathBuf> {
 	let temp = std::env::temp_dir();
-	// `claim_dir` deliberately creates exactly ONE level (creating parents is what
-	// would destroy its exclusivity), so the temp dir's own leading directories are
-	// created here, once, outside the retry loop. Every failure below is reported
-	// with the path it was working on: without that, a bad `TMPDIR` reaches the user
-	// as a bare `No such file or directory (os error 2)` naming neither the operation
-	// nor the path.
+	// `claim_dir` deliberately creates exactly ONE level (tolerating a directory that
+	// already exists is what would destroy its exclusivity), so the temp dir's own
+	// leading directories are created here, once, outside the retry loop. Every failure
+	// below is reported with the path it was working on: without that, a bad `TMPDIR`
+	// reaches the user as a bare `No such file or directory (os error 2)` naming neither
+	// the operation nor the path.
 	fs::create_dir_all(&temp).map_err(|error| {
 		io::Error::new(
 			error.kind(),
@@ -512,7 +532,7 @@ fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
 		// exact name, so retry with a fresh one. Any other error (an unwritable temp
 		// dir) is not a collision, so it propagates immediately rather than being
 		// retried 16 times and then misreported as exhaustion.
-		let claimed = claim_dir(&path).map_err(|error| {
+		let claimed = claim(&path).map_err(|error| {
 			io::Error::new(
 				error.kind(),
 				format!(
@@ -1670,7 +1690,10 @@ mod tests {
 	fn a_directory_claim_is_exclusive() {
 		// The decisive layer of the reservation's uniqueness argument, driven directly:
 		// the FIRST claim on a path is won, and any later claim on that same path is
-		// lost. Both outcomes matter, and neither was executed by any other test.
+		// lost. Both outcomes matter, and no other test executes the LOST one through
+		// `claim_dir` itself: the reservation's own collision tests below inject a claim
+		// rather than call this one, so nothing else would notice if this stopped
+		// reporting a taken path as taken.
 		//
 		// Asserted through `claim_dir` rather than re-derived from the filesystem on
 		// purpose. Asserting that a reserved path `is_dir()` and that a second
@@ -1683,6 +1706,63 @@ mod tests {
 		assert!(claim_dir(&path).unwrap(), "the first claim on a fresh path is won");
 		assert!(!claim_dir(&path).unwrap(), "a second claim on the same path is lost");
 		fs::remove_dir_all(&dir).unwrap();
+	}
+
+	#[test]
+	fn a_lost_claim_retries_with_a_fresh_name_and_never_returns_the_lost_one() {
+		// Layer 2's collision handling, driven at the use site rather than only at
+		// `claim_dir`. The filesystem will not lose a claim on demand (every real claim
+		// in this repository wins), so the claim is injected: this one records every name
+		// it is offered and loses the first two, which is the state the loop exists for.
+		let offered = std::cell::RefCell::new(Vec::new());
+		let reserved = reserve_runner_worktree_with(std::process::id(), |path| {
+			let mut offered = offered.borrow_mut();
+			offered.push(path.to_path_buf());
+			Ok(offered.len() > 2)
+		})
+		.expect("a lost claim must retry with a fresh name, not fail the reservation");
+
+		let offered = offered.into_inner();
+		assert_eq!(offered.len(), 3, "two lost claims cost exactly two extra attempts");
+		assert_eq!(reserved, offered[2], "the reservation returns the name it WON");
+		assert!(
+			!offered[.. 2].contains(&reserved),
+			"a lost name must never be handed back: {reserved:?} is one of {:?}",
+			&offered[.. 2]
+		);
+	}
+
+	#[test]
+	fn a_claim_that_never_wins_fails_at_the_attempt_bound() {
+		// The other half of the loop: a claim that always loses must give up at
+		// RUNNER_RESERVE_ATTEMPTS rather than retry forever, and the error must say how
+		// many attempts it made and which name it tried last, since that is all a user
+		// gets to diagnose a hostile temp dir with.
+		let offered = std::cell::RefCell::new(Vec::new());
+		let error = reserve_runner_worktree_with(std::process::id(), |path| {
+			offered.borrow_mut().push(path.to_path_buf());
+			Ok(false)
+		})
+		.expect_err("a claim that never wins must not report a reservation");
+
+		let offered = offered.into_inner();
+		assert_eq!(
+			error.kind(),
+			io::ErrorKind::AlreadyExists,
+			"exhaustion is a collision outcome, not an unrelated io error"
+		);
+		assert_eq!(
+			offered.len(),
+			RUNNER_RESERVE_ATTEMPTS as usize,
+			"the loop tries every attempt it promises and then stops"
+		);
+		let message = error.to_string();
+		assert!(
+			message.contains(&RUNNER_RESERVE_ATTEMPTS.to_string()),
+			"the error must name the bound it gave up at: {message}"
+		);
+		let last = offered.last().unwrap().display().to_string();
+		assert!(message.contains(&last), "the error must name the last path it tried: {message}");
 	}
 
 	#[test]

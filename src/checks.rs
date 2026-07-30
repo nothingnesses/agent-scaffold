@@ -502,9 +502,7 @@ fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
 /// `reserve_runner_worktree` (above) with its claim injected, which is the only way
 /// to drive the outcome the filesystem will not produce on demand. Every real claim
 /// in this repository WINS: production takes one path at a time and the prune
-/// fixtures take theirs sequentially, so nothing ever exercises the lost-claim
-/// verdict, the retry, or the exhaustion error at their use site, and each of those
-/// can be deleted with a green suite. Production passes `claim_dir` and is otherwise
+/// fixtures take theirs sequentially. Production passes `claim_dir` and is otherwise
 /// unchanged; the whole reservation, including the temp-dir creation above the loop,
 /// lives here so the tests drive the same code the runner does.
 fn reserve_runner_worktree_with(
@@ -1758,11 +1756,40 @@ mod tests {
 		);
 		let message = error.to_string();
 		assert!(
-			message.contains(&RUNNER_RESERVE_ATTEMPTS.to_string()),
+			message.contains(&format!("after {RUNNER_RESERVE_ATTEMPTS} attempts")),
 			"the error must name the bound it gave up at: {message}"
 		);
 		let last = offered.last().unwrap().display().to_string();
 		assert!(message.contains(&last), "the error must name the last path it tried: {message}");
+	}
+
+	#[test]
+	fn a_claim_error_that_is_not_a_collision_propagates_at_once_and_names_the_path() {
+		// The loop's third outcome: an error that is NOT a lost claim (an unwritable temp
+		// dir) propagates on the first attempt rather than being retried to exhaustion and
+		// misreported as a collision, and it reaches the user naming the operation and the
+		// path it failed on.
+		let offered = std::cell::RefCell::new(Vec::new());
+		let error = reserve_runner_worktree_with(std::process::id(), |path| {
+			offered.borrow_mut().push(path.to_path_buf());
+			Err(io::Error::from(io::ErrorKind::PermissionDenied))
+		})
+		.expect_err("a claim error must fail the reservation");
+
+		let offered = offered.into_inner();
+		assert_eq!(offered.len(), 1, "a non-collision error is not retried");
+		assert_eq!(
+			error.kind(),
+			io::ErrorKind::PermissionDenied,
+			"a real error stays distinguishable from exhaustion, which is AlreadyExists"
+		);
+		let message = error.to_string();
+		assert!(
+			message.contains("could not reserve the runner worktree directory"),
+			"the error must name the operation it failed at: {message}"
+		);
+		let tried = offered[0].display().to_string();
+		assert!(message.contains(&tried), "the error must name the path it failed on: {message}");
 	}
 
 	#[test]

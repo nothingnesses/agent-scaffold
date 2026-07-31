@@ -89,7 +89,7 @@ There is also a precedent for the RELATION this case needs, which is not the sam
 out: Option<PathBuf>,
 ```
 
-So a fix here FOLLOWS AN ESTABLISHED CONVENTION rather than inventing one, and that is the proposition to state in the commit. Four constraint attributes already exist in `src/main.rs` (`:396`, `:441`, `:465`, `:525`, `:557`), so the mechanism is routine in this codebase.
+So a fix here FOLLOWS AN ESTABLISHED CONVENTION rather than inventing one, and that is the proposition to state in the commit. Five constraint attributes already exist in `src/main.rs` (`:396`, `:442`, `:465`, `:525`, `:557`), so the mechanism is routine in this codebase.
 
 ## The fix fork, not pre-decided
 
@@ -117,10 +117,10 @@ IF FORK (B) IS CHOSEN INSTEAD, THIS CLASSIFICATION DOES NOT HOLD and the step mu
 3. THE CONTROL, which is the mistake this step can actually ship and must be pinned in BOTH directions: `status --source <plan> --json` alone still emits the projection as JSON and exits 0, and `status --source <plan> --resume` alone still prints the block and exits 0. A fix that spells the relation backwards passes check 2 and fails one of these.
 4. The two remaining resume paths are unchanged when `--json` is absent: a missing ledger prints `no ledger at <path>; nothing to resume` at exit 0, and a ledger with no section prints `<path>: no ``## RESUME STATE`` block found` at exit 0.
 5. `--ledger-fragment` still requires `--resume` and is unaffected, so the new constraint did not disturb the existing one on the same struct.
-6. `--help` for `status` reads correctly with the new constraint, and the help text on each flag states the exclusion in the style the four existing constraint attributes use.
+6. `--help` for `status` reads correctly with the new constraint, and the help text on each flag states the exclusion in the style the five existing constraint attributes use.
 
 ## Scope
 
 - It does not give `status --resume` a JSON surface. That is fork (B), it is not recommended, and it must not be built before `workflow-enforcement-tier` inc2 in any case.
-- It does not audit the other subcommands for silently-ignored flag combinations. Four constraint attributes already exist and the three cases they cover are the ones previously found; a sweep for further cases is a different piece of work and is not smuggled in here (Minimal by default). If the implementer notices one while working, RAISE it rather than folding it in.
+- It does not audit the other subcommands for silently-ignored flag combinations. Five constraint attributes already exist and the three cases they cover are the ones previously found; a sweep for further cases is a different piece of work and is not smuggled in here (Minimal by default). If the implementer notices one while working, RAISE it rather than folding it in.
 - It does not change `run_resume`'s output, its exit code, or its best-effort contract.

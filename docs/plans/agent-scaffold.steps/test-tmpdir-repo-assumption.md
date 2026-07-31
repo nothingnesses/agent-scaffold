@@ -73,6 +73,6 @@ The one failure mode that would justify a second round is a test made to pass by
 
 ## Scope
 
-- It does not change `src/checks.rs`'s worktree NAMING, which is the separate defect held by `checks-runner-worktree-name-collision` (order 93, `deferred`). The two are both test-isolation defects and are deliberately separate: that one is a real race in production-reachable code, this one is an environment assumption in test setup.
+- It does not change `src/checks.rs`'s worktree NAMING, which is the separate defect held by `checks-runner-worktree-name-collision` (order 93). The two are both test-isolation defects and are deliberately separate: that one is a real race in production-reachable code, this one is an environment assumption in test setup.
 - It does not consolidate the two `scratch` helpers into one. They live in different modules and differ in their prefix and their cleanup, and merging them is a refactor this defect does not require (Minimal by default). If the chosen fix makes a shared helper natural, say so and argue it rather than doing it silently.
 - It does not change the project's scratch-`TMPDIR` discipline or any agent brief. Those stay as they are; what changes is that following them stops breaking the suite.

@@ -1276,12 +1276,22 @@ note = "Six review rounds, 15 valid findings, every one low-severity prose in th
 [[step]]
 slug = "checks-runner-worktree-name-collision"
 title = "make the `checks` runner worktree name unique per call, so two concurrent same-process `run()` calls cannot land on one `{pid}-{nanos}` temp path and take over each other's isolated worktree; observed as a non-deterministic `cargo test` failure"
-status = "not-started"
+status = "complete"
 order = 93
 blocked_by = []
 folds = []
-increment = []
-waiver = []
+
+[[step.increment]]
+id = "checks-runner-worktree-name-collision-inc1"
+risk_class = "risky"
+
+[[step.waiver]]
+id = "checks-runner-worktree-name-collision-w1"
+unit = "increment"
+increment = "checks-runner-worktree-name-collision-inc1"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "checks-runner-worktree-name-collision-inc1"
 
 [[question]]
 id = "Q-1"

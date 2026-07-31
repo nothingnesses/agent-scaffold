@@ -1330,6 +1330,19 @@ waiver = []
 id = "test-tmpdir-repo-assumption-inc1"
 risk_class = "low_risk"
 
+[[step]]
+slug = "status-resume-ignores-json"
+title = "`status --resume --json` silently ignores `--json` and prints human text, because the resume slice returns before any serialisation (a false silence, not a false assertion)"
+status = "not-started"
+order = 96
+blocked_by = []
+folds = []
+waiver = []
+
+[[step.increment]]
+id = "status-resume-ignores-json-inc1"
+risk_class = "low_risk"
+
 [[question]]
 id = "Q-1"
 status = "decided"

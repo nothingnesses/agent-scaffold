@@ -2,7 +2,7 @@
 
 # agent-scaffold plan
 
-Status: 94 steps (4 not started, 3 in progress, 63 complete, 4 skipped, 3 optional, 17 deferred); 5 open questions; 21 waivers (11 predates-logging, 4 review-skipped, 6 accepted-at-escalation).
+Status: 95 steps (5 not started, 3 in progress, 63 complete, 4 skipped, 3 optional, 17 deferred); 5 open questions; 21 waivers (11 predates-logging, 4 review-skipped, 6 accepted-at-escalation).
 
 Status: in progress; see the Roadmap for per-step status and order. In short: the core is complete (the assets and principle data, the file-dropper with two-tier ownership, the idempotency and write-safety pass, the selection UI and its polish, and bring-your-own-template support), `init-vcs` (a git repository by default, `--vcs none` to disable) is complete. A workflow-hardening review round (round 1; see `docs/plans/agent-scaffold.ledger.md`) produced 14 triager-valid findings, and the human queued four workflow-interface features; both are folded into concrete Roadmap steps, correctness before features: `convergence-accounting` (complete, committed `19d69e5`) and `workflow-doc-fixes` for the findings, then `human-onboarding`, `deliberation-mode`, `human-review-queue`, and `ledger-template` for the features. Two more steps joined during implementation: `pack-rebuild-tracking` (to be done before the golden sync-test in `ledger-template`; a `build.rs` so the embedded pack re-embeds on change, since `include_dir!` does not register rebuild dependencies and `scaffold-self` could regenerate from a stale pack) and `triager-independence` (the triager is always a separate agent, independent of both the producer and the orchestrator). A structured state-file request is held as the deferred `state-schema` step (`Q-11`). Open decisions live in the living human-decision queue in the Open Questions section; the earlier optional and deferred steps remain optional. Published to crates.io as `agent-scaffold` v0.0.1 (tag `v0.0.1`); `cargo install agent-scaffold` works. `workflow-doc-fixes`, `pack-rebuild-tracking`, `triager-independence`, `file-safety-rules`, `agent-isolation`, `user-prompts-dir`, `human-onboarding`, `gate-prompt-clarity`, `compaction-prep`, `deliberation-mode`, `human-review-queue`, `no-wrap-convention`, `findings-files`, and `ledger-template` are also complete: the ENTIRE workflow-hardening cluster is now done (the human-interface cluster is done; `gate-prompt-clarity`, `Q-20`, was recovered via a transcript dig after a compaction flattened the purpose of the planner's gate prompts). The hardening cluster is done, and the human then directed an optional cluster (2026-07-15) in the order `instrument-flag` -> `state-schema` -> `optional-modules` -> `workflow-calibration`; `instrument-flag` (the `--instrument` metrics flag) and `state-schema` (the `validate` / `status --json` subcommands over the metrics log and the plan's structured regions, `Q-11`/`Q-24`) are complete. The five post-compaction DESIGN PASSES (`Q-27`, `Q-30`/`Q-31`, `Q-33`/`Q-36`, `Q-35`, and the checks-config layout) are all decided and folded into the plan, and the BUILD PHASE is underway: `workflow-invariants` (the `validate --workflow` enforcement with the `trivial`/`grandfathered` statuses; it now dogfoods green), `review-mode` (the fourth entry mode, `Q-35`), `reviewer-diversity` (the always-on models-or-harnesses diversity rule, `Q-36` part a), and `reviewer-harness-field` (the optional `harness` field on the round-log reviewer attribution, `Q-37`) are COMPLETE. Still optional/deferred: `greenfield-flake`, `later-enhancements`, `git-url-fetch`, `tui-authoring`, `workflow-calibration`, and the deferred `workflow-viz` (a Gantt / nix-output-monitor-style live visualiser). All three `optional-modules` increments are now built: increment 1 (the `--module` machinery), increment 2 (the whole checks module: the `{{modules}}` render slot, `.agents/checks.toml`, the seeded ast-grep config, the `checks-reviewer` role, the `agent-scaffold checks [--staged]` subcommand with worktree-isolated execution, and `scaffold --with-precommit-hook`), and increment 3 (the guidance-only `isolation` module: `--module isolation` renders a `pack/isolation-guidance.md` pointer partial into `{{modules}}` wiring a project to agent-box/agent-images, dropping zero files; converged low-risk over 2 rounds, merged `87ebc6e`, `Q-41`). The umbrella `optional-modules` Roadmap step is now `complete` (unstuck by `waiver-model`: its increment 2c-ii human-authorized below-streak convergence is exempted by a `record-backed` `accepted-at-escalation` waiver pointing at its escalation record, resolving `Q-40`/SE-4). The remaining planned work (see the Roadmap for the full not-started set) is the `Q-44` skeleton-depth decision, `state-queries`, `test-driven`, `mutation`, and `workflow-calibration` (the whole-codebase acceptance review once noted here as a LATER job is now SUBSUMED by `review-mode`, `Q-35`); `deliberation-mode` is complete (it added the cross-cutting human-input contract and discharged the two owed follow-ups: the restored "impasse" trigger and the orchestrator gate-relay duty); `human-review-queue` is complete (it made the Open Questions section a push-at-checkpoint living queue, defined the step-boundary checkpoint with a report-and-continue default cadence configurable at kickoff, re-strengthened the onboarding decision duty to the push model, and added the compaction-prep/resume onboarding pointer). `Q-21` (between-step checkpoint cadence; decided: report-and-continue, configurable at kickoff; folded into `human-review-queue`), `Q-22` (prose line-wrapping is not policed; decided; folded into the new `no-wrap-convention` step), and `Q-23` (the onboarding compaction-lifecycle pointer; decided: a thin pointer, folded into `human-review-queue`) are all resolved. Active queue items now (2026-07-18): `Q-40` (RESOLVED, built in `waiver-model`), `Q-42`/`Q-43` (the decision receipt; `Q-42` decided/built in `decision-receipt`, `Q-43` superseded by the architecture pivot), and `Q-44` (exploring, the structured-data + projection architecture and sharp-edge cleanup, now Principle 8; both pilots done, the skeleton-depth decision is the open sub-item). The `Q-44` structured-data initiative (audit -> design pass -> staged build) is underway: pilot 1 `decision-receipt` (the `type:"decision"` receipt + a `type:"baseline"` cutoff + the W4 check) is COMPLETE and merged (risky, converged over 4 rounds; the loop caught and fixed a silent false-pass in W4's boundary). Pilot 2 `waiver-model` (the unified `type:"waiver"` record + W5 + the W3 convergence-OR-waiver refactor) is COMPLETE and merged (`7be5c2a`, risky, five rounds): it retired the `grandfathered`/`trivial` statuses, migrated the 14 historical rows as per-unit `predates-logging`/`review-skipped` waivers, resolved `Q-40`, and UNSTUCK `optional-modules` (now `complete`); it converged at peak streak 1 by human escalation (two adversarial rounds found zero soundness defects) and is exempted by its OWN `accepted-at-escalation` record-backed waiver pointing at that escalation record. NEXT: the `structured-skeleton` initiative, the human DECIDED (`Q-45`, 2026-07-18, receipt in the log) skeleton-depth option B (clean-slate: the plan skeleton in a `<task>.plan.toml`, prose in Markdown sidecars, a new `agent-scaffold render` generating the committed `<task>.md`), over the orchestrator lean C, and (`Q-46`) that WAIVERS + the BASELINE move into the TOML (full design-B). The PLANNING PASS is DONE (three-explorer design pass + `synthesis.md`, then a planner fold + a converged plan review): the initiative is folded into the `structured-skeleton` umbrella step's SIX reviewed increments (Inc 1 TOML schema + `parse_toml` + `validate --source`; Inc 2 structured step/increment id on JSONL; Inc 3 the `render` engine + `render --check`; Inc 4 point W3/W4/W5 + `status` at the TOML source incl. waivers/baseline; Inc 5 migrate this repo synthetic-pilot-first + revertible cutover; Inc 6 pack template + scaffold). NEXT: build Inc 1 (low) and Inc 2 (low, parallel) via the worktree-isolated review loop. The checks/isolation dogfood remains re-planned into `Q-44`. Standing convention now in force: prose is not hard-wrapped and line length is never a review finding. A consolidating planner pass has folded a backlog of already-decided workflow rules into new Roadmap steps: `file-safety-rules` (git-durability-and-recovery discipline), `agent-isolation` (capability-tiered writer isolation), `findings-files` (reviewers and triagers write findings to files, `Q-14`), `compaction-prep` (checkpoint / resume, `Q-15`), and `user-prompts-dir` (a `.agents/user-prompts/` directory, `Q-16`, revising `human-onboarding`); the queue carries `Q-14` through `Q-18` as decided. A full review of the whole codebase as it currently is (not a diff-based review), once earlier work lands, is now SUBSUMED by `review-mode` (`Q-35`): it becomes an instance of the review entry mode (whole-tree target, open-ended correctness/quality criteria), driven by the role-separated reviewer workflow rather than the diff-oriented `/code-review` command. The implementation lives in the repo (`src/`, `pack/`); this plan is the durable context for resuming after a compaction, and the "Repository Layout and Current Architecture" section maps the shipped code so a fresh implementor can continue without prior context. Verification convention: `cargo clippy --all-targets -- -D warnings`, `nix fmt`, and ASCII-clean before each commit.
 
@@ -323,6 +323,7 @@ NOT DECIDED, and NO STEP YET, deliberately. The design pass defines what gets bu
 | `checks-runner-worktree-name-collision` | complete | waived: increment `checks-runner-worktree-name-collision-inc1` accepted-at-escalation (record-backed) |
 | `workflow-enforcement-tier` | not started | why: decisions Q-55 |
 | `test-tmpdir-repo-assumption` | not started |  |
+| `status-resume-ignores-json` | not started |  |
 
 ## Step Details
 
@@ -1625,7 +1626,7 @@ Specified here rather than left to the implementer, because the entire point is 
 
 THE CORRELATION RULE, so a consumer can join the fields rather than guess. On an unsafe metrics pairing, `metrics_absent_reason` is `log-not-this-project` AND `no_active_loop_reason` is `metrics-not-this-project`, both set in the same output. The shared `not-this-project` token is deliberate: it is the same cause reported as two consequences, and a consumer that recognises the token needs no lookup table to correlate them.
 
-WHAT HAS NO JSON SURFACE AT ALL, so nothing is owed there and no acceptance check demands it: `status --resume` returns from `run_resume` at `src/main.rs:1067-1069` BEFORE any serialisation, so `--resume` is human text only and `--json` alongside it is silently ignored today. The implementer must not invent a JSON reason for that path. That the flag is silently ignored is a pre-existing oddity of a shape this project elsewhere treats as worth a clap `requires` (`--ledger-fragment` carries one for exactly this stated reason, `src/main.rs:465`); it is NOT caused by this step and is raised rather than folded in.
+WHAT HAS NO JSON SURFACE AT ALL, so nothing is owed there and no acceptance check demands it: `status --resume` returns from `run_resume` at `src/main.rs:1067-1069` BEFORE any serialisation, so `--resume` is human text only and `--json` alongside it is silently ignored today. The implementer must not invent a JSON reason for that path. That the flag is silently ignored is a pre-existing oddity of a shape this project elsewhere constrains in clap (`--ledger-fragment` carries a `requires` for exactly this stated reason at `src/main.rs:465`, and `audit --out` carries a `conflicts_with = "json"` at `src/main.rs:557` for the mutually-exclusive-output-modes case this one actually is); it is NOT caused by this step, it was raised rather than folded in, and it is now scheduled as its own backlog step, `status-resume-ignores-json` (order 96).
 
 WHAT WAS CONSIDERED AND DELIBERATELY NOT ADDED. A reason beside `status`'s `plan: Option<PlanProjection>`: that field has exactly ONE cause (no readable plan source was given), so a reason field there would carry a single value and inform nobody (Minimal by default). A malformed-log variant on `metrics_absent_reason`: neither `status` nor `next` distinguishes a malformed log today (`count_records` counts non-blank lines and `parse_rounds` is best-effort), so there is no such state to report, and manufacturing one would be new behaviour rather than a reason for existing behaviour.
 
@@ -1765,7 +1766,7 @@ INC3:
 - It does not extend the EXIT-CODE POLICY to `status` or `next`. `Q-55` is about `validate --workflow`; the projections keep exit 0 both on a missing log (reporting `no log found`) and on an unsafe pairing (reporting why the part is omitted).
 - It does not leave the `--json` surface reporting a bare absence. `Q-55-jsonreason` settled that too: serialised reasons on both `status` and `next`, with a specified vocabulary, because `--json` is what an agent reads and this decision exists because an agent acts on the output. The variant sets are fixed in this file rather than left to the implementer; DO NOT widen or rename them without a new decision, since a consumer distinguishing the causes is the whole property.
 - It does not add a reason beside `status`'s `plan` field (one cause, so a reason informs nobody), and it does not add a malformed-log variant (no such state is distinguished today). Both were considered; see the end of the `Q-55-jsonreason` section.
-- It does not give `status --resume` a JSON surface, which it has never had, and it does not fix `--json` being silently ignored alongside `--resume`. That is a pre-existing oddity of a shape this project elsewhere treats as worth a clap `requires`, it is not caused by this step, and it is raised rather than folded in.
+- It does not give `status --resume` a JSON surface, which it has never had, and it does not fix `--json` being silently ignored alongside `--resume`. That is not caused by this step; it was raised rather than folded in, and it is now held by its own backlog step, `status-resume-ignores-json` (order 96), whose recommended fix rejects the combination rather than building a second machine surface. If that step ever takes the other fork, it REUSES the `resume_state_absent_reason` vocabulary specified here rather than minting a second one for the same three causes.
 - It does not fix the SILENT MISS or the SYMLINK FALSE REFUSAL. Both are accepted costs recorded above and PINNED by the acceptance check. A symlink-aware treatment, if ever wanted, belongs with the backlog step `sidecar-ref-symlink` (order 64).
 - It does not change any check logic in `src/workflow.rs`. W3, W4 and W5 are correct; they were handed the wrong log.
 - It does not fix the THREE TESTS that fail when `TMPDIR` is inside a git repository. That is a pre-existing property of the suite, now scheduled as its own backlog step, `test-tmpdir-repo-assumption` (order 95), and noted in the acceptance check so it is not mistaken for a regression here.
@@ -1849,6 +1850,133 @@ The one failure mode that would justify a second round is a test made to pass by
 - It does not change `src/checks.rs`'s worktree NAMING, which is the separate defect held by `checks-runner-worktree-name-collision` (order 93, `deferred`). The two are both test-isolation defects and are deliberately separate: that one is a real race in production-reachable code, this one is an environment assumption in test setup.
 - It does not consolidate the two `scratch` helpers into one. They live in different modules and differ in their prefix and their cleanup, and merging them is a refactor this defect does not require (Minimal by default). If the chosen fix makes a shared helper natural, say so and argue it rather than doing it silently.
 - It does not change the project's scratch-`TMPDIR` discipline or any agent brief. Those stay as they are; what changes is that following them stops breaking the suite.
+
+### `status-resume-ignores-json`: `status --resume --json` silently ignores `--json` and prints human text
+
+A small consistency defect on the CLI surface, found while specifying the JSON reasons for `workflow-enforcement-tier` (`Q-55-jsonreason`) and deliberately not folded into that step. `run_status` dispatches to the resume slice before any serialisation happens, so `--json` passed alongside `--resume` has no effect at all: no JSON, no warning, no non-zero exit.
+
+Scheduled as backlog behind the release gates by human decision (2026-07-31), against the standing backlog, with no `[[question]]` registered and no decision receipt owed, on the same precedent as `test-tmpdir-repo-assumption` (order 95). It blocks nothing and nothing blocks it; it is deliberately NOT a dependency of `rename-to-agent-flow`, of `workflow-enforcement-tier`, or of `test-tmpdir-repo-assumption`.
+
+## The mechanism
+
+`run_status` (`src/main.rs:1062-1069`) opens with the resume branch and returns from it:
+
+```rust
+fn run_status(args: StatusArgs) -> io::Result<()> {
+	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
+	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
+	// A missing ledger or absent section is a note and exit 0, not a failure (`status` is
+	// best-effort).
+	if args.resume {
+		return run_resume(&args);
+	}
+```
+
+Every serialisation path in `status` is BELOW that return: the projection is assembled afterwards and `serde_json::to_string_pretty` is reached at `src/main.rs:1104`. `run_resume` (`src/main.rs:1152-1165`) only ever `println!`s. So `args.json` is read nowhere on the resume path, and clap accepts the pair without complaint.
+
+## The observed behaviour, run rather than reasoned
+
+Four cases, all against a build of this worktree, with a two-line probe ledger outside the repository.
+
+A, the resume block present. `--json` has no effect; the raw Markdown block is printed:
+
+```
+$ agent-scaffold status --source docs/plans/agent-scaffold.plan.toml --resume --json --ledger-fragment <probe>.ledger.md
+## RESUME STATE
+
+probe ledger body.
+exit: 0
+```
+
+B, the ledger absent:
+
+```
+no ledger at <path>; nothing to resume
+exit: 0
+```
+
+C, a ledger with no `## RESUME STATE` section:
+
+```
+<path>: no `## RESUME STATE` block found
+exit: 0
+```
+
+D, THE CONTROL, which is what makes this a dispatch problem rather than a broken flag. Without `--resume`, the same `--json` works exactly as documented:
+
+```
+$ agent-scaffold status --source docs/plans/agent-scaffold.plan.toml --json
+{
+  "plan": {
+    "steps": [
+...
+```
+
+So the flag is fine and is simply never reached. In all three resume cases the output is not JSON and the exit code is 0.
+
+## Severity, stated honestly so the queue is not distorted
+
+THIS IS A FALSE SILENCE, NOT A FALSE ASSERTION, and it is milder than anything `workflow-enforcement-tier` fixes. It must not borrow that step's urgency just because it was found next to it.
+
+The caller asked for JSON and got output that is visibly not JSON, so any consumer that parses it fails on the first character, immediately and locally. Nothing wrong is propagated: there is no wrong value, no fabricated instruction, and no green that should have been red. Compare the defects that step exists to fix, where the tool emits a CONFIDENT WRONG ANSWER that a human or an agent then acts on. Here the tool emits a right answer in the wrong format, and the format mismatch is self-announcing.
+
+What the defect actually costs is DIAGNOSIS, not correctness. The failure surfaces to the user as "the tool produced garbage" rather than as "you passed a flag that does nothing here", so the user debugs their parser before they suspect their command line. That is a real cost and a small one.
+
+## The in-repo precedent, which makes this an inconsistency rather than a gap
+
+This project has already ruled on silently-ignored flags, in this file, with the reasoning written down. `StatusArgs` itself carries one, at `src/main.rs:464-466`, on the sibling flag of the very branch in question:
+
+```
+/// ... Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
+#[arg(long, requires = "resume")]
+ledger_fragment: Option<PathBuf>,
+```
+
+"the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run" is exactly the condition `--json` is in under `--resume`, on the same struct, one field away. The same sentence appears again on `--workflow-spec` (`src/main.rs:441-443`, "the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0"), and a third, shorter form on `render --strict` (`src/main.rs:524-526`, "Meaningless without --check").
+
+There is also a precedent for the RELATION this case needs, which is not the same relation as those three. `audit` resolves a clash between two mutually exclusive OUTPUT MODES at `src/main.rs:556-558`:
+
+```
+/// Override the report output path. ... Conflicts with --json, which writes no file.
+#[arg(long, conflicts_with = "json")]
+out: Option<PathBuf>,
+```
+
+So a fix here FOLLOWS AN ESTABLISHED CONVENTION rather than inventing one, and that is the proposition to state in the commit. Four constraint attributes already exist in `src/main.rs` (`:396`, `:441`, `:465`, `:525`, `:557`), so the mechanism is routine in this codebase.
+
+## The fix fork, not pre-decided
+
+- (A) REJECT THE COMBINATION WITH A CLAP CONSTRAINT. `--resume` and `--json` are two mutually exclusive OUTPUT MODES, so the relation is `conflicts_with`, matching the `audit --out` precedent, NOT `requires`, which is the relation the other three precedents use. Getting that backwards matters: a `requires` in either direction would break `status --json` on its own, which is a working, documented surface with a README example. Cost is one attribute, one help-text sentence on each flag, and a test per direction. Promises nothing new, closes the defect exactly as stated, and is a one-attribute revert if the project later wants (B).
+- (B) GIVE `--resume` A REAL JSON SURFACE. Serialise the resume block and its absence reason instead of rejecting the pair. Materially larger, and it answers a DIFFERENT question, namely whether `status --resume` should have a machine surface at all, which nobody has asked for. IT MUST NOT BE BUILT BEFORE `workflow-enforcement-tier` INC2 LANDS. That increment introduces `resume_state_absent_reason` on `NextProjection` with the closed vocabulary `ledger-absent` / `no-resume-section` / `ledger-not-this-project`, and those are the same three causes a resume JSON surface would have to report. Building (B) first would mint a second vocabulary for one set of causes, which is the "an under-specified vocabulary reproduces the defect in a new place" hazard in a new place, and it would then have to be reconciled. If (B) is ever chosen, it REUSES that enum.
+
+RECOMMENDATION: (A). It closes the defect at the size of the defect (Minimal by default), it follows two in-file conventions rather than inventing one, and it forecloses nothing, since (A) and (B) are mutually exclusive in the long run and (A) is trivially revertible if appetite for (B) appears. (B) is a capability question wearing a defect's clothes.
+
+NOTE ON WHY THE (B) ORDERING IS NOT ENCODED IN `blocked_by`. It is conditional on a fork nobody has chosen, and under the recommended (A) this step is not blocked by anything. Encoding a dependency for a branch that may never be taken would make the step falsely blocked and would drag it into `workflow-enforcement-tier`'s wake, which is the opposite of what scheduling it as independent backlog was for. The constraint is stated here in prose instead; an empty `blocked_by` is deliberate, not an oversight.
+
+## Risk classification
+
+`status-resume-ignores-json-inc1` is `low_risk` (one clean review round), AS SCOPED TO FORK (A).
+
+The change is one clap attribute plus help text and tests. It touches no logic, changes no output for any invocation that is not currently meaningless, ships nothing to a scaffolded project, and reverts in one line. It DOES turn a currently-accepted invocation into a usage error (exit 2), which is a CLI contract change, and this plan classifies `workflow-enforcement-tier-inc3` as `risky` partly on that basis; the two are not comparable. Inc3 flips a currently-PASSING gate to failing for an entire population, on an invocation people run in CI, and its boundary (which cases convert to problems and which stay skips) is easy to get subtly wrong. Here the rejected combination has never done what its flags advertise, so nothing can be depending on the behaviour being removed; the break is loud, immediate, names both flags, and is fixed by deleting one of them.
+
+The one real way to get this wrong is naming the WRONG RELATION or putting the attribute on the wrong field, which would break `status --json` standing alone, a documented surface with a README example. That is a single-attribute mistake with a single-test detection, which is what one clean round with a mandated control case is for; a second round would re-read one attribute.
+
+IF FORK (B) IS CHOSEN INSTEAD, THIS CLASSIFICATION DOES NOT HOLD and the step must be RE-CLASSIFIED BEFORE IT IS BUILT rather than waived afterwards. (B) adds a serialised contract, must reuse another step's vocabulary, and would carry the same documented-contract obligations `Q-55-jsonreason` carries (doc comments, `README.md`, `CHANGELOG.md`).
+
+## Acceptance check
+
+1. `cargo test` and `cargo clippy --all-targets -- -D warnings` clean. Point `TMPDIR` outside any git repository first, per `test-tmpdir-repo-assumption` (order 95).
+2. THE DEFECT IS CLOSED: `agent-scaffold status --source <plan> --resume --json` exits NON-ZERO with a usage error naming both flags, rather than exit 0 with human text. Red against the pre-fix build, where it exits 0 printing the `## RESUME STATE` block.
+3. THE CONTROL, which is the mistake this step can actually ship and must be pinned in BOTH directions: `status --source <plan> --json` alone still emits the projection as JSON and exits 0, and `status --source <plan> --resume` alone still prints the block and exits 0. A fix that spells the relation backwards passes check 2 and fails one of these.
+4. The two remaining resume paths are unchanged when `--json` is absent: a missing ledger prints `no ledger at <path>; nothing to resume` at exit 0, and a ledger with no section prints `<path>: no ``## RESUME STATE`` block found` at exit 0.
+5. `--ledger-fragment` still requires `--resume` and is unaffected, so the new constraint did not disturb the existing one on the same struct.
+6. `--help` for `status` reads correctly with the new constraint, and the help text on each flag states the exclusion in the style the four existing constraint attributes use.
+
+## Scope
+
+- It does not give `status --resume` a JSON surface. That is fork (B), it is not recommended, and it must not be built before `workflow-enforcement-tier` inc2 in any case.
+- It does not audit the other subcommands for silently-ignored flag combinations. Four constraint attributes already exist and the three cases they cover are the ones previously found; a sweep for further cases is a different piece of work and is not smuggled in here (Minimal by default). If the implementer notices one while working, RAISE it rather than folding it in.
+- It does not change `run_resume`'s output, its exit code, or its best-effort contract.
 
 ## Success Criteria
 

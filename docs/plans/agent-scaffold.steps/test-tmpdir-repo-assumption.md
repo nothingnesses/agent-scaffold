@@ -63,7 +63,7 @@ The one failure mode that would justify a second round is a test made to pass by
 
 ## Acceptance check
 
-1. `cargo test` passes with `TMPDIR` set INSIDE a git repository (a worktree-local scratch directory), which is the case that fails today. 386 expected, 0 failed.
+1. `cargo test` passes with `TMPDIR` set INSIDE a git repository (a worktree-local scratch directory), which is the case that fails today.
 2. `cargo test` still passes with `TMPDIR` set OUTSIDE any repository, and with `TMPDIR` unset, so the fix removes the dependency rather than inverting it.
 3. `cargo test` passes with `TMPDIR` set inside a LINKED worktree specifically, not only inside a primary checkout, since that is the arrangement every isolated agent on this project actually runs in.
 4. The mutation demonstration, one per test, each producing a named RED against the new arrangement: make `run` accept a non-repository target, make `init_plan` skip unconditionally, and make `install_precommit_hook` report something other than the not-a-repository skip. Each corresponding test must fail. The round report names the mutation and quotes the failure.

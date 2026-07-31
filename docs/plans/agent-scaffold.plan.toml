@@ -468,7 +468,7 @@ waiver = []
 [[step]]
 slug = "workflow-calibration"
 title = "Calibrate the workflow's provisional round constants"
-status = "deferred"
+status = "in-progress"
 order = 35
 blocked_by = []
 folds = []

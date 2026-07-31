@@ -499,12 +499,10 @@ fn reserve_runner_worktree(pid: u32) -> io::Result<PathBuf> {
 	reserve_runner_worktree_with(pid, claim_dir)
 }
 
-/// `reserve_runner_worktree` (above) with its claim injected, which is the only way
-/// to drive the outcome the filesystem will not produce on demand. Every real claim
-/// in this repository WINS: production takes one path at a time and the prune
-/// fixtures take theirs sequentially. Production passes `claim_dir` and is otherwise
-/// unchanged; the whole reservation, including the temp-dir creation above the loop,
-/// lives here so the tests drive the same code the runner does.
+/// `reserve_runner_worktree` (above) with its claim injected. Production passes
+/// `claim_dir` and is otherwise unchanged; the whole reservation, including the
+/// temp-dir creation above the loop, lives here so the tests drive the same code the
+/// runner does.
 fn reserve_runner_worktree_with(
 	pid: u32,
 	claim: impl Fn(&Path) -> io::Result<bool>,
@@ -1703,15 +1701,27 @@ mod tests {
 		let path = dir.join("claim");
 		assert!(claim_dir(&path).unwrap(), "the first claim on a fresh path is won");
 		assert!(!claim_dir(&path).unwrap(), "a second claim on the same path is lost");
+		// The THIRD outcome this documents, which neither assertion above reaches: a claim
+		// that fails for a reason OTHER than the path being taken propagates as an error
+		// rather than folding into either verdict. A regular file standing in for a parent
+		// directory produces one without needing a permissions fixture.
+		let file = dir.join("a-regular-file");
+		fs::write(&file, "not a directory\n").unwrap();
+		let error = claim_dir(&file.join("under-a-file"))
+			.expect_err("a claim that cannot be made is an error, not a verdict");
+		assert_ne!(
+			error.kind(),
+			io::ErrorKind::AlreadyExists,
+			"a real error must stay distinguishable from a lost claim: {error}"
+		);
 		fs::remove_dir_all(&dir).unwrap();
 	}
 
 	#[test]
 	fn a_lost_claim_retries_with_a_fresh_name_and_never_returns_the_lost_one() {
 		// Layer 2's collision handling, driven at the use site rather than only at
-		// `claim_dir`. The filesystem will not lose a claim on demand (every real claim
-		// in this repository wins), so the claim is injected: this one records every name
-		// it is offered and loses the first two, which is the state the loop exists for.
+		// `claim_dir`. The claim is injected: this one records every name it is offered
+		// and loses the first two, which is the state the loop exists for.
 		let offered = std::cell::RefCell::new(Vec::new());
 		let reserved = reserve_runner_worktree_with(std::process::id(), |path| {
 			let mut offered = offered.borrow_mut();

@@ -1293,6 +1293,26 @@ reason = "accepted-at-escalation"
 evidence_tier = "record-backed"
 evidence = "checks-runner-worktree-name-collision-inc1"
 
+[[step]]
+slug = "workflow-enforcement-tier"
+title = "fail `validate --workflow` when the check cannot run (an absent metrics log is an error, not a skip), and anchor the metrics log to the plan source so the join can never pair one project's plan with another project's log (`Q-55`)"
+status = "not-started"
+order = 94
+blocked_by = []
+folds = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-55"]
+
+[[step.increment]]
+id = "workflow-enforcement-tier-inc1"
+risk_class = "risky"
+
+[[step.increment]]
+id = "workflow-enforcement-tier-inc2"
+risk_class = "risky"
+
 [[question]]
 id = "Q-1"
 status = "decided"
@@ -1632,8 +1652,18 @@ ask = """the human-input contract (present options with their trade-offs, a reco
 
 [[question]]
 id = "Q-55"
-status = "open"
-ask = """the two-tier workflow enforcement gap (SE-3, from the `Q-44` architecture audit `docs/plans/architecture-audit.explorations/audit-sharp-edges.md`): W3 convergence, the metrics validator, and the drift guards only operate when a project opted into `--instrument` and has a JSONL log, so a NON-instrumented project gets NO machine enforcement of any workflow invariant and `validate --workflow` silently passes (a false green); the two-tier split is also undocumented in the scaffolded AGENTS.md, so a user reading the role prompt expects the same guarantees regardless. The audit rated this SIGNIFICANT. How to handle is an open decision; candidate handlings the human should weigh (not pre-decided here): warn on `validate --workflow` when no log exists; require the log unconditionally; or make round-logging core rather than opt-in, which the Principle 8 structured-source direction leans toward. Do not build until decided."""
+status = "decided"
+folded_into = "workflow-enforcement-tier"
+receipt = "Q-55"
+ask = """the two-tier workflow enforcement gap (SE-3, from the `Q-44` architecture audit `docs/plans/architecture-audit.explorations/audit-sharp-edges.md`): W3 convergence, the metrics validator, and the drift guards only operate when a project opted into `--instrument` and has a JSONL log, so a NON-instrumented project gets NO machine enforcement of any workflow invariant and `validate --workflow` silently passes (a false green); the two-tier split is also undocumented in the scaffolded AGENTS.md, so a user reading the role prompt expects the same guarantees regardless. The audit rated this SIGNIFICANT. How to handle is an open decision; candidate handlings the human should weigh (not pre-decided here): warn on `validate --workflow` when no log exists; require the log unconditionally; or make round-logging core rather than opt-in, which the Principle 8 structured-source direction leans toward. Do not build until decided.
+
+DECISION (human, 2026-07-31): FAIL WHEN `--workflow` CANNOT RUN. `validate --workflow` exits NON-ZERO when the check was explicitly requested and no metrics log exists at the resolved path, reporting why; plain `validate` (and `--source` / `--plan` without `--workflow`) is UNAFFECTED, an absent log there staying a stderr note and exit 0. The reasoning the human accepted: the user explicitly asked for the check, so silently skipping it and reporting success is the defect. Chosen over MAKING ROUND-LOGGING CORE rather than opt-in (rejected as forcing instrumentation on users who did not ask for it, and a substantially bigger change than the defect warrants; Minimal by default) and over WARNING WHILE KEEPING EXIT 0 (rejected because a warning with exit 0 is still green in CI, which is the actual failure mode). The break with today's exit code is authorised by Structured data first, project for humans, whose recorded 2026-07-18 rider makes the best long-term design win over backwards-compatibility at this pre-adoption stage and beat Safe on existing projects where the two conflict; Safe on existing projects is what makes the change `risky`, not what blocks it.
+
+CORRECTION TO THIS ITEM'S OWN WORDING, recorded because the reproduction contradicted it. "Silently passes" above is an OVERSTATEMENT: the skip IS announced, twice, at `src/main.rs:845` and `src/main.rs:1001-1003`, and both announcements go to STDERR while stdout carries only the ok summary. The operative defect is the EXIT CODE alone, since a CI gate reads the exit status and not the stderr log. Read this as a false green, never as a silent one.
+
+A SECOND DEFECT, NOT IN THE TEXT ABOVE AND WORSE, found by scaffolding a throwaway non-instrumented project and running the tool against it (2026-07-31). The metrics-log path resolves against the CURRENT WORKING DIRECTORY (`src/main.rs:429-431`) rather than against the plan source, so a run made from inside agent-scaffold against a foreign plan joined agent-scaffold's own 235-record log to a one-step foreign plan and reported `workflow invariants hold` at exit 0. Sharpened into a measurable FALSE PASS: give the foreign plan's step a slug that has round records here and mark it `complete`, and this project's rounds satisfy that project's convergence claim. The green is not merely empty, it is affirmatively wrong, and this is a straight bug independent of whichever tier policy was chosen.
+
+SCOPE (human, 2026-07-31, receipt `q_id:"Q-55-scope"`): SAME STEP, SEPARATE INCREMENT. Both defects are fixed by ONE step built as TWO increments, so the path fix (inc1) lands and is reviewed independently of the tier-policy change (inc2), with inc1 first so the tier change cannot hand users a directory-hopping workaround into the contamination bug. Chosen over giving the path fix its own step ahead of this one and over folding the pair into the validation-constraints step: the two defects touch the same code path and produce the same user-facing green, so separate steps would mean reviewing the same region twice. Folded into `workflow-enforcement-tier` (order 94), both increments classified `risky`. Decision receipts `type:"decision"` `q_id:"Q-55"` and `q_id:"Q-55-scope"` in `docs/metrics/workflow.jsonl`. NOT COVERED by this decision and left open for the human: the DOCUMENTATION half of SE-3 (the two-tier split undocumented in the scaffolded AGENTS.md), and whether the identical CWD-relative metrics default in `status` / `next` and the derived ledger path is in scope."""
 
 [[question]]
 id = "Q-56"

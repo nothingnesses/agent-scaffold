@@ -11,10 +11,10 @@
 //! complete` instruction, a record count belonging to the wrong project, and one project's
 //! `## RESUME STATE` block printed as another project's resume anchor.
 //!
-//! Every test builds several projects in one scratch tree and runs the binary from the
-//! WRONG one, so which file was read is identified by CONTENT rather than asserted from
-//! the path: each project's log carries a different record count, and only `home`'s log
-//! has a converged round for `borrowed-step`.
+//! The cross-project tests build several projects in one scratch tree and run the binary
+//! from the WRONG one, so which file was read is identified by CONTENT rather than
+//! asserted from the path: each project's log carries a different record count, and only
+//! `home`'s log has a converged round for `borrowed-step`.
 //!
 //! Several of the tests are pins rather than red-then-green cases, marked as such on each.
 
@@ -368,12 +368,12 @@ fn a_nested_docs_plans_resolves_to_the_inner_project() {
 }
 
 /// Acceptance check 9, the Safe on existing projects pin: a run made from the plan's own
-/// project root, which is the normal invocation and the only one the scaffolded guidance
-/// documents, is UNCHANGED, byte for byte. The whole stdout is compared rather than
-/// searched, because the property is that the printed paths stay RELATIVE: an
-/// "improvement" that canonicalised the default would still read the right file and still
-/// pass a `contains` assertion while changing two of these three lines to absolute,
-/// machine-specific paths.
+/// project root with a BARE RELATIVE `--source`, which is the normal invocation and the
+/// only one the scaffolded guidance documents, is UNCHANGED, byte for byte. The whole
+/// stdout is compared rather than searched, because the property is that the printed paths
+/// stay RELATIVE: an "improvement" that canonicalised the default would still read the
+/// right file and still pass a `contains` assertion while changing two of these three
+/// lines to absolute, machine-specific paths.
 ///
 /// A pin, not a red-then-green case: it passes identically before and after the change.
 #[test]
@@ -390,7 +390,7 @@ fn the_correct_case_prints_the_same_relative_paths_it_always_did() {
 		"docs/metrics/workflow.jsonl: 3 records, valid\n\
 		 docs/plans/p.plan.toml: 1 steps, 0 questions, valid\n\
 		 docs/plans/p.plan.toml vs docs/metrics/workflow.jsonl: workflow invariants hold\n",
-		"the correct case's output must be byte-identical to the pre-anchoring binary's"
+		"this spelling's output must be byte-identical to the pre-anchoring binary's"
 	);
 
 	let _ = fs::remove_dir_all(&root);

@@ -1296,7 +1296,7 @@ evidence = "checks-runner-worktree-name-collision-inc1"
 [[step]]
 slug = "workflow-enforcement-tier"
 title = "anchor the metrics log and the ledger to the plan source (for `validate`, `status` and `next`), refuse a cross-root pairing under `--workflow`, fail `validate --workflow` when the check cannot run, and document the two enforcement tiers in the scaffolded guidance (`Q-55`)"
-status = "not-started"
+status = "in-progress"
 order = 94
 blocked_by = []
 folds = []

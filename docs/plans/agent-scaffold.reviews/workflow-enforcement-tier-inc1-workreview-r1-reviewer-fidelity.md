@@ -1,0 +1,86 @@
+# `workflow-enforcement-tier-inc1`, WORK REVIEW round 1, fidelity review
+
+Reviewer lens: fidelity to `docs/plans/agent-scaffold.steps/workflow-enforcement-tier.md`, scope discipline, and the acceptance checks.
+
+Commit under review: `f491c4e` (`git diff 69c0525 f491c4e`).
+
+## Summary verdict
+
+CLEAN. Zero findings.
+
+The acceptance-check partition the implementer claimed (checks 1-10 plus the inc1 half of 18 belong to inc1; 11-14h and 19 to inc2; 15-17 and 20 to inc3) matches the sidecar's own "AFTER INC1" / "AFTER INC2" / "AFTER INC3" labelling exactly. I ran every check I agree is inc1's myself, from its stated preconditions, against the built binary, and independently reproduced the pre-fix defect against a binary built from commit `69c0525` where the check names a before-state. All ten checks plus the inc1 half of 18 pass. All four settled mechanism decisions are implemented as decided, cited below by file:line. No refusal, containment predicate, or canonical-root derivation was built (that is inc2's job, confirmed absent). Inc1's own scope is complete: `Option<PathBuf>` lands on all three arg structs, the derivation and resolution functions exist and are used by `validate`, `status`, and `next`, `default_ledger_path` takes the plan source with both call sites (`run_resume`, `run_next`) passing it through, and the help strings and doc comments describing resolution are updated. Documentation currency (help strings, doc comments, README, CHANGELOG) is accurate and none of it overclaims inc2/inc3 behaviour that has not landed. The CHANGELOG-placement reasoning (existing `### Changed` over a new `### Fixed`) is verified against the file's actual history.
+
+## Findings table
+
+| id | severity | title |
+|----|----------|-------|
+| (none) | - | No findings |
+
+## Enumeration
+
+### Acceptance-check partition verdict
+
+Verified against the sidecar's own text (`## Acceptance check`, `docs/plans/agent-scaffold.steps/workflow-enforcement-tier.md:302-334`). Every check from 3 through 10 is explicitly labelled "AFTER INC1" in its own text; 11 through 14h are labelled "AFTER INC2"; 15, 16, 17, 20 are labelled "AFTER INC3"; 18 is split explicitly into an "After inc1 alone" clause and an "After inc3" clause, so "the inc1 half of 18" is a correct reading of the check's own text, not an implementer gloss. 19 is entirely about the inc2-built guard ("REFUSED under `validate --workflow` after inc2 ... AND has its metrics half OMITTED by `status` and `next`"), so it is entirely inc2's, not split. Checks 1 and 2 are generic preconditions/build gates rather than defect-specific, and inc1 needs them green to be complete, so including them in inc1's set is correct. Verdict: the partition is correct in both directions. No inc1 check was deferred to inc2, and no inc2/inc3 check was claimed early by inc1.
+
+### Per-check results (all run by me against the built binary, not accepted from the implementer's report)
+
+| check | scope | command / precondition | result |
+|---|---|---|---|
+| 1 | inc1 | `cargo build`; `TMPDIR=/tmp/wr-b-scratch cargo test`; `cargo clippy --all-targets -- -D warnings`; `cargo run -- render docs/plans/agent-scaffold.plan.toml --check` | PASS. Build clean. 373+5+1+1+9+3+1+2 = all suite tests green, 0 failed (includes the new 9-test file). Clippy clean, 0 warnings. Render: "docs/plans/agent-scaffold.plan.toml: up to date". |
+| 2 | inc1 | rebuild fixture, `ls "$SCRATCH/docs"` | PASS. `scaffold --output-dir "$SCRATCH" --write --force --principles default` reported "Wrote to ... (30 changed, 0 left untouched)"; `ls "$SCRATCH/docs"` printed only `plans`. |
+| 3 | inc1 | from repo root, `validate --source "$SCRATCH/.../TEMPLATE.plan.toml" --workflow` | PASS. Post-fix: `no metrics log at <fixture path>/docs/metrics/workflow.jsonl; nothing to validate`, exit 0, no `workflow invariants hold`, no mention of this repo's 245-record count. Pre-fix binary (built from `69c0525`), run the identical command from its own root: reproduces the defect verbatim, `docs/metrics/workflow.jsonl: 245 records, valid` / `... workflow invariants hold`, exit 0, for the foreign fixture. |
+| 4 | inc1 | borrowed slug (`example-step` -> `triager-runs-only-on-findings`, `not-started` -> `complete`) at `complete`, run from repo root | PASS. Pre-fix binary reproduces the false pass exactly: `workflow invariants hold`, exit 0. Post-fix, same input (fixture still has no log of its own): correctly falls into defect A's still-open skip (not a false pass; the log is genuinely absent so it soft-skips, exit 0, no `workflow invariants hold` printed anywhere - defect A is inc3's job). Giving the fixture its own empty log and re-running produces the exact quoted red: `... vs .../workflow.jsonl: Roadmap step \`triager-runs-only-on-findings\` is \`complete\` but has no round records and no covering waiver; log its review rounds, or record a \`type:"waiver"\` for it if it predates logging or its review was skipped`, exit 1. |
+| 5 | inc1 | `next --source <foreign plan>` (no `--metrics`), borrowed slug at `in-progress` | PASS. Pre-fix binary: fabricates `state: converged`, `streak: 1/1`, `rounds: 2/5`, `next: mark the step complete, re-render, and commit`, for a project with 0 rounds of its own (245 foreign records read as `metrics: 245 records`). Post-fix: `metrics: no log found`, `state: awaiting-first-review`, `streak: 0/?`, `rounds: 0/5`, `next: spawn a reviewer for the first review round`. Neither `state: converged` nor `mark the step complete` appears. |
+| 6 | inc1 | `status --source <foreign plan>` | PASS. Pre-fix: `metrics: 245 records` (this repo's own log). Post-fix: `metrics: no log found` (fixture's own, correctly absent). |
+| 7 | inc1 | rename fixture plan to `agent-scaffold.plan.toml`, `status --resume` and `next` from repo root | PASS. Pre-fix binary leaks this repository's real `## RESUME STATE (compaction checkpoint, read this first)` block (461 lines on `status --resume`; the block also appears inside `next`'s echo), exit 0. Post-fix: both commands print only the fixture's own distinctly-tagged resume block and never the real ledger's header text, exit 0. I did not write anything into this repository's `docs/plans/agent-scaffold.ledger.md` at any point (confirmed clean via `git status --short` after all runs); the real ledger was read only, by the pre-fix binary, to demonstrate the defect, and only from a scratch copy of the source tree entirely outside this worktree. |
+| 8 | inc1 (`Q-55-noconvention`) | plan at a root with no `docs/plans`, run from elsewhere and from its own root | PASS. Both runs report `metrics: 2 records`, the conventionless root's own log, identically. |
+| 9 | inc1, Safe on existing projects | `validate --source docs/plans/agent-scaffold.plan.toml --workflow` from repo root | PASS. `cmp` confirms stdout byte-identical between the post-fix and pre-fix binaries (208 bytes each, `cmp` reports no difference), stderr identical (empty), exit 0 on both, `workflow invariants hold` on both, reading this repository's own 245-record log both times. |
+| 10 | inc1 | plain `validate --source <fixture plan>` (no `--workflow`), and bare `validate` with no source | PASS. Both exit 0. The sourced case prints the stderr note naming the fixture's own missing log path and does not print this directory's 3-or-245 record count. The sourceless case prints `docs/metrics/workflow.jsonl: 3 records, valid` (from a directory-standing scenario I ran it in) i.e. the historical CWD-relative default, unchanged. |
+| 18 (inc1 half) | inc1 | `cd <root>/docs/plans && validate --source p.plan.toml --workflow` | PASS. Ran from inside a fixture's `docs/plans`: `no metrics log at docs/metrics/workflow.jsonl; nothing to validate`, `--workflow has a plan source but the metrics log is missing; skipping the workflow check`, exit 0. The project's real log (which does not exist at that doubled path) is never reached; matches "the stderr miss note and exit 0" pinned as expected, not fixed. |
+| 11-14h | inc2, not built | n/a | Correctly not attempted in this increment. Confirmed the containment predicate, the canonical root derivation, and any `problems.push` for an unsafe pairing are absent from the diff (see Scope discipline below). |
+| 15-17, 20 | inc3, not built | n/a | Correctly not attempted. Confirmed the `_` catch-all arm at `src/main.rs:1010-1013` is functionally unchanged: still `eprintln!` with no `problems.push`, so defect A's exit-0 skip remains open. |
+| 19 | inc2, not built | n/a | Correctly not attempted (no symlink guard exists yet). |
+
+### The four settled decisions
+
+1. `Option<PathBuf>` with a bare `#[arg(long)]`, default applied after resolution, not `ArgMatches::value_source`. Confirmed at `src/main.rs:431`, `:457`, `:481` (all three arg structs declare `metrics: Option<PathBuf>` with a bare `#[arg(long)]`, no `default_value`). The default is applied in `resolve_metrics_path` (`src/main.rs:1211-1223`), whose own doc comment (`src/main.rs:1204-1210`) states the `value_source` rejection reasoning verbatim, matching the sidecar's `Q-55-mechanism` write-up. `grep -n "value_source\|ArgMatches" src/main.rs` finds one hit, inside that doc comment's prose, not in executable code. `--help` output confirmed no stale `[default: docs/metrics/workflow.jsonl]` appears anywhere.
+2. The derivation is purely lexical, nearest-wins, no filesystem access, no canonicalisation. Confirmed at `project_root_of_source`, `src/main.rs:1179-1196`: the function operates entirely on `Path`/`OsStr` methods (`.parent()`, `.ancestors()`, `.file_name()`), calls no `fs::` function and no `.canonicalize()`. The only `canonicalize()` calls anywhere in `src/main.rs` (lines 1492, 1517, 2577, 2602 by the pre-fix numbering, unrelated line numbers post-fix) belong to the pre-existing, unrelated pre-commit-hook-install machinery (`canonical_existing_ancestor`, `hooks_dir_inside_output`), confirmed by reading their surrounding context; none were touched by this diff. I additionally ran a live `..`-in-path test against this repository's own plan (`status --source docs/plans/agent-scaffold.steps/../agent-scaffold.plan.toml`) and got `metrics: 245 records` plus the correct step count, confirming the `..` component is skipped by the lexical walk exactly as the doc comment at `src/main.rs:1169-1170` claims (`Path::file_name` returns `None` for a `..` component).
+3. The conventionless case falls back to the source's own directory, not a hard error. Confirmed at `src/main.rs:1195` (`parent.to_path_buf()` after the ancestor loop exhausts with no match) and its doc comment at `src/main.rs:1161-1163`. Verified live: a plan at a project root with no `docs/plans` (`/tmp/.../flat/myplan.plan.toml`) resolves its own `docs/metrics/workflow.jsonl` (2 records) both from elsewhere and from its own root (check 8 above).
+4. The lexical/canonical split is not collapsed; inc1's default stays lexical. Confirmed by the absence of any canonicalising call in `project_root_of_source` or `resolve_metrics_path`, and by check 9's byte-identical `cmp` result (a canonicalising default would have turned the two path-bearing stdout lines absolute, which the pre/post `cmp` shows did not happen). The doc comment at `src/main.rs:1165-1168` states this reasoning explicitly and matches the sidecar's "THE LEXICAL/CANONICAL SPLIT IS DELIBERATE" section verbatim in substance.
+
+### Scope discipline
+
+Verified absent (correctly, inc2/inc3 territory):
+- No containment predicate. `grep -n "not under\|containment\|is_safe_sidecar_ref\|project root\|refus" src/main.rs`, filtered to non-comment lines, returns nothing.
+- No canonical root derivation for a guard (only the pre-existing, unrelated hook-install canonicalisation exists; see decision 2 above).
+- No new non-zero exit path. The four-arm `--workflow` match (`src/main.rs:967-1013` in the current file) is functionally unchanged from `69c0525` apart from `metrics_path` now coming from `resolve_metrics_path` instead of `&args.metrics` directly; the `_` catch-all still only `eprintln!`s and pushes no problem (confirmed by reading it and by check 4's still-open defect-A behaviour above).
+- `status` and `next` never exit non-zero under any input I tried (all runs above returned `exit=0` including the still-open explicit-`--metrics`-naming-a-foreign-log residual defect, confirmed live: `next --source <foreign> --metrics docs/metrics/workflow.jsonl` from this repo's root still prints `state: converged` / `next: mark the step complete, re-render, and commit`, exit 0, exactly the residual the sidecar's "THE COST OF THAT PLACEMENT" paragraph says must remain open until inc2; this is expected, not a finding).
+
+Verified present and complete (inc1's own scope):
+- `--metrics` is `Option<PathBuf>` on `ValidateArgs` (`:431`), `StatusArgs` (`:457`), `NextArgs` (`:481`).
+- The derivation (`project_root_of_source`, `:1179`) and the metrics resolution (`resolve_metrics_path`, `:1211`) exist.
+- `validate` (`run_validate`, `:822`, resolution at `:834`), `status` (`run_status`, `:1078`, resolution at `:1093`), and `next` (`run_next`, `:1286`, resolution at the metrics block) all call `resolve_metrics_path`.
+- `default_ledger_path` (`:1235`) now takes `task, source, plan` and resolves beside the source; both call sites, `run_resume` (`:1258`) and `run_next` (`:1286`), pass `&args.source, &args.plan` through.
+- The `--source`-then-`--plan` order matches `next::derive_task`'s existing precedent (`source.as_ref().or(plan.as_ref())`, identical pattern at `src/next.rs:997-999` and in both new functions); verified live that `--source` wins when both are given (check in the shipped test file, and I re-read the precedent directly).
+- Diff size matches the stated `+153/-31` for `src/main.rs` exactly (`git diff --numstat 69c0525 f491c4e`).
+
+### Documentation currency
+
+All inc1-assigned items verified present and accurate; nothing assigned to inc1 was left stale, and nothing was said about inc2/inc3 behaviour that has not landed yet (the tense rule: inc1's claims are checked against the current tree, inc2/inc3's remain forward-looking and are correctly absent).
+
+- `src/main.rs:431`, `:457`, `:481`, the three `--metrics` help strings: updated, no `[default:]`, prose states the anchoring rule; confirmed live via `--help`.
+- `StatusArgs::resume` (`:463`) and `:ledger_fragment` (`:466`), `NextArgs::ledger_fragment` (`:484`): updated to describe the beside-the-source default.
+- `default_ledger_path`'s doc comment (`:1225-1234`) and `run_resume`'s doc comment (near `:1250-1257`): both restate the beside-the-plan rule instead of the old `docs/plans/<task>.ledger.md` convention.
+- `README.md:212-224` region: a new paragraph was added immediately after the `validate` example block describing the anchoring rule, the conventionless fallback, and accepted cost (i), in the exact location the sidecar names. `README.md:226`'s `status` paragraph (the "never fails" / "a missing part is simply left out" sentence) is untouched, correctly: the sidecar states this "needs no change for INC1", and the diff confirms no hunk touches it.
+- `CHANGELOG.md`: one new bullet under the existing `## [Unreleased]` / `### Changed` heading. Verified there is no precedent for a `### Fixed` subsection anywhere in this project's history (`git log --all -p -- CHANGELOG.md | grep -c "### Fixed"` returns 0), so filing under the existing `### Changed` rather than minting a new subsection is the correct reading of "check what a comparable fix did before introducing a new subsection" (there is no comparable fix with its own subsection to follow, and `### Changed` already exists for behaviour-of-an-existing-default changes). The entry's content matches the shipped behaviour precisely (anchoring rule, all four consumers, the accepted-cost exception cases) and does not mention the inc2-only exit-1 refusal, correctly deferring that CHANGELOG addition to inc2's own documentation-impact item.
+- `run_validate`'s doc comment gained a new paragraph describing `resolve_metrics_path` but correctly retained the "An absent file ... is not a validation failure ... same treatment for both" claim, which only becomes false after inc3 lands (verified: the `_` catch-all is unchanged, so the claim is still true of this tree).
+
+### Negatives (swept, found nothing)
+
+- No `value_source` or `ArgMatches` use in executable code (one mention, inside a doc comment explaining why it was rejected).
+- No new `canonicalize()` call anywhere; the four pre-existing hits all belong to unrelated pre-commit-hook-install code untouched by this diff.
+- No stray edits to `src/workflow.rs`, `src/next.rs`, or `src/plan/source.rs`; `git diff --stat` confirms only `src/main.rs`, the new test file, `README.md`, and `CHANGELOG.md` changed.
+- No refusal/non-zero-exit path added anywhere in `status` or `next`.
+- No README `next` section was added (correctly not owed until inc2 per the sidecar).
+- No mention of the inc2 refusal or inc3 exit-code flip anywhere in the CHANGELOG or README additions.
+- The worktree remains clean (`git status --short` empty) and I wrote nothing into this repository's own `docs/plans/agent-scaffold.ledger.md`; all fixture and pre-fix-binary work happened under `/tmp/wr-b-scratch`, outside this worktree and outside any git-tracked path in it.

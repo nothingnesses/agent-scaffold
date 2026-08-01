@@ -426,16 +426,16 @@ struct ScaffoldArgs {
 /// Arguments for the `validate` subcommand.
 #[derive(Args)]
 struct ValidateArgs {
-	/// Path to the JSONL metrics log to validate.
-	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
-	metrics: PathBuf,
+	/// Path to the JSONL metrics log to validate. An explicit value is used verbatim. When omitted, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of --source (else of --plan), or the source's own directory when it has no such ancestor. So the log a plan is checked against is the plan's own, not whichever log the current directory happens to hold. With neither --source nor --plan there is nothing to anchor to and the path stays `docs/metrics/workflow.jsonl` relative to the current directory.
+	#[arg(long)]
+	metrics: Option<PathBuf>,
 	/// Path to a Markdown plan to validate (its Roadmap and Open Questions regions). When omitted, only the metrics log is validated.
 	#[arg(long)]
 	plan: Option<PathBuf>,
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (which defaults). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics, which defaults to the plan's own log (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error.
 	#[arg(long)]
 	workflow: bool,
 	/// Path to a `workflow.toml` control-constants spec supplying the convergence streaks, round cap, and backstop severity the --workflow check reads. When omitted, the built-in default (today's constants) is used, so the check is unchanged. A malformed spec is a hard error (non-zero exit). Requires --workflow (the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0).
@@ -452,16 +452,16 @@ struct StatusArgs {
 	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the plan projection is read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Path to the JSONL metrics log to summarise (a record count).
-	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
-	metrics: PathBuf,
+	/// Path to the JSONL metrics log to summarise (a record count). An explicit value is used verbatim. When omitted, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of --source (else of --plan), or the source's own directory when it has no such ancestor. So the count summarises the plan's own log, not whichever log the current directory happens to hold. With neither --source nor --plan there is nothing to anchor to and the path stays `docs/metrics/workflow.jsonl` relative to the current directory.
+	#[arg(long)]
+	metrics: Option<PathBuf>,
 	/// Emit the projection as JSON instead of a short human-readable summary.
 	#[arg(long)]
 	json: bool,
-	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `docs/plans/<task>.ledger.md` derived from the plan source) instead of the state projection. Exits 0 with a note when the ledger or the section is absent.
+	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `<task>.ledger.md` beside the plan source) instead of the state projection. Exits 0 with a note when the ledger or the section is absent.
 	#[arg(long)]
 	resume: bool,
-	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename. Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
+	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `<task>.ledger.md` BESIDE the plan source, where `<task>` is derived from that source's filename; the ledger lives next to the plan it belongs to, so no root derivation is involved. With neither --source nor --plan there is no directory to sit beside and the path stays `docs/plans/<task>.ledger.md` relative to the current directory. Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
 	#[arg(long, requires = "resume")]
 	ledger_fragment: Option<PathBuf>,
 }
@@ -476,10 +476,10 @@ struct NextArgs {
 	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the steps are read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Path to the JSONL metrics log the round evidence is read from.
-	#[arg(long, default_value = "docs/metrics/workflow.jsonl")]
-	metrics: PathBuf,
-	/// Path to the ledger fragment whose `## RESUME STATE` block is echoed verbatim. Defaults to `docs/plans/<task>.ledger.md`, where `<task>` is derived from the plan source filename.
+	/// Path to the JSONL metrics log the round evidence is read from. An explicit value is used verbatim. When omitted, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of --source (else of --plan), or the source's own directory when it has no such ancestor. So the loop is projected from the plan's own round evidence, not from whichever log the current directory happens to hold. With neither --source nor --plan there is nothing to anchor to and the path stays `docs/metrics/workflow.jsonl` relative to the current directory.
+	#[arg(long)]
+	metrics: Option<PathBuf>,
+	/// Path to the ledger fragment whose `## RESUME STATE` block is echoed verbatim. Defaults to `<task>.ledger.md` BESIDE the plan source, where `<task>` is derived from that source's filename; the ledger lives next to the plan it belongs to, so no root derivation is involved. With neither --source nor --plan there is no directory to sit beside and the path stays `docs/plans/<task>.ledger.md` relative to the current directory.
 	#[arg(long)]
 	ledger_fragment: Option<PathBuf>,
 	/// The isolation tier to echo into the instruction (`worktree`, `container`, or `file-safety`). When omitted, the tier is reported as `unknown` with a reminder to resolve it per the AGENTS.md tier policy. The tool never emits a worktree path or a branch name.
@@ -788,8 +788,13 @@ fn report_workflow(
 	}
 }
 
-/// Validate the metrics log at `args.metrics` against the record schema and, when
-/// `--plan` is given, the plan's structured regions against the plan schema.
+/// Validate the metrics log against the record schema and, when `--plan` is given, the
+/// plan's structured regions against the plan schema.
+///
+/// The log is `--metrics` verbatim when given, else `docs/metrics/workflow.jsonl` under
+/// the project root derived from the plan source (`resolve_metrics_path`), so the log a
+/// plan is checked against belongs to that plan's project rather than to whichever
+/// directory the process happens to be run from.
 ///
 /// An absent file (the metrics log, or a `--plan` path) is not a validation
 /// failure: not every project instruments, and a plan is validated only on
@@ -818,11 +823,16 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 	let mut problems: Vec<String> = Vec::new();
 	let mut summaries: Vec<String> = Vec::new();
 
+	// The log to read: `--metrics` verbatim when given, else the plan source's own
+	// `docs/metrics/workflow.jsonl` (see `resolve_metrics_path`). Resolving from the plan
+	// rather than from the process working directory is what stops a plan being joined to
+	// an unrelated project's log.
+	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
+
 	// Read each present file once and keep its contents, so the workflow check can
 	// reuse them rather than reading twice.
-	let metrics_path = &args.metrics;
 	let metrics_contents = if metrics_path.exists() {
-		let contents = fs::read_to_string(metrics_path)?;
+		let contents = fs::read_to_string(&metrics_path)?;
 		let errors = metrics::validate_log(&contents);
 		if errors.is_empty() {
 			summaries.push(format!(
@@ -1059,6 +1069,12 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// a missing or malformed file; a missing plan or metrics file simply leaves that
 /// part of the projection empty. With `--json` the projection is printed as
 /// pretty JSON; otherwise a short human-readable summary is printed.
+///
+/// The metrics log is resolved exactly as `validate` resolves it
+/// (`resolve_metrics_path`), so the count belongs to the projected plan's own project;
+/// with `--resume`, the ledger is resolved beside the plan source (`default_ledger_path`)
+/// for the same reason. A projection read from the wrong project's files is not an empty
+/// projection, it is a confident wrong one.
 fn run_status(args: StatusArgs) -> io::Result<()> {
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
@@ -1087,8 +1103,11 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 			_ => None,
 		}
 	};
-	let metrics = if args.metrics.exists() {
-		let contents = fs::read_to_string(&args.metrics)?;
+	// The same anchored resolution `validate` uses, single-sourced in `resolve_metrics_path`
+	// so the two commands cannot drift on which log belongs to a plan.
+	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
+	let metrics = if metrics_path.exists() {
+		let contents = fs::read_to_string(&metrics_path)?;
 		Some(MetricsProjection {
 			records: metrics::count_records(&contents),
 		})
@@ -1130,11 +1149,98 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	Ok(())
 }
 
-/// The default ledger path for a task, by the `docs/plans/<task>.ledger.md` convention.
-/// The transient review ledger lives beside the plan and is deleted when the task
-/// closes; `next` and `status --resume` read its `## RESUME STATE` block.
-fn default_ledger_path(task: &str) -> PathBuf {
-	PathBuf::from(format!("docs/plans/{task}.ledger.md"))
+/// The conventional round-log path relative to a project root. The defaulted `--metrics`
+/// is this joined onto the root derived from the plan source, so the log a plan is read
+/// against belongs to that plan's project rather than to the process working directory.
+const METRICS_RELATIVE: &str = "docs/metrics/workflow.jsonl";
+
+/// The project root a plan source belongs to, by the `<root>/docs/plans/<task>.plan.toml`
+/// filename convention: a purely LEXICAL, nearest-wins upward search. Start at the
+/// source's parent and walk up; the first ancestor whose own file name is `plans` and
+/// whose parent's file name is `docs` identifies `<root>/docs/plans`, and the root is that
+/// ancestor's grandparent. When no such ancestor exists the source's OWN directory is the
+/// root, so a plan sitting at a project root with no `docs/plans` still reads that root's
+/// log instead of being rejected.
+///
+/// LEXICAL is a deliberate choice, not an omission. The derived path keeps the spelling
+/// the caller typed, so a relative `--source` yields a relative log path and the printed
+/// output on a correct run is byte-identical to what it was before anchoring; a
+/// canonicalising rule would turn every printed path absolute and machine-specific. It
+/// also means a `..` component is skipped rather than followed (`Path::file_name` is
+/// `None` for it) and the real `docs/plans` above it still matches. "Project root" here is
+/// a FILENAME convention, not a VCS fact: the rule never consults `.git`, so it behaves
+/// identically inside a nested repository, outside any repository, and in an unpacked
+/// tarball.
+///
+/// NEAREST-WINS on a nested `docs/plans` (a project vendored under another project's plan
+/// directory resolves to the INNER root) is a JUDGEMENT, recorded as one: the innermost
+/// project owns the plan. No measurement settled it, so a later reader may revisit it on
+/// evidence rather than inheriting it as established.
+fn project_root_of_source(source: &Path) -> PathBuf {
+	let parent = source.parent().unwrap_or_else(|| Path::new(""));
+	for ancestor in parent.ancestors() {
+		let is_plans = ancestor.file_name().and_then(|name| name.to_str()) == Some("plans");
+		let under_docs = ancestor.parent().and_then(Path::file_name).and_then(|name| name.to_str())
+			== Some("docs");
+		if is_plans && under_docs {
+			// `<root>/docs/plans` -> `<root>`, the ancestor's grandparent. `<root>` is empty
+			// for a relative `docs/plans/...`, which is what keeps the joined default equal to
+			// the historical `docs/metrics/workflow.jsonl`.
+			return ancestor
+				.parent()
+				.and_then(Path::parent)
+				.map_or_else(PathBuf::new, Path::to_path_buf);
+		}
+	}
+	parent.to_path_buf()
+}
+
+/// The metrics log to read: an explicit `--metrics` verbatim, else the conventional
+/// `docs/metrics/workflow.jsonl` under the project root derived from the plan source
+/// (`--source` first, then `--plan`, the same order `next::derive_task` resolves them in).
+/// With NEITHER a source nor a plan there is nothing to pair a log with, so the historical
+/// current-directory-relative path stands unchanged.
+///
+/// The flag is `Option<PathBuf>` with the default applied HERE rather than a clap
+/// `default_value` recovered afterwards through `ArgMatches::value_source`: `None` is
+/// "not supplied" by construction, so "defaulted" and "explicit" are different values
+/// rather than one value plus a string-keyed lookup that a later field rename turns into a
+/// debug panic and a silent release-build misread (Principle 13, make illegal states
+/// unrepresentable). An explicit value is honoured verbatim, so a caller who names a path
+/// gets the file they named.
+fn resolve_metrics_path(
+	explicit: &Option<PathBuf>,
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> PathBuf {
+	if let Some(path) = explicit {
+		return path.clone();
+	}
+	source.as_ref().or(plan.as_ref()).map_or_else(
+		|| PathBuf::from(METRICS_RELATIVE),
+		|anchor| project_root_of_source(anchor).join(METRICS_RELATIVE),
+	)
+}
+
+/// The default ledger path for a task: `<task>.ledger.md` BESIDE the plan source. The
+/// transient review ledger lives next to the plan and is deleted when the task closes;
+/// `next` and `status --resume` read its `## RESUME STATE` block.
+///
+/// No root derivation and no upward walk, unlike the metrics log (which lives in a SIBLING
+/// `docs/metrics/`, so it needs the root to get there). The ledger's whole rule is "beside
+/// the plan", which is why the source's own directory is the entire answer and there is no
+/// convention to miss. With NEITHER a `--source` nor a `--plan` there is no directory to
+/// sit beside, so the historical current-directory-relative `docs/plans/<task>.ledger.md`
+/// stands, the same case in which the metrics default keeps its own historical path.
+fn default_ledger_path(
+	task: &str,
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> PathBuf {
+	source.as_ref().or(plan.as_ref()).map_or_else(
+		|| PathBuf::from(format!("docs/plans/{task}.ledger.md")),
+		|anchor| anchor.parent().unwrap_or_else(|| Path::new("")).join(format!("{task}.ledger.md")),
+	)
 }
 
 /// The default code-value report path for a task, by the
@@ -1146,12 +1252,15 @@ fn default_report_path(task: &str) -> PathBuf {
 
 /// The `status --resume` slice: print the ledger's `## RESUME STATE` block verbatim,
 /// reusing the shared `next::extract_resume_state`. The ledger path is `--ledger-fragment`
-/// or the `docs/plans/<task>.ledger.md` default (with `<task>` derived from the plan
-/// source filename). A missing ledger or absent section prints a note and exits 0, since
-/// `status` is a best-effort projection, not a validator.
+/// or the `<task>.ledger.md`-beside-the-plan-source default (with `<task>` derived from
+/// that source's filename). A missing ledger or absent section prints a note and exits 0,
+/// since `status` is a best-effort projection, not a validator.
 fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
-	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let ledger_path = args
+		.ledger_fragment
+		.clone()
+		.unwrap_or_else(|| default_ledger_path(&task, &args.source, &args.plan));
 	if !ledger_path.exists() {
 		println!("no ledger at {}; nothing to resume", ledger_path.display());
 		return Ok(());
@@ -1168,6 +1277,12 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 /// `## RESUME STATE` block from the durable files, project the single active review loop,
 /// and print the human text (or `--json`). Read-only and best-effort: a missing plan or
 /// log simply leaves that part empty, mirroring `status`.
+///
+/// The round log and the ledger are resolved from the PLAN SOURCE, not from the process
+/// working directory (`resolve_metrics_path`, `default_ledger_path`). That matters more
+/// here than anywhere else: every field of the projected loop, including the instruction
+/// and the echoed resume block, is derived from those two files, and the output is
+/// consumed by an agent that acts on it.
 fn run_next(args: NextArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
 
@@ -1197,14 +1312,21 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		}
 	};
 
-	let (rounds, metrics_records) = if args.metrics.exists() {
-		let contents = fs::read_to_string(&args.metrics)?;
+	// The same anchored resolution `validate` and `status` use: the round evidence the loop
+	// is projected from must be the plan's own, since `next`'s output is an instruction an
+	// agent acts on rather than a report a human may or may not read.
+	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
+	let (rounds, metrics_records) = if metrics_path.exists() {
+		let contents = fs::read_to_string(&metrics_path)?;
 		(metrics::parse_rounds(&contents), Some(metrics::count_records(&contents)))
 	} else {
 		(Vec::new(), None)
 	};
 
-	let ledger_path = args.ledger_fragment.clone().unwrap_or_else(|| default_ledger_path(&task));
+	let ledger_path = args
+		.ledger_fragment
+		.clone()
+		.unwrap_or_else(|| default_ledger_path(&task, &args.source, &args.plan));
 	let resume_state = if ledger_path.exists() {
 		next::extract_resume_state(&fs::read_to_string(&ledger_path)?)
 	} else {

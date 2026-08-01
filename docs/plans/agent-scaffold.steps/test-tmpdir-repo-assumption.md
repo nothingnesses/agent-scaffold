@@ -1,6 +1,6 @@
 ### `test-tmpdir-repo-assumption`: three tests read the ambient repository state through `TMPDIR`, so following this project's own scratch-`TMPDIR` discipline makes a correct tree fail
 
-A suite defect, not a product defect. Three of the 386 tests require the directory `std::env::temp_dir()` returns to be OUTSIDE any git repository. `temp_dir()` honours `TMPDIR`, and this project instructs every spawned agent to point `TMPDIR` at a scratch directory, which agents naturally place inside their worktree, which is a git repository. The three tests then fail on a tree with nothing wrong with it.
+A suite defect, not a product defect. Three tests require the directory `std::env::temp_dir()` returns to be OUTSIDE any git repository. `temp_dir()` honours `TMPDIR`, and this project instructs every spawned agent to point `TMPDIR` at a scratch directory, which agents naturally place inside their worktree, which is a git repository. The three tests then fail on a tree with nothing wrong with it.
 
 This is a FALSE RED, which is the mirror of the false-green family most of this plan is about, and its cost is the same shape one step removed: a suite that fails for reasons unrelated to the change under test teaches its readers to classify failures as spurious, and that habit is how a real failure eventually gets waved through. It also costs agent time directly, measured below.
 

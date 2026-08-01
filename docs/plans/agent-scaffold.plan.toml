@@ -1319,7 +1319,7 @@ risk_class = "risky"
 
 [[step]]
 slug = "test-tmpdir-repo-assumption"
-title = "three tests read the ambient repository state through `TMPDIR`, so following this project's own scratch-`TMPDIR` discipline makes a correct tree fail (a false red, 3 of 386)"
+title = "three tests read the ambient repository state through `TMPDIR`, so following this project's own scratch-`TMPDIR` discipline makes a correct tree fail (a false red, 3 tests)"
 status = "not-started"
 order = 95
 blocked_by = []

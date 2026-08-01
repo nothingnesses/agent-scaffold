@@ -1167,10 +1167,11 @@ const METRICS_RELATIVE: &str = "docs/metrics/workflow.jsonl";
 /// output on a correct run is byte-identical to what it was before anchoring; a
 /// canonicalising rule would turn every printed path absolute and machine-specific. It
 /// also means a `..` component is skipped rather than followed (`Path::file_name` is
-/// `None` for it) and the real `docs/plans` above it still matches. "Project root" here is
-/// a FILENAME convention, not a VCS fact: the rule never consults `.git`, so it behaves
-/// identically inside a nested repository, outside any repository, and in an unpacked
-/// tarball.
+/// `None` for it), so the match is against whatever `docs/plans` lies lexically above that
+/// `..`, which is the plan's own only when the `..` does not climb out through one.
+/// "Project root" here is a FILENAME convention, not a VCS fact: the rule never consults
+/// `.git`, so it behaves identically inside a nested repository, outside any repository,
+/// and in an unpacked tarball.
 ///
 /// NEAREST-WINS on a nested `docs/plans` (a project vendored under another project's plan
 /// directory resolves to the INNER root) is a JUDGEMENT, recorded as one: the innermost

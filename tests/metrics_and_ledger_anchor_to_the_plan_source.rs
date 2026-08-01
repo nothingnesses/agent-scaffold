@@ -16,10 +16,7 @@
 //! the path: each project's log carries a different record count, and only `home`'s log
 //! has a converged round for `borrowed-step`.
 //!
-//! Four of the tests are pins rather than red-then-green cases, marked as such on each:
-//! the correct-case no-regression check, the two no-anchor cases that keep the historical
-//! path, and the accepted-cost bare-filename miss. They pass identically before and after
-//! the change, which is the property they exist to hold.
+//! Several of the tests are pins rather than red-then-green cases, marked as such on each.
 
 use std::{
 	fs,
@@ -436,6 +433,15 @@ fn plain_validate_and_a_sourceless_run_keep_their_behaviour() {
 	assert_eq!(
 		stdout, "docs/metrics/workflow.jsonl: 3 records, valid\n",
 		"a sourceless run keeps the current-directory-relative path"
+	);
+
+	// No `--source` and no `--plan` on the ledger side either: `<task>` falls back to
+	// `task` and the historical `docs/plans/<task>.ledger.md` stands.
+	let (code, stdout, stderr) = run(&home, &["status", "--resume"]);
+	assert_eq!(code, Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
+	assert_eq!(
+		stdout, "no ledger at docs/plans/task.ledger.md; nothing to resume\n",
+		"a sourceless resume keeps the current-directory-relative ledger path"
 	);
 
 	let _ = fs::remove_dir_all(&root);

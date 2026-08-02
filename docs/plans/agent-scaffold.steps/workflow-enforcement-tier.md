@@ -7,7 +7,7 @@ Four defects, one family. They all come from the same root cause (the tool decid
 - DEFECT C, THE SIBLING COMMANDS. `status`, `next`, and the derived ledger path carry the identical resolution defect. `next` does not degrade to an empty projection, it emits a fabricated instruction to close an unreviewed step, and `status --resume` prints one project's internal resume state into another project's agent brief.
 - DEFECT D, THE `SE-3` DOCUMENTATION HALF. The scaffolded `AGENTS.md` promises the `validate --workflow` backstop without qualification, so a user who scaffolded without `--instrument` reads a promise of deterministic enforcement they do not have and, after this step, cannot get without being told why the tool now refuses.
 
-PROVENANCE. `Q-55`, decided by the human on 2026-07-31, with NINE decision receipts in `docs/metrics/workflow.jsonl` (the last taken on 2026-08-02, after inc1's work review), all carrying `task:"workflow-enforcement-tier"`:
+PROVENANCE. `Q-55`, decided by the human on 2026-07-31, with decision receipts in `docs/metrics/workflow.jsonl` (the last taken on 2026-08-02, after inc1's work review), all carrying `task:"workflow-enforcement-tier"`:
 
 - `q_id:"Q-55"`, the enforcement tier: fail when `--workflow` cannot run.
 - `q_id:"Q-55-scope"`, the shape: one step, separate increments.

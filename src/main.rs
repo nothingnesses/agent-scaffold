@@ -1157,11 +1157,12 @@ const METRICS_RELATIVE: &str = "docs/metrics/workflow.jsonl";
 /// log instead of being rejected.
 ///
 /// LEXICAL is a deliberate choice, not an omission. The derived path keeps the spelling
-/// the caller typed, so a relative `--source` yields a relative log path; a canonicalising
-/// rule would turn every printed path absolute and machine-specific. It also means a `..`
-/// component is skipped rather than followed (`Path::file_name` is `None` for it), so the
-/// match is against whatever `docs/plans` lies lexically above that `..`, which is the
-/// plan's own only when the `..` does not climb out through one.
+/// the caller typed, so a relative `--source` yields a relative log path. It also means the
+/// walk matches on the components AS SPELLED (`Path::file_name` is `None` for a `..`, so a
+/// `..` the walk REACHES never matches and the search continues above it), which is why a
+/// `..` that climbs OUT through a `docs/plans` matches THAT directory:
+/// `<root>/docs/plans/../../other/p.plan.toml` and `<root>/other/p.plan.toml` are the same
+/// file read against two different logs.
 /// "Project root" here is a FILENAME convention, not a VCS fact: the rule never consults
 /// `.git`, so it behaves identically inside a nested repository, outside any repository,
 /// and in an unpacked tarball.
@@ -1273,8 +1274,8 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 /// log simply leaves that part empty, mirroring `status`.
 ///
 /// The round log and the ledger are resolved from the PLAN SOURCE, not from the process
-/// working directory (`resolve_metrics_path`, `default_ledger_path`). That matters more
-/// here than anywhere else, because the output is consumed by an agent that acts on it.
+/// working directory (`resolve_metrics_path`, `default_ledger_path`). That matters,
+/// because the output is consumed by an agent that acts on it.
 fn run_next(args: NextArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
 

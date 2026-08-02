@@ -15,8 +15,6 @@
 //! from the WRONG one, so which file was read is identified by CONTENT rather than
 //! asserted from the path: each project's log carries a different record count, and only
 //! `home`'s log has a converged round for `borrowed-step`.
-//!
-//! Several of the tests are pins rather than red-then-green cases, marked as such on each.
 
 use std::{
 	fs,
@@ -195,7 +193,7 @@ fn next_projects_the_loop_from_the_plans_own_log() {
 
 	let (code, stdout, stderr) = run(&home, &["next", "--source", &away_plan]);
 
-	assert_eq!(code, Some(0), "`next` is a projection and never fails; stderr:\n{stderr}");
+	assert_eq!(code, Some(0), "`next` is a projection; stderr:\n{stderr}");
 	assert!(
 		!stdout.contains("state: converged"),
 		"a foreign log must not converge this plan's loop; stdout:\n{stdout}"
@@ -260,8 +258,9 @@ fn status_counts_the_plans_own_log_from_either_anchor() {
 }
 
 /// Acceptance check 7: the ledger resolves BESIDE the plan source, so one project's
-/// `## RESUME STATE` block can no longer be printed as another project's resume anchor.
-/// Both readers are covered, since `next` echoes the same block `status --resume` prints.
+/// `## RESUME STATE` block can no longer be printed as another project's resume anchor ON
+/// THE DEFAULT PATH. Both readers are covered, since `next` echoes the same block
+/// `status --resume` prints.
 ///
 /// RED before the change: both commands print `HOME resume state.`, this directory's
 /// internal resume state, as the anchor for an unrelated project.
@@ -368,12 +367,11 @@ fn a_nested_docs_plans_resolves_to_the_inner_project() {
 }
 
 /// Acceptance check 9, the Safe on existing projects pin: a run made from the plan's own
-/// project root with a BARE RELATIVE `--source`, which is the normal invocation and the
-/// only one the scaffolded guidance documents, is UNCHANGED, byte for byte. The whole
-/// stdout is compared rather than searched, because the property is that the printed paths
-/// stay RELATIVE: an "improvement" that canonicalised the default would still read the
-/// right file and still pass a `contains` assertion while changing two of these three
-/// lines to absolute, machine-specific paths.
+/// project root with a BARE RELATIVE `--source`, which is the normal invocation, is
+/// UNCHANGED, byte for byte. The whole stdout is compared rather than searched, because the
+/// property is that the printed paths stay RELATIVE: an "improvement" that canonicalised
+/// the default would still read the right file and still pass a `contains` assertion while
+/// changing two of these three lines to absolute, machine-specific paths.
 ///
 /// A pin, not a red-then-green case: it passes identically before and after the change.
 #[test]

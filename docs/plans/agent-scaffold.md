@@ -1402,17 +1402,7 @@ Four defects, one family. They all come from the same root cause (the tool decid
 - DEFECT C, THE SIBLING COMMANDS. `status`, `next`, and the derived ledger path carry the identical resolution defect. `next` does not degrade to an empty projection, it emits a fabricated instruction to close an unreviewed step, and `status --resume` prints one project's internal resume state into another project's agent brief.
 - DEFECT D, THE `SE-3` DOCUMENTATION HALF. The scaffolded `AGENTS.md` promises the `validate --workflow` backstop without qualification, so a user who scaffolded without `--instrument` reads a promise of deterministic enforcement they do not have and, after this step, cannot get without being told why the tool now refuses.
 
-PROVENANCE. `Q-55`, decided by the human on 2026-07-31, with decision receipts in `docs/metrics/workflow.jsonl` (the last taken on 2026-08-02, after inc1's work review), all carrying `task:"workflow-enforcement-tier"`:
-
-- `q_id:"Q-55"`, the enforcement tier: fail when `--workflow` cannot run.
-- `q_id:"Q-55-scope"`, the shape: one step, separate increments.
-- `q_id:"Q-55-mechanism"`, anchor plus refusal, identity queued.
-- `q_id:"Q-55-noconvention"`, fall back to the source's own directory.
-- `q_id:"Q-55-refusalscope"`, omit the unsafe part and exit 0 (how the projections behave when the pairing is unsafe).
-- `q_id:"Q-55-jsonreason"`, add a serialised reason (so the omission explains itself on the machine surface too).
-- `q_id:"Q-55-endproperty"`, root the containment predicate on the plan the check READS (2026-08-02, after inc1's work review measured that an anchor-rooted predicate leaves the end property below met by no increment).
-- `q_id:"Q-55-conventionlesscost"`, accept the conventionless refusal as cost (iii) rather than carving it out.
-- `q_id:"Q-55-resumepairing"`, close the `status --resume` default-ledger leak in inc2.
+PROVENANCE. `Q-55`, decided by the human on 2026-07-31, with decision receipts in `docs/metrics/workflow.jsonl`, all carrying `task:"workflow-enforcement-tier"`.
 
 `Q-55-mechanism` and `Q-55-noconvention` closed a DESIGN PASS whose three records are committed at `docs/plans/workflow-enforcement-tier.explorations/` (1514 lines: `metrics-path-anchor-to-source.md` 521, `metrics-path-plan-declared.md` 483, `metrics-path-independent-map.md` 510). Three worktree-isolated explorers each BUILT a candidate in a scratch copy and MEASURED it rather than arguing it on paper, and the narrative of the pass is in `docs/plans/agent-scaffold.ledger.md` in the paragraphs beginning "THE DESIGN PASS IS DONE (2026-07-31) AND ALL THREE RECORDS ARE ON MAIN" through "TWO HUMAN DECISIONS CLOSED THE DESIGN PASS (2026-07-31)". The pass's own headline, worth carrying because it is what makes its conclusions load-bearing rather than advisory: "BOTH BUILDERS ARGUED AGAINST THE CANDIDATE THEY WERE TOLD TO BUILD".
 

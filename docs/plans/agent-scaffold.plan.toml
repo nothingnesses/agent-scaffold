@@ -1300,7 +1300,6 @@ status = "in-progress"
 order = 94
 blocked_by = []
 folds = []
-waiver = []
 
 [step.provenance]
 decisions = ["Q-55"]
@@ -1316,6 +1315,15 @@ risk_class = "risky"
 [[step.increment]]
 id = "workflow-enforcement-tier-inc3"
 risk_class = "risky"
+
+[[step.waiver]]
+id = "workflow-enforcement-tier-w1"
+unit = "increment"
+increment = "workflow-enforcement-tier-inc1"
+reason = "accepted-at-escalation"
+evidence_tier = "record-backed"
+evidence = "workflow-enforcement-tier-inc1"
+note = "Three work-review rounds, 20 valid findings, every one an inaccurate description of correct behaviour and ZERO defects in what the code does. The mechanism was checked by 51 adversarial attacks each also run against the pre-increment binary, by two independent claim inventories of 81 and 118 claims, by a mutation run proving a coverage gap, and by every acceptance check re-run from its own preconditions against a binary built from the parent commit. The streak never left 0 of the 2 its risky class needs, because each round inventoried the claim surface differently and found different false ones, and two of round 3's six in-scope findings were sites an earlier fix had ruled on and left standing. The human escalated at round 3 rather than spending rounds 4 and 5, on the ground that the residual class is provably temporary: the remaining defects are claims about `src/main.rs` that inc2 and inc3 will falsify again, exactly as inc1 falsified the citations a dedicated pass had just converted. A single documentation-currency pass is scheduled at the step close, after inc3, when the code stops moving."
 
 [[step]]
 slug = "test-tmpdir-repo-assumption"

@@ -6,7 +6,7 @@ Scheduled as backlog behind the release gates by human decision (2026-07-31), ag
 
 ## The mechanism
 
-`run_status` (`src/main.rs:1062-1069`) opens with the resume branch and returns from it:
+`run_status` (`src/main.rs`) opens with the resume branch and returns from it:
 
 ```rust
 fn run_status(args: StatusArgs) -> io::Result<()> {
@@ -19,7 +19,7 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	}
 ```
 
-Every serialisation path in `status` is BELOW that return: the projection is assembled afterwards and `serde_json::to_string_pretty` is reached at `src/main.rs:1104`. `run_resume` (`src/main.rs:1152-1165`) only ever `println!`s. So `args.json` is read nowhere on the resume path, and clap accepts the pair without complaint.
+Every serialisation path in `status` is BELOW that return: the projection is assembled afterwards and `serde_json::to_string_pretty` is reached in `run_status`'s `if args.json` branch (`src/main.rs`). `run_resume` (`src/main.rs`) only ever `println!`s. So `args.json` is read nowhere on the resume path, and clap accepts the pair without complaint.
 
 ## The observed behaviour, run rather than reasoned
 
@@ -71,7 +71,7 @@ What the defect actually costs is DIAGNOSIS, not correctness. The failure surfac
 
 ## The in-repo precedent, which makes this an inconsistency rather than a gap
 
-This project has already ruled on silently-ignored flags, in this file, with the reasoning written down. `StatusArgs` itself carries one, at `src/main.rs:464-466`, on the sibling flag of the very branch in question:
+This project has already ruled on silently-ignored flags, in this file, with the reasoning written down. `StatusArgs` itself carries one, on `StatusArgs::ledger_fragment` (`src/main.rs`), the sibling flag of the very branch in question:
 
 ```
 /// ... Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
@@ -79,9 +79,9 @@ This project has already ruled on silently-ignored flags, in this file, with the
 ledger_fragment: Option<PathBuf>,
 ```
 
-"the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run" is exactly the condition `--json` is in under `--resume`, on the same struct, one field away. The same sentence appears again on `--workflow-spec` (`src/main.rs:441-443`, "the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0"), and a third, shorter form on `render --strict` (`src/main.rs:524-526`, "Meaningless without --check").
+"the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run" is exactly the condition `--json` is in under `--resume`, on the same struct, one field away. The same sentence appears again on `--workflow-spec` (`src/main.rs:ValidateArgs::workflow_spec`, "the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0"), and a third, shorter form on `render --strict` (`src/main.rs:RenderArgs::strict`, "Meaningless without --check").
 
-There is also a precedent for the RELATION this case needs, which is not the same relation as those three. `audit` resolves a clash between two mutually exclusive OUTPUT MODES at `src/main.rs:556-558`:
+There is also a precedent for the RELATION this case needs, which is not the same relation as those three. `audit` resolves a clash between two mutually exclusive OUTPUT MODES at `src/main.rs:AuditArgs::out`:
 
 ```
 /// Override the report output path. ... Conflicts with --json, which writes no file.
@@ -89,7 +89,7 @@ There is also a precedent for the RELATION this case needs, which is not the sam
 out: Option<PathBuf>,
 ```
 
-So a fix here FOLLOWS AN ESTABLISHED CONVENTION rather than inventing one, and that is the proposition to state in the commit. Five constraint attributes already exist in `src/main.rs` (`:396`, `:442`, `:465`, `:525`, `:557`), so the mechanism is routine in this codebase.
+So a fix here FOLLOWS AN ESTABLISHED CONVENTION rather than inventing one, and that is the proposition to state in the commit. Five constraint attributes already exist in `src/main.rs` (`ScaffoldArgs::dry_run`, `ValidateArgs::workflow_spec`, `StatusArgs::ledger_fragment`, `RenderArgs::strict`, `AuditArgs::out`), so the mechanism is routine in this codebase.
 
 ## The fix fork, not pre-decided
 

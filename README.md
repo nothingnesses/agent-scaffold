@@ -207,7 +207,7 @@ agent-scaffold render --check --strict docs/plans/my-task.plan.toml
 
 `validate` and `status` are read-only: they inspect the state a running workflow keeps and never write anything. A third command, `audit` (below), is advisory and read-mostly: it writes only its own report.
 
-`validate` checks the workflow's metrics log against its record schema. With `--plan` it also checks a Markdown plan's structured regions (the Roadmap table and the Open Questions queue) against the plan schema, and with `--source` it checks a `<task>.plan.toml` structured source (its schema and internal cross-references). With `--workflow` it cross-references the plan status against the round log: every Roadmap step marked `complete` must have converging round records in the log (or a recorded waiver), so a step marked done without its review loop (or that never reached the clean-round streak its risk class requires) is caught. The workflow check reads the plan from a TOML `--source` when that source declares `[meta].primary = "toml"` (a TOML-only project needs no `--plan`), else from the Markdown `--plan`. It reports every malformed record, region, or cross-reference and every workflow disagreement, and exits non-zero if any exist, so it can gate a commit or run in CI:
+`validate` checks the workflow's metrics log against its record schema. With `--plan` it also checks a Markdown plan's structured regions (the Roadmap table and the Open Questions queue) against the plan schema, and with `--source` it checks a `<task>.plan.toml` structured source (its schema and internal cross-references). With `--workflow` it cross-references the plan status against the round log: every Roadmap step marked `complete` must have converging round records in the log (or a recorded waiver), so a step marked done without its review loop (or that never reached the clean-round streak its risk class requires) is caught. The workflow check reads the plan from a TOML `--source` when that source declares `[meta].primary = "toml"` (a TOML-only project needs no `--plan`), else from the Markdown `--plan`. It reports every malformed record, region, or cross-reference and every workflow disagreement, and exits non-zero if any exist, so it can gate a commit or run in CI. It also REFUSES a pairing it cannot vouch for: when the round log it is about to read does not live under the project root of the plan it is about to check, `--workflow` reports that and exits non-zero rather than joining the two, since a green over one project's plan and another project's evidence is worse than no answer at all:
 
 ```sh
 # Validate the default metrics log (docs/metrics/workflow.jsonl):
@@ -221,11 +221,23 @@ agent-scaffold validate --source docs/plans/my-task.plan.toml --workflow
 
 # The Markdown path still works when a project keeps a Markdown plan:
 agent-scaffold validate --plan docs/plans/my-task.md --workflow
+
+# Pointing --workflow at a log outside the plan's own project is refused (exit 1):
+agent-scaffold validate --source /elsewhere/docs/plans/their-task.plan.toml \
+  --metrics docs/metrics/workflow.jsonl --workflow
+# --workflow would join /elsewhere/docs/plans/their-task.plan.toml against
+# docs/metrics/workflow.jsonl, which is not under the plan's project root /elsewhere;
+# pass a `--metrics` under that root, run against the plan's own log, or correct the
+# `--source` and `--plan` pair
 ```
 
 The round log is resolved FROM THE PLAN, not from the directory you happen to be standing in. With no `--metrics`, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of `--source` (else of `--plan`), or the source's own directory when it has no such ancestor, so a plan at a project root with no `docs/plans` still reads that root's log. So `agent-scaffold validate --source /elsewhere/docs/plans/their-task.plan.toml --workflow` checks THEIR plan against THEIR log, rather than joining their plan to yours. `status`, `status --resume` and `next` resolve the same way, and the ledger those two read is `<task>.ledger.md` beside the plan source. An explicit `--metrics` (or `--ledger-fragment`) is used verbatim, and a run with neither `--source` nor `--plan` has nothing to anchor to, so it keeps the current-directory-relative `docs/metrics/workflow.jsonl`. The rule is textual: it never consults `.git`, so it works the same in a nested repository, outside a repository, and in an unpacked tarball. One consequence to know about: a bare filename run from inside `docs/plans` (`cd docs/plans && agent-scaffold validate --source my-task.plan.toml --workflow`) has no parent directories to derive a root from, so it looks for `docs/metrics/workflow.jsonl` beneath `docs/plans` and reports that it found no log; run it from the project root instead.
 
-`status` prints a best-effort projection of that state: the plan's Roadmap steps grouped by status and its Open Questions count, plus a metrics-record count. It reads the plan from a `<task>.plan.toml` `--source` when that source is TOML-primary, else from the Markdown `--plan`. Unlike `validate` it never fails on a missing or malformed file (a missing part is simply left out of the projection), and `--json` emits the projection as JSON for another tool to consume:
+Anchoring changes where the DEFAULT log resolves; it does nothing about a log you name explicitly, so a second rule sits on top of it. Every one of these commands checks that the log (and, for the ledger readers, the ledger) it is about to read lives under the project root of the plan it is about to read, resolving both through their real on-disk locations so a symlink cannot disguise one as the other. Where it does not, `validate --workflow` refuses as above, while `status` and `next` LEAVE THAT PART OUT with a reason in its place and still exit 0 (see the `status` paragraph below). Two consequences are worth knowing. A layout where `docs/plans` or `docs/metrics` is a symlink pointing somewhere the other one is not under will now be refused by `validate --workflow` and left out by the projections, even though it worked before; the trade taken is that a loud refusal beats silently reading the wrong file. And a setup that deliberately points one project's `--metrics` at a log outside its own root now exits non-zero under `--workflow`. The rule is CONTAINMENT, not identity: it can tell that a log outside the plan's tree is not the plan's, but a foreign log copied INSIDE that tree still looks like the plan's own, because the round records carry no project of their own to check.
+
+`status` prints a best-effort projection of that state: the plan's Roadmap steps grouped by status and its Open Questions count, plus a metrics-record count. It reads the plan from a `<task>.plan.toml` `--source` when that source is TOML-primary, else from the Markdown `--plan`. Unlike `validate` it never fails on a missing or malformed file (a missing part is simply left out of the projection), and `--json` emits the projection as JSON for another tool to consume. A round log that cannot be paired with the plan is one of the parts that gets left out: `status` prints `metrics: unavailable, <why>` in place of the record count, `next` leaves out the count AND the whole `ACTIVE LOOP` block (an instruction derived from evidence the tool cannot vouch for is exactly what must not be emitted), and `status --resume` prints a note naming the rejected ledger instead of the `## RESUME STATE` block. All three still EXIT 0. The same release adds a refusal to `validate --workflow` for the same condition; the projections deliberately do not refuse, because leaving out what they do not have is their documented contract.
+
+`--json` says which part is missing and why, so a machine consumer can tell the causes apart rather than reading one bare `null` for all of them. `status`'s projection carries `metrics_absent_reason` (`log-absent`, or `log-not-this-project`) beside `metrics`, and `next`'s carries the same field plus `resume_state_absent_reason` (`ledger-absent`, `no-resume-section`, or `ledger-not-this-project`) beside `resume_state` and `no_active_loop_reason` (`no-plan-steps`, `all-steps-terminal`, or `metrics-not-this-project`) beside `active_loop`. Each is `null` when its part is present, and the shared `not-this-project` spelling is deliberate: an unpairable log reports `log-not-this-project` and `metrics-not-this-project` together, so the two can be joined without a lookup table:
 
 ```sh
 # Human-readable summary (from a TOML-primary plan skeleton):
@@ -236,6 +248,15 @@ agent-scaffold status --plan docs/plans/my-task.md
 
 # Machine-readable projection:
 agent-scaffold status --source docs/plans/my-task.plan.toml --json
+
+# A log that cannot be paired with the plan is left out, with a reason, at exit 0:
+agent-scaffold status --source /elsewhere/docs/plans/their-task.plan.toml \
+  --metrics docs/metrics/workflow.jsonl --json
+# {
+#   "plan": { ... },
+#   "metrics": null,
+#   "metrics_absent_reason": "log-not-this-project"
+# }
 ```
 
 ### Auditing code value

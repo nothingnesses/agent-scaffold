@@ -92,9 +92,79 @@ fn phase_principle_names(state: LoopState) -> &'static [&'static str] {
 	}
 }
 
-/// The whole `next` projection, serialised by `--json`. Every derived part is optional
-/// so a missing plan or log yields a partial projection rather than a failure (mirrors
-/// `status`'s `Projection`); nothing here is a source of truth.
+/// Why the metrics half of a projection is absent. Shared by `next`'s `NextProjection`
+/// and `status`'s `Projection` (`src/main.rs`), so the two commands report one vocabulary
+/// rather than two that can drift. A closed enum, not a free string: a consumer that has
+/// to tell an absent log from an unpairable one is the whole point, and kebab-case on the
+/// wire follows `LoopState`'s precedent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum MetricsAbsentReason {
+	/// No file at the resolved metrics path.
+	LogAbsent,
+	/// The resolved path is not under the root of the plan this surface reads, so the
+	/// tool cannot vouch that its records belong to that plan.
+	LogNotThisProject,
+}
+
+/// Why there is no active review loop. Retyped from the free string it used to be so the
+/// same value serves the human renderer and `--json`: one reason, one type, rendered two
+/// ways.
+///
+/// TWO STEP-DERIVED ANSWERS, NOT THREE. `select_active_loop` returns `None` only when
+/// there are no steps at all or when every step is terminal; a pending step with unmet
+/// blockers yields a `blocked` ACTIVE LOOP rather than no loop, so the old third answer
+/// ("no in-progress or ready step") named a state the code cannot reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum NoActiveLoopReason {
+	/// The plan source yielded no steps.
+	NoPlanSteps,
+	/// Every step is terminal (complete, skipped, optional, or deferred).
+	AllStepsTerminal,
+	/// The round log resolved for this plan is not the plan's own, so no loop state can
+	/// be derived from it. The `not-this-project` token is shared with
+	/// `MetricsAbsentReason::LogNotThisProject` on purpose: one cause, two consequences,
+	/// joinable by a consumer without a lookup table.
+	MetricsNotThisProject,
+}
+
+/// Why the `## RESUME STATE` block is absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ResumeStateAbsentReason {
+	/// No file at the resolved ledger path.
+	LedgerAbsent,
+	/// The ledger exists but carries no `## RESUME STATE` block.
+	NoResumeSection,
+	/// The resolved ledger is not under the root of the plan this surface reads: either
+	/// an explicit `--ledger-fragment` outside it, or a default ledger anchored on a
+	/// `--source` that itself lies outside it.
+	LedgerNotThisProject,
+}
+
+impl NoActiveLoopReason {
+	/// The human phrasing, for the `no active review loop (<reason>)` line. The two
+	/// step-derived variants print exactly the strings this projection has always
+	/// printed; the metrics variant's generic phrasing is a fallback, since the caller
+	/// normally supplies a note naming the resolved log and the derived root (the enum is
+	/// the MACHINE value and carries no paths).
+	fn human_text(self) -> &'static str {
+		match self {
+			NoActiveLoopReason::NoPlanSteps => "no plan steps found",
+			NoActiveLoopReason::AllStepsTerminal => "all steps complete",
+			NoActiveLoopReason::MetricsNotThisProject =>
+				"the resolved round log is not under the plan's project root",
+		}
+	}
+}
+
+/// The whole `next` projection, serialised by `--json`. Every derived part is optional so
+/// a missing plan, a missing log, or a log that cannot be paired with this plan yields a
+/// partial projection rather than a failure (mirrors `status`'s `Projection`); nothing
+/// here is a source of truth. Each optional part carries a closed reason enum beside it,
+/// so `--json` reports WHY a part is absent rather than a bare `null` that reads the same
+/// for every cause.
 #[derive(Debug, Serialize)]
 pub(crate) struct NextProjection {
 	/// The task slug (the `<task>` in `<task>.plan.toml` / `<task>.ledger.md`),
@@ -103,18 +173,34 @@ pub(crate) struct NextProjection {
 	/// The plan source path echoed verbatim (relative, never canonicalised), so the
 	/// output is identical on any machine.
 	pub(crate) source: String,
-	/// The round-log summary, present only when the metrics log was readable.
+	/// The round-log summary, present only when the metrics log was readable AND is the
+	/// plan's own.
 	pub(crate) metrics: Option<MetricsSummary>,
-	/// The single active review loop, or `None` when there is nothing to act on (all
-	/// steps complete, every pending step blocked, or no plan source).
+	/// Why `metrics` is absent; `Some` exactly when `metrics` is `None`.
+	pub(crate) metrics_absent_reason: Option<MetricsAbsentReason>,
+	/// The single active review loop, or `None` when there is nothing to act on (no
+	/// steps, every step terminal, or a round log this tool cannot vouch for).
 	pub(crate) active_loop: Option<ActiveLoop>,
 	/// The ledger's `## RESUME STATE` block, extracted verbatim, or `None` when the
-	/// ledger is absent or carries no such section.
+	/// ledger is absent, carries no such section, or is not this plan's.
 	pub(crate) resume_state: Option<String>,
-	/// Why there is no active loop, for the human renderer. Not serialised (the JSON
-	/// contract is exactly the fields above); recomputed each call, never stored.
+	/// Why `resume_state` is absent; `Some` exactly when `resume_state` is `None`.
+	pub(crate) resume_state_absent_reason: Option<ResumeStateAbsentReason>,
+	/// Why there is no active loop; `Some` exactly when `active_loop` is `None`.
+	/// Serialised: `--json` is what an agent reads, and an agent acting on this output is
+	/// the reason the omission exists at all.
+	pub(crate) no_active_loop_reason: Option<NoActiveLoopReason>,
+	/// The human phrasing of an unpairable round log, naming the resolved log and the
+	/// derived project root. Assembled by the CALLER, which holds those paths, because
+	/// the reason enums above are the machine value and carry none; `Some` exactly when
+	/// `metrics_absent_reason` is `LogNotThisProject`. Not serialised: `--json` reports
+	/// the token, and a machine consumer already holds the paths it passed in.
 	#[serde(skip)]
-	pub(crate) no_active_loop_reason: Option<String>,
+	pub(crate) metrics_absent_note: Option<String>,
+	/// The same for an unpairable ledger; `Some` exactly when
+	/// `resume_state_absent_reason` is `LedgerNotThisProject`.
+	#[serde(skip)]
+	pub(crate) resume_state_absent_note: Option<String>,
 }
 
 /// The round-log half of the projection: a record count, matching `status`.
@@ -529,8 +615,20 @@ pub(crate) struct NextInputs<'a> {
 	pub(crate) rounds: &'a [Round],
 	pub(crate) spec: &'a WorkflowSpec,
 	pub(crate) metrics_records: Option<usize>,
+	/// Why the round log yielded no summary; `Some` exactly when `metrics_records` is
+	/// `None`. Computed by the CALLER (which resolves the paths and runs the containment
+	/// predicate) and passed through, so `project` stays a pure function of its inputs.
+	pub(crate) metrics_absent_reason: Option<MetricsAbsentReason>,
+	/// The caller-assembled human phrasing for an unpairable log; see
+	/// `NextProjection::metrics_absent_note`.
+	pub(crate) metrics_absent_note: Option<String>,
 	pub(crate) ledger_path: String,
 	pub(crate) resume_state: Option<String>,
+	/// Why the ledger yielded no block; `Some` exactly when `resume_state` is `None`.
+	pub(crate) resume_state_absent_reason: Option<ResumeStateAbsentReason>,
+	/// The caller-assembled human phrasing for an unpairable ledger; see
+	/// `NextProjection::resume_state_absent_note`.
+	pub(crate) resume_state_absent_note: Option<String>,
 	pub(crate) isolation_tier: String,
 	/// The plan's parsed `[[principle]]` list, projected by NAME into the escalate
 	/// human-input-contract reminder. Empty for a Markdown-source projection (the Markdown
@@ -568,16 +666,40 @@ pub(crate) fn project(inputs: NextInputs) -> NextProjection {
 		isolation_tier: &inputs.isolation_tier,
 		principles: inputs.principles,
 	};
-	let active_loop = select_active_loop(inputs.steps, inputs.rounds, inputs.spec, &context);
-	let no_active_loop_reason =
-		if active_loop.is_none() { Some(no_loop_reason(inputs.steps)) } else { None };
+	// UNSAFE IS NOT ABSENT. A log this tool cannot pair with the plan is not "this project
+	// has no rounds", it is "this tool cannot tell you anything about this project's
+	// rounds", so the loop is WITHHELD rather than projected. Treating it as absent would
+	// let the zero-rounds path run and fabricate `awaiting-first-review` for a step whose
+	// real log says it converged: a quieter false instruction, but still one derived from
+	// evidence the tool does not have.
+	let unpairable_log =
+		inputs.metrics_absent_reason == Some(MetricsAbsentReason::LogNotThisProject);
+	let active_loop = if unpairable_log {
+		None
+	} else {
+		select_active_loop(inputs.steps, inputs.rounds, inputs.spec, &context)
+	};
+	// The correlation rule: report the METRICS cause only where the loop's absence really
+	// is metrics-derived. Where the steps alone already leave no loop, that is the honest
+	// reason whatever the log's state.
+	let no_active_loop_reason = if active_loop.is_some() {
+		None
+	} else if unpairable_log && !steps_leave_no_loop(inputs.steps) {
+		Some(NoActiveLoopReason::MetricsNotThisProject)
+	} else {
+		Some(no_loop_reason(inputs.steps))
+	};
 	NextProjection {
 		task: inputs.task,
 		source: inputs.source,
 		metrics: inputs.metrics_records.map(|records| MetricsSummary { records }),
+		metrics_absent_reason: inputs.metrics_absent_reason,
 		active_loop,
 		resume_state: inputs.resume_state,
+		resume_state_absent_reason: inputs.resume_state_absent_reason,
 		no_active_loop_reason,
+		metrics_absent_note: inputs.metrics_absent_note,
+		resume_state_absent_note: inputs.resume_state_absent_note,
 	}
 }
 
@@ -949,14 +1071,21 @@ fn filled_prompt_summary(
 	}
 }
 
-/// The reason there is no active loop, for the human renderer.
-fn no_loop_reason(steps: &[StepInfo]) -> String {
+/// Whether the STEPS alone leave no loop to project: no steps at all, or every step
+/// terminal. Kept separate from the metrics cause so the correlation rule can report the
+/// step cause where it applies and the metrics cause only where the loop's absence really
+/// is metrics-derived.
+fn steps_leave_no_loop(steps: &[StepInfo]) -> bool {
+	steps.is_empty() || steps.iter().all(|step| step.phase.is_terminal())
+}
+
+/// The step-derived reason there is no active loop. Called only where the steps do leave
+/// no loop, so the two answers are exhaustive.
+fn no_loop_reason(steps: &[StepInfo]) -> NoActiveLoopReason {
 	if steps.is_empty() {
-		"no plan steps found".to_string()
-	} else if steps.iter().all(|step| step.phase.is_terminal()) {
-		"all steps complete".to_string()
+		NoActiveLoopReason::NoPlanSteps
 	} else {
-		"no in-progress or ready step".to_string()
+		NoActiveLoopReason::AllStepsTerminal
 	}
 }
 
@@ -1014,32 +1143,58 @@ fn task_from_filename(name: &str) -> String {
 /// Render the projection as the deterministic human-readable text: a `task`/`source`/
 /// `metrics` header, then either the `ACTIVE LOOP` block or a `no active review loop`
 /// line. No trailing newline (the caller adds one); no timestamps; paths echoed verbatim.
+///
+/// An omitted part says WHY in its place rather than reading as an empty one: an
+/// unpairable log prints `metrics: unavailable, <note>` instead of a record count, and an
+/// unpairable ledger prints the caller's note instead of the `## RESUME STATE` echo.
 pub(crate) fn render_human(projection: &NextProjection) -> String {
 	let mut out = String::new();
 	out.push_str(&format!("task: {}\n", projection.task));
 	out.push_str(&format!("source: {}\n", projection.source));
-	match &projection.metrics {
-		Some(metrics) => out.push_str(&format!("metrics: {} records\n", metrics.records)),
-		None => out.push_str("metrics: no log found\n"),
+	match (&projection.metrics, &projection.metrics_absent_note) {
+		(Some(metrics), _) => out.push_str(&format!("metrics: {} records\n", metrics.records)),
+		(None, Some(note)) => out.push_str(&format!("metrics: unavailable, {note}\n")),
+		(None, None) => out.push_str("metrics: no log found\n"),
 	}
 	out.push('\n');
 	match &projection.active_loop {
 		None => {
-			let reason = projection
-				.no_active_loop_reason
-				.as_deref()
-				.unwrap_or("no in-progress or ready step");
-			out.push_str(&format!("no active review loop ({reason})\n"));
+			out.push_str(&format!("no active review loop ({})\n", no_loop_text(projection)));
 		}
 		Some(active) => render_active_loop(&mut out, active),
 	}
-	if let Some(resume) = &projection.resume_state {
-		out.push('\n');
-		out.push_str("RESUME STATE (verbatim from the ledger):\n");
-		out.push_str(resume);
-		out.push('\n');
+	match (&projection.resume_state, &projection.resume_state_absent_note) {
+		(Some(resume), _) => {
+			out.push('\n');
+			out.push_str("RESUME STATE (verbatim from the ledger):\n");
+			out.push_str(resume);
+			out.push('\n');
+		}
+		// The ledger was rejected rather than merely missing: print the same note
+		// `status --resume` prints, in place of the block.
+		(None, Some(note)) => {
+			out.push('\n');
+			out.push_str(&format!("{note}\n"));
+		}
+		(None, None) => {}
 	}
 	out.trim_end_matches('\n').to_string()
+}
+
+/// The parenthesised reason on the `no active review loop` line. The unpairable-log case
+/// prefers the caller's note, which names the resolved log and the derived root; the
+/// step-derived cases print exactly the strings they always did.
+fn no_loop_text(projection: &NextProjection) -> String {
+	match projection.no_active_loop_reason {
+		Some(NoActiveLoopReason::MetricsNotThisProject) => projection
+			.metrics_absent_note
+			.clone()
+			.unwrap_or_else(|| NoActiveLoopReason::MetricsNotThisProject.human_text().to_string()),
+		Some(reason) => reason.human_text().to_string(),
+		// Unreachable: `project` sets a reason whenever there is no loop. Kept as the
+		// historical wording so a hand-built projection still renders a sentence.
+		None => "no in-progress or ready step".to_string(),
+	}
 }
 
 /// Render the `ACTIVE LOOP` block into `out`.
@@ -1134,9 +1289,41 @@ mod tests {
 			rounds,
 			spec: &spec,
 			metrics_records: Some(rounds.len()),
+			metrics_absent_reason: None,
+			metrics_absent_note: None,
 			ledger_path: "docs/plans/demo.ledger.md".to_string(),
 			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerAbsent),
+			resume_state_absent_note: None,
 			isolation_tier: isolation_tier.to_string(),
+			principles: &[],
+		})
+	}
+
+	/// Project a fixture whose round log is the WRONG project's, the `Q-55-refusalscope`
+	/// case: the caller passes no record count, the `log-not-this-project` reason, and the
+	/// note it assembled from the paths it holds.
+	fn project_unpairable_log(
+		steps: &[StepInfo],
+		rounds: &[Round],
+	) -> NextProjection {
+		let spec = WorkflowSpec::builtin();
+		project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps,
+			rounds,
+			spec: &spec,
+			metrics_records: None,
+			metrics_absent_reason: Some(MetricsAbsentReason::LogNotThisProject),
+			metrics_absent_note: Some(
+				"the round log elsewhere/workflow.jsonl is not this plan's".to_string(),
+			),
+			ledger_path: "docs/plans/demo.ledger.md".to_string(),
+			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerAbsent),
+			resume_state_absent_note: None,
+			isolation_tier: "worktree".to_string(),
 			principles: &[],
 		})
 	}
@@ -1157,8 +1344,12 @@ mod tests {
 			rounds,
 			spec: &spec,
 			metrics_records: Some(rounds.len()),
+			metrics_absent_reason: None,
+			metrics_absent_note: None,
 			ledger_path: "docs/plans/demo.ledger.md".to_string(),
 			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerAbsent),
+			resume_state_absent_note: None,
 			isolation_tier: isolation_tier.to_string(),
 			principles,
 		})
@@ -1657,6 +1848,183 @@ mod tests {
 		assert_eq!(extracted, "## RESUME STATE\nbody\n### nested\nmore body");
 	}
 
+	// -- Omitted parts and their reasons (Q-55-refusalscope, Q-55-jsonreason) --
+
+	/// The trap at acceptance check 14d: an unpairable log must NOT be treated as an
+	/// absent one. Treating it as absent lets the zero-rounds path run and yields
+	/// `awaiting-first-review` plus "spawn a reviewer for the first review round" for a
+	/// step whose real log says it converged, which is a fresh false instruction rather
+	/// than the withheld projection the decision calls for.
+	///
+	/// The rounds handed in here ARE converged, so a build that projected them would say
+	/// `converged`, and a build that dropped them would say `awaiting-first-review`. Both
+	/// are asserted absent; asserting only the first passes against the trap.
+	#[test]
+	fn an_unpairable_log_withholds_the_loop_instead_of_projecting_an_empty_one() {
+		let steps = [test_step("borrowed", 0, StepPhase::InProgress, &[])];
+		let rounds =
+			[round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "borrowed", "borrowed-inc1")];
+		let projection = project_unpairable_log(&steps, &rounds);
+
+		assert!(projection.active_loop.is_none(), "the whole block goes, not just the action");
+		assert_eq!(
+			projection.no_active_loop_reason,
+			Some(NoActiveLoopReason::MetricsNotThisProject)
+		);
+		assert!(projection.metrics.is_none());
+		assert_eq!(projection.metrics_absent_reason, Some(MetricsAbsentReason::LogNotThisProject));
+
+		let text = render_human(&projection);
+		for fabricated in [
+			"state:",
+			"streak:",
+			"rounds:",
+			"next:",
+			"role:",
+			"prompt:",
+			"summary:",
+			"converged",
+			"awaiting-first-review",
+		] {
+			assert!(!text.contains(fabricated), "`{fabricated}` must not appear in:\n{text}");
+		}
+		assert!(
+			text.contains(
+				"metrics: unavailable, the round log elsewhere/workflow.jsonl is not this plan's"
+			),
+			"the caller's note replaces the record count:\n{text}"
+		);
+		assert!(
+			text.contains(
+				"no active review loop (the round log elsewhere/workflow.jsonl is not this plan's)"
+			),
+			"the same note names the loop's absence:\n{text}"
+		);
+	}
+
+	/// Acceptance check 14f: the vocabulary SEPARATES the causes. Three inputs, three
+	/// distinct serialised answers; if two of them agreed the defect would have moved
+	/// rather than closed.
+	#[test]
+	fn the_absent_causes_serialise_distinguishably() {
+		let steps = [test_step("borrowed", 0, StepPhase::InProgress, &[])];
+		let rounds =
+			[round(1, RoundOutcome::Clean, 1, RiskClass::LowRisk, "borrowed", "borrowed-inc1")];
+
+		// (a) The plan's own log is genuinely absent: a loop is still derived (from no
+		// rounds), and the reason says the file was missing.
+		let spec = WorkflowSpec::builtin();
+		let absent = project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps: &steps,
+			rounds: &[],
+			spec: &spec,
+			metrics_records: None,
+			metrics_absent_reason: Some(MetricsAbsentReason::LogAbsent),
+			metrics_absent_note: None,
+			ledger_path: "docs/plans/demo.ledger.md".to_string(),
+			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerAbsent),
+			resume_state_absent_note: None,
+			isolation_tier: "worktree".to_string(),
+			principles: &[],
+		});
+		assert_eq!(absent.metrics_absent_reason, Some(MetricsAbsentReason::LogAbsent));
+		assert!(absent.active_loop.is_some(), "an absent log still yields a derived loop");
+		assert_eq!(absent.no_active_loop_reason, None);
+
+		// (b) The unsafe pairing.
+		let unpairable = project_unpairable_log(&steps, &rounds);
+		assert_eq!(unpairable.metrics_absent_reason, Some(MetricsAbsentReason::LogNotThisProject));
+		assert_eq!(
+			unpairable.no_active_loop_reason,
+			Some(NoActiveLoopReason::MetricsNotThisProject)
+		);
+
+		// (c) No plan source at all.
+		let no_steps = project_fixture(&[], &[], "worktree");
+		assert_eq!(no_steps.no_active_loop_reason, Some(NoActiveLoopReason::NoPlanSteps));
+
+		let json =
+			|projection: &NextProjection| serde_json::to_string(projection).expect("serialises");
+		assert!(json(&absent).contains(r#""metrics_absent_reason":"log-absent""#));
+		assert!(json(&unpairable).contains(r#""metrics_absent_reason":"log-not-this-project""#));
+		assert!(json(&unpairable).contains(r#""no_active_loop_reason":"metrics-not-this-project""#));
+		assert!(json(&no_steps).contains(r#""no_active_loop_reason":"no-plan-steps""#));
+	}
+
+	/// The correlation rule's boundary: where the STEPS alone leave no loop, that is the
+	/// reason reported, even when the log is also unpairable. Reporting the metrics cause
+	/// here would claim the log withheld a loop that never existed.
+	#[test]
+	fn a_terminal_plan_reports_the_step_cause_not_the_log_cause() {
+		let steps = [test_step("done", 0, StepPhase::Complete, &[])];
+		let projection = project_unpairable_log(&steps, &[]);
+		assert_eq!(projection.no_active_loop_reason, Some(NoActiveLoopReason::AllStepsTerminal));
+		assert_eq!(
+			projection.metrics_absent_reason,
+			Some(MetricsAbsentReason::LogNotThisProject),
+			"the metrics half is still reported as unpairable"
+		);
+	}
+
+	/// A blocked pending step yields an ACTIVE LOOP, so it is not a cause of `None` at
+	/// all. This pins the reconciliation the retype forced: the old third reason string
+	/// ("no in-progress or ready step") named an unreachable state, and no variant
+	/// replaces it.
+	#[test]
+	fn a_blocked_pending_step_still_yields_a_loop_so_it_is_not_a_no_loop_reason() {
+		let steps = [
+			test_step("blocker", 0, StepPhase::InProgress, &[]),
+			test_step("blocked", 1, StepPhase::NotStarted, &["blocker"]),
+		];
+		let projection = project_fixture(&steps, &[], "worktree");
+		assert!(projection.active_loop.is_some());
+		assert_eq!(projection.no_active_loop_reason, None);
+	}
+
+	/// An unpairable LEDGER prints the caller's note where the block would go, and
+	/// reports `ledger-not-this-project` rather than `ledger-absent` (the precedence
+	/// rule: unsafe wins over absent).
+	#[test]
+	fn an_unpairable_ledger_prints_its_note_in_place_of_the_block() {
+		let steps = [test_step("core", 0, StepPhase::InProgress, &[])];
+		let spec = WorkflowSpec::builtin();
+		let projection = project(NextInputs {
+			task: "demo".to_string(),
+			source: "docs/plans/demo.plan.toml".to_string(),
+			steps: &steps,
+			rounds: &[],
+			spec: &spec,
+			metrics_records: Some(0),
+			metrics_absent_reason: None,
+			metrics_absent_note: None,
+			ledger_path: "elsewhere/demo.ledger.md".to_string(),
+			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerNotThisProject),
+			resume_state_absent_note: Some(
+				"the ledger elsewhere/demo.ledger.md is not this plan's; nothing to resume"
+					.to_string(),
+			),
+			isolation_tier: "worktree".to_string(),
+			principles: &[],
+		});
+		assert!(projection.resume_state.is_none());
+		assert_eq!(
+			projection.resume_state_absent_reason,
+			Some(ResumeStateAbsentReason::LedgerNotThisProject)
+		);
+		let text = render_human(&projection);
+		assert!(
+			text.contains(
+				"the ledger elsewhere/demo.ledger.md is not this plan's; nothing to resume"
+			),
+			"expected the rejected-ledger note:\n{text}"
+		);
+		assert!(!text.contains("RESUME STATE (verbatim"), "no part of the block:\n{text}");
+	}
+
 	// -- Golden output (byte-compare) --
 
 	fn golden_projection() -> NextProjection {
@@ -1670,8 +2038,12 @@ mod tests {
 			rounds: &rounds,
 			spec: &spec,
 			metrics_records: Some(1),
+			metrics_absent_reason: None,
+			metrics_absent_note: None,
 			ledger_path: "docs/plans/demo.ledger.md".to_string(),
 			resume_state: None,
+			resume_state_absent_reason: Some(ResumeStateAbsentReason::LedgerAbsent),
+			resume_state_absent_note: None,
 			isolation_tier: "worktree".to_string(),
 			principles: &[],
 		})
@@ -1708,6 +2080,7 @@ ACTIVE LOOP
   "metrics": {
     "records": 1
   },
+  "metrics_absent_reason": null,
   "active_loop": {
     "step": "core-assets",
     "increment": "core-assets-inc1",
@@ -1741,7 +2114,9 @@ ACTIVE LOOP
       "filled_prompt_summary": "fresh review round on step `core-assets` increment `core-assets-inc1` (streak 1/2)."
     }
   },
-  "resume_state": null
+  "resume_state": null,
+  "resume_state_absent_reason": "ledger-absent",
+  "no_active_loop_reason": null
 }"#;
 
 	// The golden fixtures carry the reviewer-state isolation reminder (Q-62 widened the

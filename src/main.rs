@@ -435,7 +435,7 @@ struct ValidateArgs {
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error, and so is a round log that lies outside the project root of the plan being checked: the tool cannot vouch that such a log's records belong to that plan, so it REFUSES the pairing and exits non-zero rather than reporting on it.
 	#[arg(long)]
 	workflow: bool,
 	/// Path to a `workflow.toml` control-constants spec supplying the convergence streaks, round cap, and backstop severity the --workflow check reads. When omitted, the built-in default (today's constants) is used, so the check is unchanged. A malformed spec is a hard error (non-zero exit). Requires --workflow (the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0).
@@ -558,16 +558,23 @@ struct AuditArgs {
 	out: Option<PathBuf>,
 }
 
-/// A derived, best-effort projection of the workflow state, serialised by
-/// `status`. Every part is optional so a missing plan or metrics file yields a
-/// partial projection rather than a failure; nothing here is a source of truth
-/// (it is regenerable from the plan and the metrics log).
+/// A derived, best-effort projection of the workflow state, serialised by `status`. Every
+/// part is optional so a missing plan, a missing metrics file, or a metrics file that
+/// cannot be paired with this plan yields a partial projection rather than a failure;
+/// nothing here is a source of truth (it is regenerable from the plan and the metrics
+/// log). The metrics half carries a closed reason beside it, so `--json` reports WHY it is
+/// absent rather than a bare `null` that reads the same for every cause (mirrors
+/// `next`'s `NextProjection`).
 #[derive(Serialize)]
 struct Projection {
-	/// The plan projection, present only when a readable `--plan` was given.
+	/// The plan projection, present only when a readable `--plan` was given. It carries no
+	/// reason field: there is exactly one cause, so a reason there would inform nobody.
 	plan: Option<PlanProjection>,
-	/// The metrics summary, present only when the metrics log exists.
+	/// The metrics summary, present only when the metrics log exists AND is this plan's.
 	metrics: Option<MetricsProjection>,
+	/// Why `metrics` is absent; `Some` exactly when `metrics` is `None`. The vocabulary is
+	/// shared with `next` (`src/next.rs`) so the two commands cannot drift.
+	metrics_absent_reason: Option<next::MetricsAbsentReason>,
 }
 
 /// The plan half of the projection: the Roadmap steps and the Open Questions
@@ -961,52 +968,78 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 			None => workflow_spec::WorkflowSpec::builtin(),
 		};
 		let toml_primary = source_plan.as_ref().filter(|source| source.is_toml_primary());
-		match (toml_primary, &plan_contents, &metrics_contents) {
-			// TOML-sourced: the plan is read from the TOML source, so `plan_contents` is
-			// ignored here and no --plan is required (a TOML-only project has no Markdown
-			// plan; the clap `requires` was relaxed for exactly this case). Needs the metrics
-			// log for the rounds/decisions/escalations.
-			(Some(source), _, Some(metrics_text)) => {
-				let source_display = args
-					.source
-					.as_ref()
-					.map_or_else(|| "source".to_string(), |path| path.display().to_string());
-				report_workflow(
-					workflow::check_workflow_toml(&workflow_spec, source, metrics_text),
-					&source_display,
-					&metrics_path.display().to_string(),
-					&mut summaries,
-					&mut problems,
-				);
+		// The containment guard, BEFORE the four-arm match so it does not have to be
+		// repeated inside the arms. The root comes from the plan the match is about to
+		// read: the TOML `--source` in TOML-primary mode, else the Markdown `--plan`.
+		// Where no plan is read there is no root, the predicate does not fire, and every
+		// input behaves as it did; on this surface that case is the match's own
+		// `(None, None, _)` arm, already a hard problem for its own reason.
+		let checked_root = checked_plan_root(toml_primary.is_some(), &args.source, &args.plan);
+		let checked_display = if toml_primary.is_some() { &args.source } else { &args.plan }
+			.as_ref()
+			.map_or_else(|| "the plan".to_string(), |path| path.display().to_string());
+		let unsafe_pairing =
+			checked_root.as_ref().is_some_and(|root| is_outside_root(&metrics_path, root));
+		if unsafe_pairing {
+			// REFUSE rather than run the check: joining a log the tool cannot attribute to
+			// this plan is the defect, so asserting anything about the pairing (in either
+			// direction) is what has to stop. The remedy names all three causes, since the
+			// log can be wrong because it was named, because the run stood somewhere else,
+			// or because the `--source` and the `--plan` belong to different projects.
+			let root = checked_root.as_ref().expect("unsafe implies a derived root");
+			problems.push(format!(
+				"--workflow would join {checked_display} against {}, which is not under the plan's project root {}; pass a `--metrics` under that root, run against the plan's own log, or correct the `--source` and `--plan` pair",
+				metrics_path.display(),
+				root.display()
+			));
+		} else {
+			match (toml_primary, &plan_contents, &metrics_contents) {
+				// TOML-sourced: the plan is read from the TOML source, so `plan_contents` is
+				// ignored here and no --plan is required (a TOML-only project has no Markdown
+				// plan; the clap `requires` was relaxed for exactly this case). Needs the metrics
+				// log for the rounds/decisions/escalations.
+				(Some(source), _, Some(metrics_text)) => {
+					let source_display = args
+						.source
+						.as_ref()
+						.map_or_else(|| "source".to_string(), |path| path.display().to_string());
+					report_workflow(
+						workflow::check_workflow_toml(&workflow_spec, source, metrics_text),
+						&source_display,
+						&metrics_path.display().to_string(),
+						&mut summaries,
+						&mut problems,
+					);
+				}
+				// Markdown-sourced: needs both the Markdown plan and the metrics log.
+				(None, Some(plan_text), Some(metrics_text)) => {
+					let plan_display = args
+						.plan
+						.as_ref()
+						.map_or_else(|| "plan".to_string(), |path| path.display().to_string());
+					report_workflow(
+						workflow::check_workflow(&workflow_spec, plan_text, metrics_text),
+						&plan_display,
+						&metrics_path.display().to_string(),
+						&mut summaries,
+						&mut problems,
+					);
+				}
+				// No usable plan source resolved: neither a TOML-primary --source nor a
+				// readable --plan (a typo'd/missing --source, a Markdown-primary --source with
+				// no --plan, or no source at all). --workflow was explicitly requested, so
+				// skipping would green-pass while checking nothing; make it a hard problem
+				// instead. Independent of the metrics log.
+				(None, None, _) => problems.push(
+					"--workflow requested but no plan source resolved: pass a TOML-primary --source or a Markdown --plan"
+						.to_string(),
+				),
+				// A plan source is present but the metrics log is missing: keep the
+				// pre-existing stderr skip (the rounds/decisions log is what is absent).
+				_ => eprintln!(
+					"--workflow has a plan source but the metrics log is missing; skipping the workflow check"
+				),
 			}
-			// Markdown-sourced: needs both the Markdown plan and the metrics log.
-			(None, Some(plan_text), Some(metrics_text)) => {
-				let plan_display = args
-					.plan
-					.as_ref()
-					.map_or_else(|| "plan".to_string(), |path| path.display().to_string());
-				report_workflow(
-					workflow::check_workflow(&workflow_spec, plan_text, metrics_text),
-					&plan_display,
-					&metrics_path.display().to_string(),
-					&mut summaries,
-					&mut problems,
-				);
-			}
-			// No usable plan source resolved: neither a TOML-primary --source nor a
-			// readable --plan (a typo'd/missing --source, a Markdown-primary --source with
-			// no --plan, or no source at all). --workflow was explicitly requested, so
-			// skipping would green-pass while checking nothing; make it a hard problem
-			// instead. Independent of the metrics log.
-			(None, None, _) => problems.push(
-				"--workflow requested but no plan source resolved: pass a TOML-primary --source or a Markdown --plan"
-					.to_string(),
-			),
-			// A plan source is present but the metrics log is missing: keep the
-			// pre-existing stderr skip (the rounds/decisions log is what is absent).
-			_ => eprintln!(
-				"--workflow has a plan source but the metrics log is missing; skipping the workflow check"
-			),
 		}
 	}
 
@@ -1070,6 +1103,12 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// (`resolve_metrics_path`); with `--resume`, the ledger is resolved beside the plan source
 /// (`default_ledger_path`). A projection read from the wrong project's files is not an empty
 /// projection, it is a confident wrong one.
+///
+/// Where the resolved log cannot be paired with the plan at all (the same containment
+/// predicate `validate --workflow` refuses on), the metrics half is LEFT OUT with a reason
+/// in its place and the run still exits 0. `status` never refuses: an unpairable log is a
+/// part that is not available for the projection, which is the documented contract applied
+/// literally.
 fn run_status(args: StatusArgs) -> io::Result<()> {
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
@@ -1081,7 +1120,8 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	// The Inc 4 gate: when a `--source` is a `<task>.plan.toml` declaring
 	// `[meta].primary = "toml"`, project the plan from it; otherwise fall back to the
 	// Markdown `--plan`, so a Markdown-primary or absent source is unaffected.
-	let plan = if let Some(source) = toml_source(&args.source)? {
+	let toml_primary = toml_source(&args.source)?;
+	let plan = if let Some(source) = &toml_primary {
 		Some(PlanProjection {
 			steps: source.step_views(),
 			open_questions: source.question_views(),
@@ -1101,17 +1141,35 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	// The same anchored resolution `validate` uses, single-sourced in `resolve_metrics_path`
 	// so the two commands cannot drift on which log belongs to a plan.
 	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
-	let metrics = if metrics_path.exists() {
+	// The same containment predicate the validator refuses on, with the OTHER response
+	// `Q-55-refusalscope` decided: a log this projection cannot pair with its plan is
+	// exactly a part that is not available for the projection, so it is left out with a
+	// reason and the run still exits 0. That is the documented never-fails contract
+	// applied literally, not an exception carved into it.
+	let checked_root = checked_plan_root(toml_primary.is_some(), &args.source, &args.plan);
+	let unpairable_log = checked_root
+		.as_ref()
+		.filter(|root| is_outside_root(&metrics_path, root))
+		.map(|root| unpairable_log_note(&metrics_path, root));
+	let (metrics, metrics_absent_reason) = if unpairable_log.is_some() {
+		// The precedence rule: unsafe wins over absent, since a bare absence is the
+		// conflation this vocabulary exists to prevent.
+		(None, Some(next::MetricsAbsentReason::LogNotThisProject))
+	} else if metrics_path.exists() {
 		let contents = fs::read_to_string(&metrics_path)?;
-		Some(MetricsProjection {
-			records: metrics::count_records(&contents),
-		})
+		(
+			Some(MetricsProjection {
+				records: metrics::count_records(&contents),
+			}),
+			None,
+		)
 	} else {
-		None
+		(None, Some(next::MetricsAbsentReason::LogAbsent))
 	};
 	let projection = Projection {
 		plan,
 		metrics,
+		metrics_absent_reason,
 	};
 
 	if args.json {
@@ -1136,9 +1194,10 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 			}
 			None => println!("plan: not provided"),
 		}
-		match &projection.metrics {
-			Some(metrics) => println!("metrics: {} records", metrics.records),
-			None => println!("metrics: no log found"),
+		match (&projection.metrics, &unpairable_log) {
+			(Some(metrics), _) => println!("metrics: {} records", metrics.records),
+			(None, Some(note)) => println!("metrics: unavailable, {note}"),
+			(None, None) => println!("metrics: no log found"),
 		}
 	}
 	Ok(())
@@ -1217,6 +1276,113 @@ fn resolve_metrics_path(
 	)
 }
 
+/// The canonical project root of a plan a surface actually READS, or `None` when that
+/// plan does not exist (nothing was read, so there is no root and the containment
+/// predicate below does not fire).
+///
+/// CANONICAL, deliberately, and the split from the LEXICAL default resolution above must
+/// not be collapsed. The default is lexical so a resolved path keeps the spelling the
+/// caller typed; the guard is canonical so it cannot be spoofed by a symlinked source,
+/// which a lexical comparison would accept. Making the DEFAULT canonical too would turn
+/// every printed path absolute, changing the output of the CORRECT case, which is why the
+/// two resolutions differ by design and one function does not serve both.
+fn canonical_project_root(plan: &Path) -> Option<PathBuf> {
+	fs::canonicalize(plan).ok().map(|real| project_root_of_source(&real))
+}
+
+/// The root the containment predicate tests against, taken from THE PLAN THE CHECK READS
+/// rather than from the anchor the metrics path was derived from (`Q-55-endproperty`).
+///
+/// The two are not the same file. The resolved log is DERIVED from the anchor, so it is
+/// always under the anchor's root and a predicate rooted there could never fire on a
+/// divergent `--source`/`--plan` pairing: a Markdown-primary `--source` in one project
+/// beside a `--plan` in another would still be checked against the FIRST project's log.
+/// Rooting on the plan that was actually read also covers the TYPO'D `--source`, where the
+/// root comes from the `--plan` that WAS read while the log still comes from the lexical
+/// derivation on the path that was not.
+///
+/// `toml_primary` names the selection each surface has already made: `run_validate`'s
+/// `--workflow` match reads the TOML `--source` when it is TOML-primary and the Markdown
+/// `--plan` otherwise, and `run_status` and `run_next` make the same choice through
+/// `toml_source`. This function names that existing branch rather than adding one.
+fn checked_plan_root(
+	toml_primary: bool,
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> Option<PathBuf> {
+	let checked = if toml_primary { source.as_ref() } else { plan.as_ref() }?;
+	canonical_project_root(checked)
+}
+
+/// An artifact path resolved as far as the filesystem allows, for the containment test
+/// only: absolutised against the current directory, then the LONGEST EXISTING ANCESTOR
+/// canonicalised and the components below it re-appended. The path itself is used when it
+/// exists, so a log or ledger whose leaf has not been created yet still has its directory
+/// prefix resolved and cannot slip past the predicate by being absent.
+///
+/// A `..` in the re-appended remainder stays literal, which is sound rather than a hole:
+/// it can only survive when a directory ABOVE it is missing, and a path whose intermediate
+/// directory is missing cannot be opened either, so no readable file hides behind one.
+fn resolve_for_containment(path: &Path) -> PathBuf {
+	let absolute = if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		std::env::current_dir().map_or_else(|_| path.to_path_buf(), |cwd| cwd.join(path))
+	};
+	for ancestor in absolute.ancestors() {
+		if let Ok(real) = fs::canonicalize(ancestor) {
+			let rest = absolute.strip_prefix(ancestor).unwrap_or_else(|_| Path::new(""));
+			return real.join(rest);
+		}
+	}
+	absolute
+}
+
+/// THE containment predicate, consulted by `validate --workflow`, `status`, `next` and
+/// `status --resume` alike and never re-implemented per surface: is the artifact I am
+/// about to read OUTSIDE the root of the plan I am about to check?
+///
+/// It is one question, not two conditions layered. Containment refuses only what lies
+/// OUTSIDE that root subtree, so a foreign artifact INSIDE it (a log copied into this
+/// plan's own `docs/metrics/`, or a nested project's own log at its own conventional path)
+/// stays invisible to it: this is a PATH rule and the round record carries no project
+/// identity, so W3 still joins on a bare slug. That bound is recorded deliberately, not
+/// overlooked; closing it is the queued project-identity work.
+fn is_outside_root(
+	artifact: &Path,
+	root: &Path,
+) -> bool {
+	!resolve_for_containment(artifact).starts_with(root)
+}
+
+/// The one human phrasing for a round log that fails containment, used by `status` and by
+/// `next` (in both the metrics line and the no-loop reason) so the two commands cannot
+/// drift on how they explain the same verdict. It names the resolved log, the derived
+/// project root, and that the two do not correspond.
+fn unpairable_log_note(
+	log: &Path,
+	root: &Path,
+) -> String {
+	format!(
+		"the round log {} is not under the plan's project root {}, so its records cannot be paired with this plan",
+		log.display(),
+		root.display()
+	)
+}
+
+/// The one human phrasing for a ledger that fails containment, printed verbatim by
+/// `status --resume` and echoed by `next` in place of the `## RESUME STATE` block.
+fn unpairable_ledger_note(
+	ledger: &Path,
+	root: &Path,
+) -> String {
+	format!(
+		"the ledger {} is not under the plan's project root {}; nothing to resume",
+		ledger.display(),
+		root.display()
+	)
+}
+
 /// The default ledger path for a task: `<task>.ledger.md` BESIDE the plan source. The
 /// transient review ledger lives next to the plan and is deleted when the task closes;
 /// `next` and `status --resume` read its `## RESUME STATE` block.
@@ -1245,17 +1411,50 @@ fn default_report_path(task: &str) -> PathBuf {
 	PathBuf::from(format!("docs/plans/{task}.code-value-report.md"))
 }
 
+/// The project roots `status --resume` tests the ledger against. This surface is the one
+/// that reads NO PLAN, so the containment rule SUPPLIES it a root rather than being
+/// re-implemented here (`Q-55-resumepairing`): a `--source` and a `--plan` that both exist
+/// must resolve to the SAME root, which is expressed by requiring the ledger to be under
+/// EVERY anchor's root rather than by comparing the roots to each other. With one anchor
+/// alone the anchor is the root, as it has always been; with neither there is no root and
+/// the predicate does not fire.
+fn resume_roots(
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> Vec<PathBuf> {
+	[source, plan]
+		.into_iter()
+		.filter_map(|anchor| anchor.as_ref())
+		.filter_map(|anchor| canonical_project_root(anchor))
+		.collect()
+}
+
 /// The `status --resume` slice: print the ledger's `## RESUME STATE` block verbatim,
 /// reusing the shared `next::extract_resume_state`. The ledger path is `--ledger-fragment`
 /// or the `<task>.ledger.md`-beside-the-plan-source default (with `<task>` derived from
-/// that source's filename). A missing ledger or absent section prints a note and exits 0,
-/// since `status` is a best-effort projection, not a validator.
+/// that source's filename). A missing ledger, an absent section, or a ledger that is not
+/// this plan's all print a note and exit 0, since `status` is a best-effort projection,
+/// not a validator; the third is a member of that list rather than an exception to it,
+/// because a ledger the tool cannot attribute to this plan is exactly a part that is not
+/// available for the projection.
+///
+/// This surface has no `--json` at all (`run_status` returns here before serialising), so
+/// there is no machine reason to report and none is owed.
 fn run_resume(args: &StatusArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
 	let ledger_path = args
 		.ledger_fragment
 		.clone()
 		.unwrap_or_else(|| default_ledger_path(&task, &args.source, &args.plan));
+	// The containment predicate first, so an unsafe ledger is never reported as a missing
+	// one (the precedence rule: unsafe is not absent).
+	if let Some(root) = resume_roots(&args.source, &args.plan)
+		.iter()
+		.find(|root| is_outside_root(&ledger_path, root))
+	{
+		println!("{}", unpairable_ledger_note(&ledger_path, root));
+		return Ok(());
+	}
 	if !ledger_path.exists() {
 		println!("no ledger at {}; nothing to resume", ledger_path.display());
 		return Ok(());
@@ -1276,6 +1475,13 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 /// The round log and the ledger are resolved from the PLAN SOURCE, not from the process
 /// working directory (`resolve_metrics_path`, `default_ledger_path`). That matters,
 /// because the output is consumed by an agent that acts on it.
+///
+/// For the same reason, an artifact that fails the containment predicate is WITHHELD
+/// rather than substituted: an unpairable log omits the record count AND the whole
+/// `ACTIVE LOOP` block (an action derived from evidence the tool cannot vouch for is the
+/// specific output this must make unreachable), and an unpairable ledger omits the
+/// `## RESUME STATE` echo. Each says why in its place, and the run still exits 0: the
+/// refusal is the validator's alone.
 fn run_next(args: NextArgs) -> io::Result<()> {
 	let task = next::derive_task(&args.source, &args.plan);
 
@@ -1285,12 +1491,13 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 	// the escalate human-input-contract reminder's Project Principle by name. Only the TOML
 	// source parses principles; a Markdown-source projection carries none (the reminder
 	// degrades gracefully to its originated imperative).
-	let (steps, principles, source) = if let Some(source_plan) = toml_source(&args.source)? {
+	let toml_primary = toml_source(&args.source)?;
+	let (steps, principles, source) = if let Some(source_plan) = &toml_primary {
 		let label = args
 			.source
 			.as_ref()
 			.map_or_else(|| "source".to_string(), |path| path.display().to_string());
-		(next::steps_from_toml(&source_plan), source_plan.principles.clone(), label)
+		(next::steps_from_toml(source_plan), source_plan.principles.clone(), label)
 	} else {
 		match &args.plan {
 			Some(path) if path.exists() => {
@@ -1305,25 +1512,50 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		}
 	};
 
+	// The same containment predicate the validator refuses on, rooted on the plan `next`
+	// itself projects from. Both artifacts are tested against it: the round log, and the
+	// ledger, whose DEFAULT is anchored `--source`-first while the steps may come from the
+	// Markdown `--plan`, so a divergent pairing resolves one project's ledger under
+	// another project's plan without any explicit `--ledger-fragment`.
+	let checked_root = checked_plan_root(toml_primary.is_some(), &args.source, &args.plan);
+
 	// The same anchored resolution `validate` and `status` use: the round evidence the loop
 	// is projected from must be the plan's own, since `next`'s output is an instruction an
 	// agent acts on rather than a report a human may or may not read.
 	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
-	let (rounds, metrics_records) = if metrics_path.exists() {
+	let metrics_absent_note = checked_root
+		.as_ref()
+		.filter(|root| is_outside_root(&metrics_path, root))
+		.map(|root| unpairable_log_note(&metrics_path, root));
+	let (rounds, metrics_records, metrics_absent_reason) = if metrics_absent_note.is_some() {
+		// Not read at all: an unpairable log is not evidence this projection may use, and
+		// the loop it would have produced is withheld rather than derived from an empty
+		// rounds list (which would fabricate in the other direction).
+		(Vec::new(), None, Some(next::MetricsAbsentReason::LogNotThisProject))
+	} else if metrics_path.exists() {
 		let contents = fs::read_to_string(&metrics_path)?;
-		(metrics::parse_rounds(&contents), Some(metrics::count_records(&contents)))
+		(metrics::parse_rounds(&contents), Some(metrics::count_records(&contents)), None)
 	} else {
-		(Vec::new(), None)
+		(Vec::new(), None, Some(next::MetricsAbsentReason::LogAbsent))
 	};
 
 	let ledger_path = args
 		.ledger_fragment
 		.clone()
 		.unwrap_or_else(|| default_ledger_path(&task, &args.source, &args.plan));
-	let resume_state = if ledger_path.exists() {
-		next::extract_resume_state(&fs::read_to_string(&ledger_path)?)
+	let resume_state_absent_note = checked_root
+		.as_ref()
+		.filter(|root| is_outside_root(&ledger_path, root))
+		.map(|root| unpairable_ledger_note(&ledger_path, root));
+	let (resume_state, resume_state_absent_reason) = if resume_state_absent_note.is_some() {
+		(None, Some(next::ResumeStateAbsentReason::LedgerNotThisProject))
+	} else if ledger_path.exists() {
+		match next::extract_resume_state(&fs::read_to_string(&ledger_path)?) {
+			Some(block) => (Some(block), None),
+			None => (None, Some(next::ResumeStateAbsentReason::NoResumeSection)),
+		}
 	} else {
-		None
+		(None, Some(next::ResumeStateAbsentReason::LedgerAbsent))
 	};
 
 	let isolation_tier =
@@ -1341,8 +1573,12 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		rounds: &rounds,
 		spec: &spec,
 		metrics_records,
+		metrics_absent_reason,
+		metrics_absent_note,
 		ledger_path: ledger_path.display().to_string(),
 		resume_state,
+		resume_state_absent_reason,
+		resume_state_absent_note,
 		isolation_tier,
 		principles: &principles,
 	});

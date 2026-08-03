@@ -200,6 +200,36 @@ fn an_explicit_metrics_outside_the_plans_root_is_refused() {
 		"the refusal tells the user what to do; stderr:\n{stderr}"
 	);
 
+	// THE REFUSAL REPLACES THE FOUR-ARM MATCH RATHER THAN ACCOMPANYING IT. Asserting
+	// anything about the pairing IN EITHER DIRECTION is what has to stop, so the refusal
+	// must be the only problem reported. A foreign log whose records do NOT satisfy the
+	// borrowed slug is what separates the two readings: run the match beside the refusal
+	// and W3 reports a verdict on the very pairing just declared unvouchable, at the same
+	// exit code, which is why the exit code alone cannot see the difference.
+	write(&home.join("docs").join("metrics").join("other.jsonl"), &log(&["other-step"]));
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"validate",
+			"--source",
+			&away_plan,
+			"--metrics",
+			"docs/metrics/other.jsonl",
+			"--workflow",
+		],
+	);
+	assert_eq!(code, Some(1), "stdout:\n{stdout}\nstderr:\n{stderr}");
+	assert!(stderr.contains("is not under the plan's project root"), "stderr:\n{stderr}");
+	assert!(
+		!stderr.contains("has no round records"),
+		"no W3 verdict on a pairing the tool just said it cannot vouch for; stderr:\n{stderr}"
+	);
+	assert_eq!(
+		stderr.lines().count(),
+		1,
+		"the refusal is the ONLY problem reported; stderr:\n{stderr}"
+	);
+
 	let _ = fs::remove_dir_all(&root);
 }
 
@@ -239,6 +269,9 @@ fn a_divergent_source_and_plan_pairing_is_refused() {
 	assert!(stderr.contains(&beta_plan), "the refusal names the CHECKED plan; stderr:\n{stderr}");
 	assert!(stderr.contains(&alpha_log), "the refusal names the log; stderr:\n{stderr}");
 	assert!(stderr.contains(&arg(&beta)), "the root is beta's; stderr:\n{stderr}");
+	// The third remedy, added for exactly this cause: neither of the other two names a
+	// `--source` and a `--plan` that belong to different projects.
+	assert!(stderr.contains("or correct the `--source` and `--plan` pair"), "stderr:\n{stderr}");
 
 	// A TYPO'D `--source`: nothing is read from it, so the root comes from the `--plan`
 	// that WAS read while the log still comes from the lexical derivation on the path that
@@ -471,6 +504,141 @@ fn status_omits_only_the_unpairable_part() {
 	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
 	assert!(!stdout.contains("## RESUME STATE"), "stdout:\n{stdout}");
 
+	// THE PRECEDENCE RULE on this surface, which the `next` equivalent already pins: a
+	// fragment both outside the root AND missing reports the unsafe cause. Reporting the
+	// absent one instead would tell a user there is no ledger for a ledger that exists in
+	// another project.
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--resume",
+			"--source",
+			&away_plan,
+			"--ledger-fragment",
+			"docs/plans/nope.ledger.md",
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout
+			.contains("the ledger docs/plans/nope.ledger.md is not under the plan's project root"),
+		"stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("no ledger at"), "unsafe is not absent; stdout:\n{stdout}");
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// The log's LEAF is a symlink out of the plan's root, which is the clause that makes
+/// `resolve_for_containment` resolve THE PATH ITSELF rather than only its directory prefix.
+/// No other test in the suite reaches that clause: resolving only the prefix leaves every
+/// other test green while this layout goes back to a false pass, because the log then sits
+/// at the project's own conventional path by every test but the one that follows the link.
+#[test]
+fn a_symlinked_log_leaf_outside_the_root_is_refused() {
+	let root = scratch("symlinkleaf");
+	let home = build_home(&root);
+	let away = build_away(&root, "complete");
+	// `away` has no evidence of its own; the only converged `borrowed-step` round anywhere
+	// is `home`'s, reached through the link at `away`'s own conventional log path.
+	symlink(
+		&home.join("docs").join("metrics").join("workflow.jsonl"),
+		&away.join("docs").join("metrics").join("workflow.jsonl"),
+	);
+	let away_plan = arg(&away.join("docs").join("plans").join("p.plan.toml"));
+
+	// The LOUD manifestation, on the DEFAULT resolution: no explicit `--metrics` is needed.
+	let (code, stdout, stderr) = run(&home, &["validate", "--source", &away_plan, "--workflow"]);
+	assert_eq!(code, Some(1), "stdout:\n{stdout}\nstderr:\n{stderr}");
+	assert!(!stdout.contains("workflow invariants hold"), "stdout:\n{stdout}");
+	assert!(stderr.contains("is not under the plan's project root"), "stderr:\n{stderr}");
+
+	// The QUIET one, on both projections.
+	for command in ["status", "next"] {
+		let (code, stdout, stderr) = run(&home, &[command, "--source", &away_plan]);
+		assert_eq!(code, Some(0), "{command}: stderr:\n{stderr}");
+		assert!(stdout.contains("metrics: unavailable,"), "{command}: stdout:\n{stdout}");
+		assert!(!stdout.contains("3 records"), "{command}: stdout:\n{stdout}");
+	}
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// `status` and `next` READ NO PLAN with a Markdown-primary `--source` and no `--plan`,
+/// which is the configuration `Q-55-resumepairing` decided for `status --resume`. The rule
+/// SUPPLIES them a root from the anchors there, exactly as it supplies one to
+/// `status --resume`, so all three give the same answer on identical inputs.
+///
+/// RED against the round 1 tip: `checked_plan_root` returns `None` here, both containment
+/// filters go vacuous, and `next` echoes `home`'s `## RESUME STATE` block verbatim at exit
+/// 0 with `"resume_state_absent_reason": null` on `--json`, while `status --resume` refuses
+/// the same ledger on the same anchors.
+#[test]
+fn a_surface_that_reads_no_plan_is_supplied_a_root() {
+	let root = scratch("noplanread");
+	let home = build_home(&root);
+
+	// A MARKDOWN-primary source with no `--plan`: nothing is read as a plan, so there is no
+	// checked plan to root on. `alpha` and `home` are top-level siblings, so no containment
+	// relationship of any kind holds between them.
+	let alpha = root.join("alpha");
+	write(&alpha.join("docs").join("plans").join("p.plan.toml"), &plan_toml_markdown_primary());
+	let alpha_source = arg(&alpha.join("docs").join("plans").join("p.plan.toml"));
+	let fragment = "docs/plans/p.ledger.md";
+
+	// What `status --resume` answers on these anchors, which is the answer the other two
+	// surfaces must agree with rather than contradict.
+	let (code, stdout, stderr) = run(
+		&home,
+		&["status", "--resume", "--source", &alpha_source, "--ledger-fragment", fragment],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		"stdout:\n{stdout}"
+	);
+
+	let (code, stdout, stderr) =
+		run(&home, &["next", "--source", &alpha_source, "--ledger-fragment", fragment]);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
+	assert!(!stdout.contains("RESUME STATE (verbatim from the ledger)"), "stdout:\n{stdout}");
+	assert!(
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		"the same note `status --resume` prints; stdout:\n{stdout}"
+	);
+
+	let (code, stdout, stderr) =
+		run(&home, &["next", "--json", "--source", &alpha_source, "--ledger-fragment", fragment]);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(stdout.contains("\"resume_state\": null"), "stdout:\n{stdout}");
+	assert!(
+		stdout.contains("\"resume_state_absent_reason\": \"ledger-not-this-project\""),
+		"a `null` reason here would positively assert the block is this plan's; stdout:\n{stdout}"
+	);
+
+	// The LOG half of the same configuration, on both commands.
+	for command in ["next", "status"] {
+		let (code, stdout, stderr) = run(
+			&home,
+			&[
+				command,
+				"--json",
+				"--source",
+				&alpha_source,
+				"--metrics",
+				"docs/metrics/workflow.jsonl",
+			],
+		);
+		assert_eq!(code, Some(0), "{command}: stderr:\n{stderr}");
+		assert!(
+			stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+			"{command}: stdout:\n{stdout}"
+		);
+		assert!(!stdout.contains("\"records\": 3"), "{command}: stdout:\n{stdout}");
+	}
+
 	let _ = fs::remove_dir_all(&root);
 }
 
@@ -567,6 +735,12 @@ fn the_machine_surface_separates_the_causes_on_both_commands() {
 		"an absent log still projects; stdout:\n{stdout}"
 	);
 
+	// (a) on `status --json` too. Its `log-absent` value is the half with no golden, so
+	// nothing else separates check 14f's case (a) from case (b) on this command.
+	let (code, stdout, stderr) = run(&home, &["status", "--json", "--source", &away_plan]);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(stdout.contains("\"metrics_absent_reason\": \"log-absent\""), "stdout:\n{stdout}");
+
 	// (c) No plan source at all.
 	let (code, stdout, stderr) = run(&home, &["next", "--json"]);
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
@@ -578,6 +752,25 @@ fn the_machine_surface_separates_the_causes_on_both_commands() {
 		&home,
 		&[
 			"next",
+			"--json",
+			"--source",
+			&away_plan,
+			"--metrics",
+			"docs/metrics/does-not-exist.jsonl",
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"unsafe wins over absent; stdout:\n{stdout}"
+	);
+
+	// The same precedence rule on `status --json`, the command whose serialisation has no
+	// golden. Swapping the two tests there makes the two commands disagree on one input.
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
 			"--json",
 			"--source",
 			&away_plan,
@@ -631,6 +824,19 @@ fn the_resume_reasons_separate_and_cover_the_default_ledger() {
 	assert_eq!(reason(&stdout), "\"resume_state_absent_reason\": \"ledger-not-this-project\",");
 	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
 
+	// The HUMAN surface on the same input. `Q-55-refusalscope` is an OMIT plus SAY WHY
+	// decision, and the note is assembled by the CALLER, so the JSON above leaves the say-why
+	// half of the agent-facing text unpinned on its own.
+	let (_, stdout, _) = run(
+		&home,
+		&["next", "--source", &away_plan, "--ledger-fragment", "docs/plans/p.ledger.md"],
+	);
+	assert!(
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		"the note names the rejected ledger path in the block's place; stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
+
 	// Outside the root AND missing: the unsafe cause wins over the absent one.
 	let (_, stdout, _) = run(
 		&home,
@@ -657,6 +863,7 @@ fn the_resume_reasons_separate_and_cover_the_default_ledger() {
 		&log(&["borrowed-step", "alpha-two"]),
 	);
 	let alpha_source = arg(&alpha.join("docs").join("plans").join("p.plan.toml"));
+	let alpha_ledger = arg(&alpha.join("docs").join("plans").join("p.ledger.md"));
 	let beta = root.join("beta");
 	write(&beta.join("docs").join("plans").join("p.md"), &plan_markdown("in progress"));
 	let beta_plan = arg(&beta.join("docs").join("plans").join("p.md"));
@@ -665,6 +872,13 @@ fn the_resume_reasons_separate_and_cover_the_default_ledger() {
 		run(&home, &["next", "--source", &alpha_source, "--plan", &beta_plan]);
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(!stdout.contains("ALPHA resume state."), "no line of the block; stdout:\n{stdout}");
+	// The note stands in the block's place here too. The LEDGER phrasing is asserted rather
+	// than the shared "not under the plan's project root" clause, which the metrics note on
+	// this same pairing also carries.
+	assert!(
+		stdout.contains(&format!("the ledger {alpha_ledger} is not under the plan's project root")),
+		"stdout:\n{stdout}"
+	);
 	// The METRICS half of the same pairing, still with no explicit `--metrics`.
 	assert!(!stdout.contains("2 records"), "no record count; stdout:\n{stdout}");
 	for field in ["state:", "streak:", "rounds:", "next:", "role:", "summary:"] {

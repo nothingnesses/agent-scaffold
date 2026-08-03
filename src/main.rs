@@ -1146,10 +1146,10 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	// exactly a part that is not available for the projection, so it is left out with a
 	// reason and the run still exits 0. That is the documented never-fails contract
 	// applied literally, not an exception carved into it.
-	let checked_root = checked_plan_root(toml_primary.is_some(), &args.source, &args.plan);
-	let unpairable_log = checked_root
-		.as_ref()
-		.filter(|root| is_outside_root(&metrics_path, root))
+	let checked_roots = containment_roots(toml_primary.is_some(), &args.source, &args.plan);
+	let unpairable_log = checked_roots
+		.iter()
+		.find(|root| is_outside_root(&metrics_path, root))
 		.map(|root| unpairable_log_note(&metrics_path, root));
 	let (metrics, metrics_absent_reason) = if unpairable_log.is_some() {
 		// The precedence rule: unsafe wins over absent, since a bare absence is the
@@ -1312,6 +1312,30 @@ fn checked_plan_root(
 ) -> Option<PathBuf> {
 	let checked = if toml_primary { source.as_ref() } else { plan.as_ref() }?;
 	canonical_project_root(checked)
+}
+
+/// The roots `status` and `next` test containment against. One predicate, TWO ROOT-SUPPLY
+/// POLICIES, and this is the one place they meet.
+///
+/// Where a plan IS read, the root comes from that plan and nothing here changes
+/// (`Q-55-endproperty`). Where NO plan is read, `checked_plan_root` has nothing to derive
+/// from, so the rule SUPPLIES a root from the anchors instead, which is the policy
+/// `Q-55-resumepairing` already decided for the surface that reads no plan and
+/// `run_resume` already applies. `status` and `next` reach that same configuration with a
+/// Markdown-primary `--source` and no `--plan`, and without this they fall through with no
+/// root at all: both filters go vacuous and an explicit `--metrics` or `--ledger-fragment`
+/// naming another project is read with nothing to reject it, while `status --resume`
+/// refuses the same ledger on the same inputs.
+///
+/// The predicate is not re-implemented and not widened: each root is still tested by
+/// `is_outside_root`, exactly as `run_resume` tests its own.
+fn containment_roots(
+	toml_primary: bool,
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) -> Vec<PathBuf> {
+	checked_plan_root(toml_primary, source, plan)
+		.map_or_else(|| resume_roots(source, plan), |root| vec![root])
 }
 
 /// An artifact path resolved as far as the filesystem allows, for the containment test
@@ -1513,19 +1537,20 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 	};
 
 	// The same containment predicate the validator refuses on, rooted on the plan `next`
-	// itself projects from. Both artifacts are tested against it: the round log, and the
-	// ledger, whose DEFAULT is anchored `--source`-first while the steps may come from the
-	// Markdown `--plan`, so a divergent pairing resolves one project's ledger under
-	// another project's plan without any explicit `--ledger-fragment`.
-	let checked_root = checked_plan_root(toml_primary.is_some(), &args.source, &args.plan);
+	// itself projects from, or on the anchors where it projects from no plan at all. Both
+	// artifacts are tested against it: the round log, and the ledger, whose DEFAULT is
+	// anchored `--source`-first while the steps may come from the Markdown `--plan`, so a
+	// divergent pairing resolves one project's ledger under another project's plan without
+	// any explicit `--ledger-fragment`.
+	let checked_roots = containment_roots(toml_primary.is_some(), &args.source, &args.plan);
 
 	// The same anchored resolution `validate` and `status` use: the round evidence the loop
 	// is projected from must be the plan's own, since `next`'s output is an instruction an
 	// agent acts on rather than a report a human may or may not read.
 	let metrics_path = resolve_metrics_path(&args.metrics, &args.source, &args.plan);
-	let metrics_absent_note = checked_root
-		.as_ref()
-		.filter(|root| is_outside_root(&metrics_path, root))
+	let metrics_absent_note = checked_roots
+		.iter()
+		.find(|root| is_outside_root(&metrics_path, root))
 		.map(|root| unpairable_log_note(&metrics_path, root));
 	let (rounds, metrics_records, metrics_absent_reason) = if metrics_absent_note.is_some() {
 		// Not read at all: an unpairable log is not evidence this projection may use, and
@@ -1543,9 +1568,9 @@ fn run_next(args: NextArgs) -> io::Result<()> {
 		.ledger_fragment
 		.clone()
 		.unwrap_or_else(|| default_ledger_path(&task, &args.source, &args.plan));
-	let resume_state_absent_note = checked_root
-		.as_ref()
-		.filter(|root| is_outside_root(&ledger_path, root))
+	let resume_state_absent_note = checked_roots
+		.iter()
+		.find(|root| is_outside_root(&ledger_path, root))
 		.map(|root| unpairable_ledger_note(&ledger_path, root));
 	let (resume_state, resume_state_absent_reason) = if resume_state_absent_note.is_some() {
 		(None, Some(next::ResumeStateAbsentReason::LedgerNotThisProject))

@@ -193,8 +193,8 @@ pub(crate) struct NextProjection {
 	/// The human phrasing of an unpairable round log, naming the resolved log and the
 	/// derived project root. Assembled by the CALLER, which holds those paths, because
 	/// the reason enums above are the machine value and carry none; `Some` exactly when
-	/// `metrics_absent_reason` is `LogNotThisProject`. Not serialised: `--json` reports
-	/// the token, and a machine consumer already holds the paths it passed in.
+	/// `metrics_absent_reason` is `LogNotThisProject`. Not serialised: `--json` reports the
+	/// token.
 	#[serde(skip)]
 	pub(crate) metrics_absent_note: Option<String>,
 	/// The same for an unpairable ledger; `Some` exactly when

@@ -1092,6 +1092,32 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 	})
 }
 
+/// Report an anchor that was SUPPLIED and is not there, in the same `note:` shape
+/// `toml_source` above already uses for a `--source` that does not parse: one line on
+/// stderr, naming the flag and the path, so it never contaminates `--json` on stdout.
+///
+/// It is not an error and changes no exit code. `status` and `next` are best-effort
+/// projections, and the containment rule roots them on the anchor whether or not it exists
+/// (`resume_roots`), which is what keeps a plan file that has not been written yet reading
+/// its own project's log. What the operator cannot otherwise see is that they typed the
+/// name wrong: `source: no plan source` prints identically for "no plan was asked for" and
+/// "the plan you named is not there", so without this the only visible consequence of a
+/// typo is a root silently derived from a name with nothing behind it.
+///
+/// It names no derived root deliberately. Which anchor's root the predicate ends up using
+/// depends on what else was supplied (`containment_roots`), so a root named here would be
+/// the wrong one whenever the other anchor wins.
+fn note_missing_anchors(
+	source: &Option<PathBuf>,
+	plan: &Option<PathBuf>,
+) {
+	for (flag, anchor) in [("--source", source), ("--plan", plan)] {
+		if let Some(path) = anchor.as_ref().filter(|path| !path.exists()) {
+			eprintln!("note: {flag} {} does not exist", path.display());
+		}
+	}
+}
+
 /// Emit a best-effort projection of the workflow state: from `--plan` (when given
 /// and readable) the Roadmap steps and Open Questions items, and from the metrics
 /// log (when present) a record count. Unlike `validate`, this never hard-fails on
@@ -1110,6 +1136,10 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// part that is not available for the projection, which is the documented contract applied
 /// literally.
 fn run_status(args: StatusArgs) -> io::Result<()> {
+	// Before the `--resume` split, so BOTH slices report a typo'd anchor. A missing anchor
+	// still supplies a containment root, and the note is the only place the projection says
+	// the name behind that root is not on disk.
+	note_missing_anchors(&args.source, &args.plan);
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
 	// A missing ledger or absent section is a note and exit 0, not a failure (`status` is
@@ -1280,6 +1310,14 @@ fn resolve_metrics_path(
 /// plan does not exist (nothing was read, so there is no root and the containment
 /// predicate below does not fire).
 ///
+/// A PLAN, NOT AN ANCHOR, and the two are resolved differently on purpose. Existence is
+/// what makes a plan readable, so a plan that is not there yields no root here; an anchor is
+/// never read, so its existence is not what makes it usable and `resume_roots` derives a
+/// root from one that does not exist. Collapsing the two would either lose the anchor case
+/// (the leak `resume_roots` records) or make a `--plan` that is not there count as a plan
+/// that was read, which would root `status` and `next` on it alone and stop the fallback
+/// consulting the `--source` beside it.
+///
 /// CANONICAL, deliberately, and the split from the LEXICAL default resolution above must
 /// not be collapsed. The default is lexical so a resolved path keeps the spelling the
 /// caller typed; the guard is canonical so it cannot be spoofed by a symlinked source,
@@ -1326,6 +1364,15 @@ fn checked_plan_root(
 /// root at all: both filters go vacuous and an explicit `--metrics` or `--ledger-fragment`
 /// naming another project is read with nothing to reject it, while `status --resume`
 /// refuses the same ledger on the same inputs.
+///
+/// THE VECTOR IS STILL EMPTY, AND THE QUANTIFIERS OVER IT STILL VACUOUS, WHEN NEITHER
+/// ANCHOR WAS SUPPLIED, and that case is decided rather than overlooked: with no `--source`
+/// and no `--plan` there is nothing to pair an artifact with, so the historical
+/// current-directory-relative defaults stand and an explicit `--metrics` is read as named.
+/// Every case where an anchor IS supplied yields a root, including an anchor that does not
+/// exist; the clause that guarantees it lives in `resume_roots`, which is where an empty
+/// vector on a supplied anchor once leaked another project's artifact through all three
+/// surfaces at exit 0.
 ///
 /// The predicate is not re-implemented and not widened: each root is still tested by
 /// `is_outside_root`, exactly as `run_resume` tests its own.
@@ -1435,13 +1482,30 @@ fn default_report_path(task: &str) -> PathBuf {
 	PathBuf::from(format!("docs/plans/{task}.code-value-report.md"))
 }
 
-/// The project roots `status --resume` tests the ledger against. This surface is the one
-/// that reads NO PLAN, so the containment rule SUPPLIES it a root rather than being
-/// re-implemented here (`Q-55-resumepairing`): a `--source` and a `--plan` that both exist
-/// must resolve to the SAME root, which is expressed by requiring the ledger to be under
-/// EVERY anchor's root rather than by comparing the roots to each other. With one anchor
-/// alone the anchor is the root, as it has always been; with neither there is no root and
-/// the predicate does not fire.
+/// The project roots the surfaces that read NO PLAN test their artifacts against:
+/// `status --resume` always, and `status` and `next` through `containment_roots` whenever
+/// no plan resolves. The containment rule SUPPLIES the root rather than being
+/// re-implemented here (`Q-55-resumepairing`): a `--source` and a `--plan` must resolve to
+/// the SAME root, which is expressed by requiring the artifact to be under EVERY anchor's
+/// root rather than by comparing the roots to each other. With one anchor alone the anchor
+/// is the root, as it has always been; with NEITHER there is no root and the predicate does
+/// not fire, the same case in which the log and ledger defaults keep their historical
+/// current-directory-relative paths.
+///
+/// AN ANCHOR THAT DOES NOT EXIST STILL YIELDS A ROOT, resolved by the same
+/// `resolve_for_containment` the predicate already resolves the ARTIFACT with: absolutise,
+/// canonicalise the longest existing ancestor, re-append the rest. That is the load-bearing
+/// clause and it is not an edge case. Dropping such an anchor (an `fs::canonicalize` that
+/// fails because the leaf is not on disk) left a SUPPLIED anchor contributing NO root, and
+/// with no second anchor the vector went empty, every `is_outside_root` quantifier over it
+/// went vacuous, and one character changed in a `--source` turned the refusal into an
+/// explicit foreign `--metrics` or `--ledger-fragment` read, counted, and echoed verbatim
+/// at exit 0 by `status`, `next` and `status --resume` alike, with both `--json` reason
+/// fields `null`. Resolving PARTIALLY rather than refusing outright keeps the anchor's own
+/// directory usable, so a plan file that has not been written yet still reads its own
+/// project's log, while giving the quantifier a root to reject a foreign artifact against.
+/// The typo itself is reported separately by `note_missing_anchors`, since a root derived
+/// from a name with nothing behind it is a guess the operator should be told about.
 fn resume_roots(
 	source: &Option<PathBuf>,
 	plan: &Option<PathBuf>,
@@ -1449,7 +1513,7 @@ fn resume_roots(
 	[source, plan]
 		.into_iter()
 		.filter_map(|anchor| anchor.as_ref())
-		.filter_map(|anchor| canonical_project_root(anchor))
+		.map(|anchor| project_root_of_source(&resolve_for_containment(anchor)))
 		.collect()
 }
 
@@ -1507,6 +1571,9 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 /// `## RESUME STATE` echo. Each says why in its place, and the run still exits 0: the
 /// refusal is the validator's alone.
 fn run_next(args: NextArgs) -> io::Result<()> {
+	// The same typo'd-anchor note `status` prints, for the same reason: `next` roots
+	// containment on an anchor that does not exist rather than falling through with none.
+	note_missing_anchors(&args.source, &args.plan);
 	let task = next::derive_task(&args.source, &args.plan);
 
 	// Resolve the plan source the same way `status` does: a TOML-primary `--source` wins,

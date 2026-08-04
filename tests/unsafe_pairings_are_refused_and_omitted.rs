@@ -536,7 +536,7 @@ fn status_omits_only_the_unpairable_part() {
 /// other test green while this layout goes back to a false pass, because the log then sits
 /// at the project's own conventional path by every test but the one that follows the link.
 #[test]
-fn a_symlinked_log_leaf_outside_the_root_is_refused() {
+fn a_symlinked_log_leaf_outside_the_root_is_refused_and_omitted() {
 	let root = scratch("symlinkleaf");
 	let home = build_home(&root);
 	let away = build_away(&root, "complete");
@@ -568,7 +568,11 @@ fn a_symlinked_log_leaf_outside_the_root_is_refused() {
 /// `status` and `next` READ NO PLAN with a Markdown-primary `--source` and no `--plan`,
 /// which is the configuration `Q-55-resumepairing` decided for `status --resume`. The rule
 /// SUPPLIES them a root from the anchors there, exactly as it supplies one to
-/// `status --resume`, so all three give the same answer on identical inputs.
+/// `status --resume`, so the two LEDGER readers (`next` and `status --resume`) agree with
+/// each other and the two LOG readers (`next` and `status`) agree with each other on
+/// identical anchors. No single run elicits a comparable answer from all three: `status`
+/// without `--resume` has no ledger field at all (`Projection`, `src/main.rs`), so it is
+/// never asked the ledger question.
 ///
 /// RED against the round 1 tip: `checked_plan_root` returns `None` here, both containment
 /// filters go vacuous, and `next` echoes `home`'s `## RESUME STATE` block verbatim at exit
@@ -637,6 +641,168 @@ fn a_surface_that_reads_no_plan_is_supplied_a_root() {
 			"{command}: stdout:\n{stdout}"
 		);
 		assert!(!stdout.contains("\"records\": 3"), "{command}: stdout:\n{stdout}");
+	}
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// AN ANCHOR THAT DOES NOT EXIST STILL SUPPLIES A ROOT, which is the clause that separates
+/// "no plan was read" from "no root could be derived". The test above only ever writes the
+/// anchor it then passes, so nothing in the suite saw this: with a `--source` that is not on
+/// disk the anchor was DROPPED, the root vector went empty, every containment quantifier
+/// over it went vacuous, and `status`, `next` and `status --resume` alike read an explicit
+/// foreign `--metrics` and echoed another project's `## RESUME STATE` block verbatim at exit
+/// 0 with both `--json` reason fields `null`.
+///
+/// RED against the round 2 tip on the ATTACK block below: one character of the `--source`
+/// (`p.plan.toml` -> `q.plan.toml`, everything else identical) is the whole difference
+/// between the refusal the CONTROL gets and the leak, so the two runs are kept side by side
+/// here rather than in separate tests.
+///
+/// The OWN-ARTIFACT block is the shape check on the remedy (`Q-55-emptyroot`): the root is
+/// derived from the anchor's path as spelled, not withheld, so an anchor whose file has not
+/// been written yet still reads ITS OWN project's log and ledger. A remedy that treated an
+/// underivable root as unpairable would omit those too, and this block would go red.
+#[test]
+fn an_anchor_that_does_not_exist_still_supplies_a_root() {
+	let root = scratch("missinganchor");
+	let home = build_home(&root);
+
+	// `alpha` is a top-level sibling of `home` with a real `docs/plans` directory, its own
+	// TWO-record log and its own ledger, but NO `q.plan.toml`. No containment relationship
+	// of any kind holds between `alpha` and `home` in either direction.
+	let alpha = root.join("alpha");
+	write(
+		&alpha.join("docs").join("metrics").join("workflow.jsonl"),
+		&log(&["alpha-one", "alpha-two"]),
+	);
+	write(&alpha.join("docs").join("plans").join("a.ledger.md"), &resume_block("ALPHA"));
+	let missing = arg(&alpha.join("docs").join("plans").join("q.plan.toml"));
+	let fragment = "docs/plans/p.ledger.md";
+
+	// THE ATTACK, on both ledger readers and both log readers, human surface first.
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--source",
+			&missing,
+			"--metrics",
+			"docs/metrics/workflow.jsonl",
+			"--ledger-fragment",
+			fragment,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(stdout.contains("metrics: unavailable,"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("3 records"), "home's log is not this anchor's; stdout:\n{stdout}");
+	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
+	assert!(
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		"stdout:\n{stdout}"
+	);
+	// Fail loudly, the condition the remedy was accepted with: the operator is TOLD the
+	// anchor is a typo, on stderr so `--json` on stdout stays parseable.
+	assert!(
+		stderr.contains(&format!("note: --source {missing} does not exist")),
+		"the typo is reported; stderr:\n{stderr}"
+	);
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--json",
+			"--source",
+			&missing,
+			"--metrics",
+			"docs/metrics/workflow.jsonl",
+			"--ledger-fragment",
+			fragment,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(
+		stdout.contains("\"resume_state_absent_reason\": \"ledger-not-this-project\""),
+		"a `null` reason here would positively assert the block is this plan's; stdout:\n{stdout}"
+	);
+	assert!(stdout.contains("\"resume_state\": null"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("\"records\": 3"), "stdout:\n{stdout}");
+
+	// `status --resume`, whose hole is independent: it calls `resume_roots` directly rather
+	// than through `containment_roots`, so a fix that closed only the other two would leave
+	// this one leaking.
+	let (code, stdout, stderr) =
+		run(&home, &["status", "--resume", "--source", &missing, "--ledger-fragment", fragment]);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		"stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&["status", "--json", "--source", &missing, "--metrics", "docs/metrics/workflow.jsonl"],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("\"records\": 3"), "stdout:\n{stdout}");
+
+	// THE ONE-CHARACTER CONTROL: the same anchor spelled correctly, which already refused
+	// before this fix. Both spellings must now give the SAME verdict, and only the missing
+	// one carries the note.
+	write(&alpha.join("docs").join("plans").join("p.plan.toml"), &plan_toml_markdown_primary());
+	let present = arg(&alpha.join("docs").join("plans").join("p.plan.toml"));
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--source",
+			&present,
+			"--metrics",
+			"docs/metrics/workflow.jsonl",
+			"--ledger-fragment",
+			fragment,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(stdout.contains("metrics: unavailable,"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
+	assert!(
+		!stderr.contains("does not exist"),
+		"no note for an anchor that is there; stderr:\n{stderr}"
+	);
+
+	// THE ANCHOR'S OWN ARTIFACTS, named explicitly, are still READ under the derived root.
+	let own_log = arg(&alpha.join("docs").join("metrics").join("workflow.jsonl"));
+	let own_ledger = arg(&alpha.join("docs").join("plans").join("a.ledger.md"));
+	let (code, stdout, stderr) = run(
+		&home,
+		&["next", "--source", &missing, "--metrics", &own_log, "--ledger-fragment", &own_ledger],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(stdout.contains("metrics: 2 records"), "the anchor's OWN log; stdout:\n{stdout}");
+	assert!(stdout.contains("ALPHA resume state."), "the anchor's OWN ledger; stdout:\n{stdout}");
+
+	// THE NEITHER-ANCHOR CASE IS UNTOUCHED (`README.md`, the anchoring paragraph): with no
+	// `--source` and no `--plan` there is nothing to pair against, so no root is derived, no
+	// containment check fires, and the current-directory-relative defaults stand.
+	for command in ["status", "next"] {
+		let (code, stdout, stderr) = run(&home, &[command]);
+		assert_eq!(code, Some(0), "{command}: stderr:\n{stderr}");
+		assert!(
+			stdout.contains("metrics: 3 records"),
+			"{command}: the current directory's own log; stdout:\n{stdout}"
+		);
+		assert!(stderr.is_empty(), "{command}: no anchor, so no note; stderr:\n{stderr}");
 	}
 
 	let _ = fs::remove_dir_all(&root);

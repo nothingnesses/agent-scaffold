@@ -446,16 +446,21 @@ fn plain_validate_and_a_sourceless_run_keep_their_behaviour() {
 }
 
 /// Accepted cost (i), pinned as EXPECTED behaviour rather than fixed (acceptance check
-/// 18's inc1 half): a bare filename run from inside `docs/plans` has no parents to walk,
-/// falls back to the source's own directory, and looks for `docs/metrics/workflow.jsonl`
-/// beneath it, which does not exist. The project's real log is never read.
+/// 18): a bare filename run from inside `docs/plans` has no parents to walk, falls back to
+/// the source's own directory, and looks for `docs/metrics/workflow.jsonl` beneath it,
+/// which does not exist. The project's real log is never read.
 ///
-/// This is not a regression (the pre-change build was identically wrong here) and the fix
-/// is NOT to canonicalise the default: doing so would turn the printed paths of the
+/// The MISS is the accepted cost and it is unchanged; what the tier policy changed is the
+/// ANSWER to it. Under inc1 alone this was the stderr miss note at exit 0; after inc3 the
+/// same miss is a hard failure naming the path it looked for, which is arguably the right
+/// outcome for this case anyway, since the user asked for a check that could not run.
+///
+/// This is not a regression (the pre-change build read no real log here either) and the
+/// fix is NOT to canonicalise the default: doing so would turn the printed paths of the
 /// correct case absolute, which is what the test above pins. This test exists so that
 /// change fails loudly here too.
 #[test]
-fn a_bare_filename_from_inside_docs_plans_stays_a_silent_miss() {
+fn a_bare_filename_from_inside_docs_plans_stays_a_miss_and_now_fails_loudly() {
 	let root = scratch("barefilename");
 	let away = build_away(&root, "complete");
 	let plans_dir = away.join("docs").join("plans");
@@ -463,10 +468,11 @@ fn a_bare_filename_from_inside_docs_plans_stays_a_silent_miss() {
 	let (code, stdout, stderr) =
 		run(&plans_dir, &["validate", "--source", "p.plan.toml", "--workflow"]);
 
-	assert_eq!(code, Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
+	assert_eq!(code, Some(1), "stdout:\n{stdout}\nstderr:\n{stderr}");
 	assert!(
-		stderr.contains("no metrics log at docs/metrics/workflow.jsonl"),
-		"expected the miss note naming the path it looked for; stderr:\n{stderr}"
+		stderr.contains("no round log at docs/metrics/workflow.jsonl")
+			&& stderr.contains("could not run"),
+		"expected the failure to name the path it looked for; stderr:\n{stderr}"
 	);
 	assert!(
 		!stdout.contains("records, valid"),

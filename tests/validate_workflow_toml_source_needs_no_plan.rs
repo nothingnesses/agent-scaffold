@@ -1,16 +1,27 @@
-//! Regression test for the Inc 6 clap relaxation: `--workflow` no longer `requires`
+//! Regression tests for `validate --workflow` refusing to report success for a check it
+//! never ran, on EITHER of the two inputs that check needs.
+//!
+//! The file opened on the Inc 6 clap relaxation: `--workflow` no longer `requires`
 //! `--plan`, so a TOML-primary project with NO Markdown plan can run
 //! `validate --workflow --source <plan.toml>` end to end. Before the relaxation clap
 //! rejected the combination with a usage error (exit 2) because `--workflow` was
-//! declared `requires = "plan"`.
+//! declared `requires = "plan"`. The rule the file pins is the general one rather than a
+//! rule about the plan source alone: `--workflow` was explicitly requested, so an input
+//! it needs and cannot find is a reported problem at exit 1, never a note at exit 0 that
+//! a CI gate reads as a pass.
 //!
-//! This pins two directions:
+//! This pins three directions:
 //! - Positive: the TOML-primary `--workflow --source` with no `--plan` reaches the
 //!   workflow check and passes (exit 0, `workflow invariants hold`).
-//! - Negative: `--workflow` with no resolvable plan source, whether no `--source`/`--plan`
-//!   at all or a typo'd/missing `--source`, hard-errors (exit 1) naming the missing plan
-//!   source rather than silently skipping the check and exiting 0. This is the false-green
-//!   regression the relaxation would otherwise have opened (Inc 6 M-1).
+//! - Negative, THE PLAN SOURCE missing: `--workflow` with no resolvable plan source,
+//!   whether no `--source`/`--plan` at all or a typo'd/missing `--source`, hard-errors
+//!   (exit 1) naming the missing plan source. This is the false-green regression the
+//!   relaxation would otherwise have opened (Inc 6 M-1).
+//! - Negative, THE ROUND LOG missing: a plan source that resolves with no round log at
+//!   the resolved path hard-errors (exit 1) naming that path, on the TOML arm and the
+//!   Markdown arm alike (`workflow-enforcement-tier-inc3`, the tier policy). Plain
+//!   `validate` without `--workflow` keeps its stderr note and its exit 0, because
+//!   nobody asked for the check there.
 
 use std::{
 	fs,
@@ -32,6 +43,25 @@ slug = \"only-step\"
 title = \"The only step\"
 status = \"not-started\"
 order = 1
+";
+
+/// A minimal, schema-valid Markdown `--plan` holding one `not-started` Roadmap step, so
+/// the Markdown arm of the same match reaches the workflow check with nothing to enforce.
+/// Only its PRESENCE matters below: the tier policy answers before any check runs.
+const PLAN_MD: &str = "\
+# A plan
+
+## Roadmap
+
+| Step | Status |
+| --- | --- |
+| `only-step` | not-started |
+
+## Step Detail
+
+### `only-step`: The only step
+
+Body.
 ";
 
 /// Run the built binary's `validate` with the given args in `dir`, returning
@@ -93,9 +123,9 @@ fn workflow_with_no_plan_source_hard_errors_instead_of_skipping() {
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));
 	fs::create_dir_all(&dir).unwrap();
-	// A present (empty) metrics log, so the only thing missing is the plan source. This
-	// isolates the regression: with a source present but metrics missing the tool still
-	// soft-skips, so a present metrics log proves the hard error is about the plan source.
+	// A present (empty) metrics log, so the only thing missing is the plan source. That is
+	// what keeps this test's red attributable: a missing log is now its own hard error (the
+	// test below), so a present log is what proves THIS hard error is about the plan source.
 	fs::write(dir.join("workflow.jsonl"), "").unwrap();
 
 	// (a) No --source and no --plan at all. Before the M-1 fix this fell into the `_`
@@ -126,6 +156,99 @@ fn workflow_with_no_plan_source_hard_errors_instead_of_skipping() {
 	assert!(
 		stderr.contains("no plan source resolved"),
 		"expected a problem naming the missing plan source; stderr:\n{stderr}"
+	);
+
+	fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Acceptance checks 15 and 16 (`workflow-enforcement-tier-inc3`, the tier policy): a
+/// `--workflow` run whose ROUND LOG is missing reports a problem and exits non-zero, and
+/// plain `validate` on the same missing log is untouched.
+///
+/// RED before the change: all three `--workflow` runs below printed `--workflow has a plan
+/// source but the metrics log is missing; skipping the workflow check` on stderr and
+/// exited 0, so a CI gate reading the exit status recorded a pass for a project with zero
+/// machine enforcement of any workflow invariant.
+///
+/// The runs are the BOUNDARY, not one case. The `_` catch-all this converts covers both
+/// the TOML-source-present and the Markdown-plan-present variants of "log missing", and
+/// the policy applies to the resolved path however it was resolved, so a `--metrics` the
+/// caller named that is not there is not a weaker case than a default that is not there.
+/// The fourth run is the control that keeps the change off the no-`--workflow` path, where
+/// nobody asked for the check and an absent log stays a note at exit 0.
+#[test]
+fn workflow_with_no_metrics_log_hard_errors_instead_of_skipping() {
+	let dir = std::env::temp_dir().join(format!(
+		"agent-scaffold-validate-workflow-no-log-{}-{}",
+		std::process::id(),
+		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+	));
+	fs::create_dir_all(&dir).unwrap();
+	fs::write(dir.join("plan.plan.toml"), PLAN_TOML).unwrap();
+	fs::write(dir.join("plan.md"), PLAN_MD).unwrap();
+	// NO round log anywhere: neither the anchored default (`docs/metrics/workflow.jsonl`
+	// under this directory, which is the root the plan's own directory yields) nor any
+	// path named below exists.
+
+	// (a) The TOML arm: a TOML-primary `--source` resolves, the anchored default log does
+	// not exist. The problem names the path the tool looked for, so a reader can tell a
+	// non-instrumented project from a mis-anchored run.
+	let (code, stdout, stderr) = validate(&dir, &["--workflow", "--source", "plan.plan.toml"]);
+	assert_eq!(
+		code,
+		Some(1),
+		"--workflow with no round log must not exit 0; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains("no round log at docs/metrics/workflow.jsonl")
+			&& stderr.contains("could not run"),
+		"expected a problem naming the resolved log and saying the check could not run; stderr:\n{stderr}"
+	);
+
+	// (b) The Markdown arm of the same catch-all: a readable `--plan` and no `--source`.
+	let (code, stdout, stderr) = validate(&dir, &["--workflow", "--plan", "plan.md"]);
+	assert_eq!(
+		code,
+		Some(1),
+		"the Markdown arm must answer the same way; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains("no round log at docs/metrics/workflow.jsonl")
+			&& stderr.contains("could not run"),
+		"expected the same problem on the Markdown arm; stderr:\n{stderr}"
+	);
+
+	// (c) An EXPLICIT `--metrics` that does not exist, inside the plan's own root so the
+	// containment guard is not what answers. Naming a path is not a weaker case than
+	// defaulting to one: the check still cannot run.
+	let (code, stdout, stderr) =
+		validate(&dir, &["--workflow", "--source", "plan.plan.toml", "--metrics", "absent.jsonl"]);
+	assert_eq!(
+		code,
+		Some(1),
+		"an explicit --metrics that is not there must not exit 0; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains("no round log at absent.jsonl") && stderr.contains("could not run"),
+		"expected the problem to name the path the caller gave; stderr:\n{stderr}"
+	);
+
+	// (d) THE CONTROL: the same missing log with no `--workflow`. Nobody asked for the
+	// check, so this keeps its stderr note and its exit 0 (acceptance check 16). This is
+	// the half of the tier policy that is easiest to break by accident.
+	let (code, stdout, stderr) = validate(&dir, &["--source", "plan.plan.toml"]);
+	assert_eq!(
+		code,
+		Some(0),
+		"plain validate must be untouched by the tier policy; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains("no metrics log at docs/metrics/workflow.jsonl; nothing to validate"),
+		"expected the unchanged skip note; stderr:\n{stderr}"
+	);
+	assert!(
+		!stderr.contains("could not run"),
+		"the tier policy must not reach a run that did not ask for the check; stderr:\n{stderr}"
 	);
 
 	fs::remove_dir_all(&dir).unwrap();

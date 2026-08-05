@@ -435,7 +435,7 @@ struct ValidateArgs {
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error, and so is a round log that lies outside the project root of the plan being checked: the tool cannot vouch that such a log's records belong to that plan, so it REFUSES the pairing and exits non-zero rather than reporting on it.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error, and so is a round log that lies outside the project root of the plan being checked: the tool cannot vouch that such a log's records belong to that plan, so it REFUSES the pairing and exits non-zero rather than reporting on it. So is no round log at the resolved path at all: the check cannot run, and a check that did not run must not report success.
 	#[arg(long)]
 	workflow: bool,
 	/// Path to a `workflow.toml` control-constants spec supplying the convergence streaks, round cap, and backstop severity the --workflow check reads. When omitted, the built-in default (today's constants) is used, so the check is unchanged. A malformed spec is a hard error (non-zero exit). Requires --workflow (the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0).
@@ -802,23 +802,31 @@ fn report_workflow(
 /// the project root derived from the plan source (`resolve_metrics_path`).
 ///
 /// An absent file (the metrics log, or a `--plan` path) is not a validation
-/// failure: not every project instruments, and a plan is validated only on
-/// request, so a missing file prints a note to stderr and is skipped rather than
-/// hard-failing (the same treatment for both, so the behaviour is consistent).
+/// failure on its own: not every project instruments, and a plan is validated only
+/// on request, so a missing file prints a note to stderr and is skipped rather than
+/// hard-failing.
+///
+/// `--workflow` IS THE DELIBERATE EXCEPTION, and the treatment there is NOT the same
+/// for both: an absent input the check needs is a reported problem and a non-zero exit,
+/// not a skip. The asymmetry is the point. Without `--workflow` nobody asked for the
+/// check, so an absent log is a note; with it the caller asked for exactly this check,
+/// and skipping it while reporting success is a false green, since a CI gate reads the
+/// exit status and not the stderr log. Both of the check's inputs answer that way: no
+/// resolvable plan source, and no round log at the resolved metrics path.
+///
 /// Every actual violation (a malformed metrics record, or a broken plan region)
 /// is collected, prefixed with its file, and printed to stderr; if any exist the
 /// run exits with code 1 (a validation failure, distinct from the code 2 used for
 /// usage errors). Otherwise each present, valid file prints a one-line ok summary
 /// and the run exits 0. With no `--plan` and no `--workflow`, this is metrics-only,
-/// unchanged from the previous increment. With `--workflow` (which still requires
-/// `--plan`), the plan status is cross-referenced against the round log: every
+/// unchanged from the previous increment. With `--workflow` the plan status is
+/// cross-referenced against the round log: every
 /// `complete` Roadmap step must have converged round records. When `--source` is
 /// TOML-primary (`[meta].primary = "toml"`) the steps, questions, waivers, and
 /// baseline are read from it instead of the Markdown plan (the Inc 4 swap); otherwise
 /// the Markdown `--plan` is used. Either way the check needs the metrics log and the
-/// chosen plan source present; if a needed file is absent it prints a note and is
-/// skipped, the same treatment a missing file gets elsewhere here. `--plan` stays
-/// clap-required for now (the relaxation for a TOML-only project is deferred).
+/// chosen plan source present; if a needed file is absent the run reports it as a
+/// problem and exits non-zero, per the exception above.
 ///
 /// In TOML-primary mode the Markdown `--plan` is a GENERATED projection (rendered from
 /// the TOML, pinned to it by `render --check`), so the hand-authored-Markdown validator
@@ -1034,11 +1042,19 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 					"--workflow requested but no plan source resolved: pass a TOML-primary --source or a Markdown --plan"
 						.to_string(),
 				),
-				// A plan source is present but the metrics log is missing: keep the
-				// pre-existing stderr skip (the rounds/decisions log is what is absent).
-				_ => eprintln!(
-					"--workflow has a plan source but the metrics log is missing; skipping the workflow check"
-				),
+				// A plan source is present but the metrics log is missing, the last way
+				// `--workflow` could reach exit 0 without checking anything. The check cannot
+				// run, so make it a hard problem, the same answer for the same reason as the
+				// `(None, None, _)` arm above: the user explicitly asked for the check, and a
+				// skip that reports success is read by a CI gate as a pass over a project with
+				// no enforcement at all. The problem names the RESOLVED path, so a
+				// non-instrumented project and a mis-anchored run are distinguishable. This is
+				// the tier boundary and nothing wider: without `--workflow` an absent log is
+				// still a stderr note at exit 0, because nobody asked for the check there.
+				_ => problems.push(format!(
+					"--workflow requested but no round log at {}: the workflow check could not run, so it cannot report that the invariants hold; pass a `--metrics` naming this project's log, or record the project's review rounds there",
+					metrics_path.display()
+				)),
 			}
 		}
 	}

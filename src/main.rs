@@ -1112,7 +1112,9 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// above it cannot be traversed", which `Path::exists` collapses into one `false`. This is
 /// the whole Fail-loudly half of `Q-55-emptyroot`'s remedy, and a loud line that states a
 /// falsehood about the filesystem is worse than a quiet one: it sends the operator to fix a
-/// path that is already correct. `resume_roots` splits the same three cases the same way.
+/// path that is already correct. THE THREE-WAY SPLIT IS THIS FUNCTION'S ALONE: what to TELL
+/// the operator has three answers, what to ROOT ON has two, so `resume_roots` keeps only the
+/// anchors the check answers YES for and groups "not there" with "cannot tell".
 fn note_missing_anchors(
 	source: &Option<PathBuf>,
 	plan: &Option<PathBuf>,
@@ -1147,9 +1149,10 @@ fn note_missing_anchors(
 /// part that is not available for the projection, which is the documented contract applied
 /// literally.
 fn run_status(args: StatusArgs) -> io::Result<()> {
-	// Before the `--resume` split, so BOTH slices report a typo'd anchor. A missing anchor
-	// still supplies a containment root, and the note is the only place the projection says
-	// the name behind that root is not on disk.
+	// Before the `--resume` split, so BOTH slices report a typo'd anchor. Whether that anchor
+	// supplies a containment root is `resume_roots`'s rule and depends on what else was
+	// supplied (beside an anchor on disk it supplies none), but the note is owed either way:
+	// it is the only place the projection says the name the operator typed is not on disk.
 	note_missing_anchors(&args.source, &args.plan);
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
@@ -1420,10 +1423,13 @@ fn containment_roots(
 /// authored logic in the one function the artifact resolution, the containment predicate and
 /// the anchor resolution all share, and it is not what either of this round's findings asked
 /// for. What bounds it is the shape it needs: a `..` traversing a directory that does not
-/// exist, on an anchor that does not exist, with NO other supplied anchor that does. The
-/// last clause is `resume_roots`'s narrowing, measured rather than assumed: beside an anchor
-/// on disk the ghost anchor now contributes no root and the log is read, while the
-/// single-anchor spelling above is unchanged by it.
+/// exist, on an anchor that does not exist, with NO other supplied anchor ON DISK. The last
+/// clause is `resume_roots`'s narrowing, measured rather than assumed: beside an anchor on
+/// disk the ghost anchor now contributes no root and the log is read, while the
+/// single-anchor spelling above is unchanged by it. ON DISK rather than "that exists" is the
+/// exact condition, and the difference is reachable: an anchor that IS there but cannot be
+/// `stat`ed is not on disk for this purpose, so it does not suppress the ghost anchor's root
+/// and the residual survives beside it.
 fn resolve_for_containment(path: &Path) -> PathBuf {
 	let absolute = if path.is_absolute() {
 		path.to_path_buf()
@@ -1523,7 +1529,7 @@ fn default_report_path(task: &str) -> PathBuf {
 /// current-directory-relative paths. WHICH ANCHORS DECIDE is the second half of this
 /// function's rule and is stated below; it is not always all of the supplied ones.
 ///
-/// AN ANCHOR THAT DOES NOT EXIST STILL YIELDS A ROOT WHEN IT IS THE ONLY THING TO GO ON,
+/// AN ANCHOR THAT IS NOT ON DISK STILL YIELDS A ROOT WHEN NO SUPPLIED ANCHOR IS,
 /// resolved by the same `resolve_for_containment` the predicate already resolves the
 /// ARTIFACT with: absolutise, canonicalise the longest existing ancestor, re-append the
 /// rest. That is the load-bearing clause and it is not an edge case. Dropping such an anchor
@@ -1540,7 +1546,7 @@ fn default_report_path(task: &str) -> PathBuf {
 /// guess the operator should be told about.
 ///
 /// BUT SUCH A ROOT IS A GUESS, AND A GUESS DOES NOT OVERRULE AN ANCHOR THAT IS ON DISK.
-/// Where at least one supplied anchor exists, only the anchors that exist decide, and the
+/// Where at least one supplied anchor IS on disk, only the anchors on disk decide, and the
 /// guessed one is left out. Letting it in put a second root beside the real one, and since
 /// containment requires the artifact to be under EVERY root, a `--plan` naming a path in
 /// another project that had never been written withheld the `--source` project's OWN log and
@@ -1548,17 +1554,31 @@ fn default_report_path(task: &str) -> PathBuf {
 /// project the anchor names. That is the consequence `Q-55-emptyroot` declined an option to
 /// avoid ("losing its own log for a run against a plan file not yet written"), arriving
 /// through the option that was taken, so the guess is now scoped to the case that motivated
-/// it: nothing else to go on. Both closures survive the narrowing, which is what makes it
-/// safe: a lone missing anchor is still the only anchor, so it still supplies its root and
-/// the vector is still never empty on a supplied anchor; a missing anchor beside an existing
-/// one defers to the existing one, which is the root that invocation had before the `--plan`
+/// it: no supplied anchor on disk to go on. Both closures survive the narrowing, which is
+/// what makes it safe: a lone missing anchor is still the only anchor, so it still supplies
+/// its root and the vector is still never empty on a supplied anchor; a missing anchor beside
+/// one ON DISK defers to that one, which is the root that invocation had before the `--plan`
 /// was typed at all.
 ///
-/// AN ANCHOR WHOSE EXISTENCE CANNOT BE DETERMINED COUNTS AS EXISTING (`try_exists` erring,
-/// which is a directory above it the caller cannot traverse, not an absence). Guessing the
-/// other way would drop its root on the strength of an error, and of the two directions only
-/// this one can add a root rather than remove one. `note_missing_anchors` splits the same
-/// three cases the same way, so the note never calls such an anchor missing either.
+/// AN ANCHOR WHOSE EXISTENCE CANNOT BE DETERMINED IS NOT COUNTED AS ON DISK (`try_exists`
+/// erring, which is a directory above it the caller cannot traverse, a symlink loop, or a
+/// spelling the kernel rejects, rather than an absence). It is grouped with the anchors that
+/// are not on disk, which is a claim about what the CHECK answered and not about whether the
+/// file is there, and the fallback is what makes that the safe direction rather than a second
+/// guess: `on_disk` can only SHRINK under this classification, `deciding` falls back to
+/// `supplied` whenever `on_disk` is empty, and `supplied` is non-empty whenever an anchor was
+/// supplied, so no path reaches an empty vector and the EMPTY-VECTOR leak of the first
+/// paragraph is unreachable by construction rather than by measurement. THE OTHER DIRECTION
+/// WAS MEASURED AND IT REMOVES ROOTS: counting such an anchor as on disk made `on_disk`
+/// non-empty, a non-empty `on_disk` drops every other supplied anchor's root, and two anchors
+/// naming two different projects collapsed to the uncheckable one's project, whose log was
+/// counted and whose `## RESUME STATE` block was echoed verbatim as this plan's on all five
+/// surfaces at exit 0 with both `--json` reason fields `null`, although no supplied anchor was
+/// on disk at all. Both orientations of that pairing are pinned in
+/// `tests/unsafe_pairings_are_refused_and_omitted.rs`. `note_missing_anchors` still keeps this
+/// case APART from a plain absence, because what to TELL the operator is a different question
+/// from what to ROOT ON: the note says the check failed rather than that the path is missing,
+/// so it never calls such an anchor missing either.
 fn resume_roots(
 	source: &Option<PathBuf>,
 	plan: &Option<PathBuf>,
@@ -1566,7 +1586,7 @@ fn resume_roots(
 	let supplied: Vec<&PathBuf> =
 		[source, plan].into_iter().filter_map(|anchor| anchor.as_ref()).collect();
 	let on_disk: Vec<&PathBuf> =
-		supplied.iter().copied().filter(|anchor| anchor.try_exists().unwrap_or(true)).collect();
+		supplied.iter().copied().filter(|anchor| anchor.try_exists().unwrap_or(false)).collect();
 	let deciding = if on_disk.is_empty() { &supplied } else { &on_disk };
 	deciding.iter().map(|anchor| project_root_of_source(&resolve_for_containment(anchor))).collect()
 }
@@ -1625,8 +1645,10 @@ fn run_resume(args: &StatusArgs) -> io::Result<()> {
 /// `## RESUME STATE` echo. Each says why in its place, and the run still exits 0: the
 /// refusal is the validator's alone.
 fn run_next(args: NextArgs) -> io::Result<()> {
-	// The same typo'd-anchor note `status` prints, for the same reason: `next` roots
-	// containment on an anchor that does not exist rather than falling through with none.
+	// The same typo'd-anchor note `status` prints, for the same reason: the note is owed on a
+	// name that is not on disk whether or not that name ends up supplying a root, and where NO
+	// supplied anchor is on disk `next` does root containment on one rather than falling
+	// through with none.
 	note_missing_anchors(&args.source, &args.plan);
 	let task = next::derive_task(&args.source, &args.plan);
 

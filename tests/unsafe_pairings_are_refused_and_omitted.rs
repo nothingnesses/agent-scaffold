@@ -979,6 +979,355 @@ fn an_anchor_that_cannot_be_checked_is_not_reported_as_missing() {
 	let _ = fs::remove_dir_all(&root);
 }
 
+/// The fixture the two `Err`-anchor tests below share: THREE TOP-LEVEL SIBLINGS under
+/// `root`, with no containment relation between any two of them. `home` is the directory the
+/// runs are made from and carries its own THREE-record log; `alpha` is the project the
+/// MISSING anchor names, with a real `docs/plans`, a TWO-record log and its own block;
+/// `beta` is the project the UNCHECKABLE anchor names, with a FOUR-record log, its own
+/// block, and the two files a trailing slash is put on. Beta's log and ledger are the
+/// artifacts named explicitly on every command line below, so the record count and the block
+/// name in the output say which file was read rather than being inferred from the path.
+#[cfg(unix)]
+fn build_err_anchor_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+	let home = build_home(root);
+
+	let alpha = root.join("alpha");
+	write(
+		&alpha.join("docs").join("metrics").join("workflow.jsonl"),
+		&log(&["alpha-one", "alpha-two"]),
+	);
+	write(&alpha.join("docs").join("plans").join("a.ledger.md"), &resume_block("ALPHA"));
+
+	let beta = root.join("beta");
+	write(
+		&beta.join("docs").join("metrics").join("workflow.jsonl"),
+		&log(&["beta-one", "beta-two", "beta-three", "beta-four"]),
+	);
+	write(&beta.join("docs").join("plans").join("b.ledger.md"), &resume_block("BETA"));
+	write(&beta.join("docs").join("plans").join("b.md"), &plan_markdown("complete"));
+	write(&beta.join("docs").join("plans").join("b.plan.toml"), &plan_toml_markdown_primary());
+
+	(home, alpha, beta)
+}
+
+/// AN ANCHOR WHOSE EXISTENCE CANNOT BE DETERMINED DOES NOT REMOVE THE OTHER ANCHOR'S ROOT,
+/// with the uncheckable anchor in the `--plan` slot. `try_exists` errs for every `stat`
+/// failure that is not an absence, and counting such an anchor as ON DISK made `on_disk`
+/// non-empty; a non-empty `on_disk` suppresses the fallback to the supplied anchors, so the
+/// MISSING `--source`'s root was dropped and the uncheckable `--plan`'s project decided
+/// alone, although no supplied anchor was on disk at all.
+///
+/// RED against the round 4 tip: `beta`'s four-record log was counted and its private
+/// `## RESUME STATE` block echoed verbatim by `next`, `next --json`, `status --json` and
+/// `status --resume` alike, at exit 0 with both machine reason fields `null`. That is the
+/// same output shape `an_anchor_that_does_not_exist_still_supplies_a_root` closed, reached
+/// through the other branch of the same filter, which is why the membership rule is pinned
+/// here and not only the deciding rule.
+///
+/// THE TRIGGER IS A TRAILING SLASH ON A FILE THAT EXISTS (`ENOTDIR`), chosen because it
+/// needs no permission manipulation and behaves the same for any uid. The `Err`
+/// CLASSIFICATION rather than that spelling is what this pins: `ELOOP`, `ENAMETOOLONG` and a
+/// directory the process cannot traverse all reach the same branch, and the `could not be
+/// checked` assertion below is what keeps the fixture from passing vacuously if the anchor
+/// ever stopped landing in that class.
+///
+/// THE ONE-CHARACTER CONTROL is the same `--plan` WITHOUT the slash, run on `status
+/// --resume` so that both runs reach `resume_roots` directly rather than one of them being
+/// answered by `checked_plan_root`. That anchor IS on disk, so it still decides alone and
+/// beta's own block still prints; the refusal above therefore follows from the anchor's stat
+/// class and not from the layout.
+#[cfg(unix)]
+#[test]
+fn an_uncheckable_plan_anchor_does_not_remove_the_other_anchors_root() {
+	let root = scratch("errplan");
+	let (home, alpha, beta) = build_err_anchor_fixture(&root);
+
+	// The MISSING anchor: a plan in `alpha` that has not been written (`Ok(false)`).
+	let missing_source = arg(&alpha.join("docs").join("plans").join("ghost.plan.toml"));
+	// The UNCHECKABLE anchor and, one character shorter, its control.
+	let on_disk_plan = arg(&beta.join("docs").join("plans").join("b.md"));
+	let uncheckable_plan = format!("{on_disk_plan}/");
+	let beta_log = arg(&beta.join("docs").join("metrics").join("workflow.jsonl"));
+	let beta_ledger = arg(&beta.join("docs").join("plans").join("b.ledger.md"));
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--source",
+			&missing_source,
+			"--plan",
+			&uncheckable_plan,
+			"--metrics",
+			&beta_log,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stderr.contains(&format!("note: --plan {uncheckable_plan} could not be checked")),
+		"the anchor must land in the `Err` class or this test measures nothing; stderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains(&format!("note: --source {missing_source} does not exist")),
+		"and the anchor beside it is the missing one; stderr:\n{stderr}"
+	);
+	assert!(stdout.contains("metrics: unavailable,"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("4 records"), "beta's log is not this pairing's; stdout:\n{stdout}");
+	assert!(!stdout.contains("BETA resume state."), "no line of the block; stdout:\n{stdout}");
+	assert!(
+		stdout.contains(&format!("the ledger {beta_ledger} is not under the plan's project root")),
+		"stdout:\n{stdout}"
+	);
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--json",
+			"--source",
+			&missing_source,
+			"--plan",
+			&uncheckable_plan,
+			"--metrics",
+			&beta_log,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(
+		stdout.contains("\"resume_state_absent_reason\": \"ledger-not-this-project\""),
+		"a `null` reason here would positively assert beta's block is this plan's; stdout:\n{stdout}"
+	);
+	assert!(stdout.contains("\"resume_state\": null"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("\"records\": 4"), "stdout:\n{stdout}");
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--json",
+			"--source",
+			&missing_source,
+			"--plan",
+			&uncheckable_plan,
+			"--metrics",
+			&beta_log,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("\"records\": 4"), "stdout:\n{stdout}");
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--resume",
+			"--source",
+			&missing_source,
+			"--plan",
+			&uncheckable_plan,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		!stdout.contains("BETA resume state."),
+		"the slice that calls `resume_roots` directly; stdout:\n{stdout}"
+	);
+	assert!(stdout.contains("nothing to resume"), "stdout:\n{stdout}");
+
+	// THE ONE-CHARACTER CONTROL, on that same slice.
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--resume",
+			"--source",
+			&missing_source,
+			"--plan",
+			&on_disk_plan,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "control: stderr:\n{stderr}");
+	assert!(
+		stdout.contains("BETA resume state."),
+		"control: an anchor that IS on disk still decides alone; stdout:\n{stdout}"
+	);
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// THE SAME RULE WITH THE SLOTS SWAPPED: the uncheckable anchor is the `--source` and the
+/// missing one the `--plan`. The orientation is not a formality and this test is not a
+/// duplicate of the one above.
+///
+/// With the uncheckable anchor in the `--source` slot the TASK NAME is derived from that
+/// anchor, so beta's log and beta's block read as beta's own and the leak looks like a
+/// correct read. Asking whether the admitted artifact belongs to the surviving anchor's own
+/// project answers "yes" here and "no" in the other orientation, on identical behaviour; the
+/// question that separates them is WHAT THE REMOVED ROOT PREVIOUSLY REFUSED. It refused this
+/// pairing: two anchors naming two different projects must reject each other's artifacts
+/// (`Q-55-resumepairing`, and accepted cost (iv)), which is what
+/// `resume_omits_the_default_ledger_under_a_divergent_pairing` pins for two anchors that
+/// both exist. Dropping one anchor because the other could not be `stat`ed silently exempted
+/// the pairing from that rule.
+///
+/// RED against the round 4 tip on every assertion below, exactly as in the `--plan`
+/// orientation, and the only visible difference between the two leaks is the task name.
+#[cfg(unix)]
+#[test]
+fn an_uncheckable_source_anchor_does_not_remove_the_other_anchors_root() {
+	let root = scratch("errsource");
+	let (home, alpha, beta) = build_err_anchor_fixture(&root);
+
+	// The MISSING anchor: a Markdown plan in `alpha` that has not been written (`Ok(false)`).
+	let missing_plan = arg(&alpha.join("docs").join("plans").join("ghost.md"));
+	// The UNCHECKABLE anchor and, one character shorter, its control. This one is
+	// Markdown-primary, so no plan is read from it in either spelling and the two runs differ
+	// only in the stat class of the anchor.
+	let on_disk_source = arg(&beta.join("docs").join("plans").join("b.plan.toml"));
+	let uncheckable_source = format!("{on_disk_source}/");
+	let beta_log = arg(&beta.join("docs").join("metrics").join("workflow.jsonl"));
+	let beta_ledger = arg(&beta.join("docs").join("plans").join("b.ledger.md"));
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--source",
+			&uncheckable_source,
+			"--plan",
+			&missing_plan,
+			"--metrics",
+			&beta_log,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stderr.contains(&format!("note: --source {uncheckable_source} could not be checked")),
+		"the anchor must land in the `Err` class or this test measures nothing; stderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains(&format!("note: --plan {missing_plan} does not exist")),
+		"and the anchor beside it is the missing one; stderr:\n{stderr}"
+	);
+	assert!(stdout.contains("metrics: unavailable,"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("4 records"), "stdout:\n{stdout}");
+	assert!(
+		!stdout.contains("BETA resume state."),
+		"the derived task is beta's, which does not make the block this pairing's; stdout:\n{stdout}"
+	);
+	assert!(
+		stdout.contains(&format!("the ledger {beta_ledger} is not under the plan's project root")),
+		"stdout:\n{stdout}"
+	);
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"next",
+			"--json",
+			"--source",
+			&uncheckable_source,
+			"--plan",
+			&missing_plan,
+			"--metrics",
+			&beta_log,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(
+		stdout.contains("\"resume_state_absent_reason\": \"ledger-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(stdout.contains("\"resume_state\": null"), "stdout:\n{stdout}");
+	assert!(!stdout.contains("\"records\": 4"), "stdout:\n{stdout}");
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--json",
+			"--source",
+			&uncheckable_source,
+			"--plan",
+			&missing_plan,
+			"--metrics",
+			&beta_log,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		stdout.contains("\"metrics_absent_reason\": \"log-not-this-project\""),
+		"stdout:\n{stdout}"
+	);
+	assert!(!stdout.contains("\"records\": 4"), "stdout:\n{stdout}");
+
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--resume",
+			"--source",
+			&uncheckable_source,
+			"--plan",
+			&missing_plan,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "stderr:\n{stderr}");
+	assert!(
+		!stdout.contains("BETA resume state."),
+		"the slice that calls `resume_roots` directly; stdout:\n{stdout}"
+	);
+	assert!(stdout.contains("nothing to resume"), "stdout:\n{stdout}");
+
+	// THE ONE-CHARACTER CONTROL, on that same slice.
+	let (code, stdout, stderr) = run(
+		&home,
+		&[
+			"status",
+			"--resume",
+			"--source",
+			&on_disk_source,
+			"--plan",
+			&missing_plan,
+			"--ledger-fragment",
+			&beta_ledger,
+		],
+	);
+	assert_eq!(code, Some(0), "control: stderr:\n{stderr}");
+	assert!(
+		stdout.contains("BETA resume state."),
+		"control: an anchor that IS on disk still decides alone; stdout:\n{stdout}"
+	);
+
+	let _ = fs::remove_dir_all(&root);
+}
+
 /// Acceptance check 14c's third run (`Q-55-resumepairing`): `status --resume` on the
 /// DEFAULT ledger under a divergent pairing, with no `--ledger-fragment` at all. This
 /// surface reads no plan, so the rule SUPPLIES it a root: two anchors that both exist must

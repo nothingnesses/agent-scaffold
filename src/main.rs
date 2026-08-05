@@ -1097,23 +1097,34 @@ fn toml_source(path: &Option<PathBuf>) -> io::Result<Option<plan::PlanToml>> {
 /// stderr, naming the flag and the path, so it never contaminates `--json` on stdout.
 ///
 /// It is not an error and changes no exit code. `status` and `next` are best-effort
-/// projections, and the containment rule roots them on the anchor whether or not it exists
-/// (`resume_roots`), which is what keeps a plan file that has not been written yet reading
-/// its own project's log. What the operator cannot otherwise see is that they typed the
-/// name wrong: `source: no plan source` prints identically for "no plan was asked for" and
-/// "the plan you named is not there", so without this the only visible consequence of a
-/// typo is a root silently derived from a name with nothing behind it.
+/// projections, and what the operator cannot otherwise see is that they typed the name
+/// wrong: `source: no plan source` prints identically for "no plan was asked for" and "the
+/// plan you named is not there", so without this the only visible consequence of a typo is a
+/// containment verdict reached against a name with nothing behind it.
 ///
-/// It names no derived root deliberately. Which anchor's root the predicate ends up using
-/// depends on what else was supplied (`containment_roots`), so a root named here would be
-/// the wrong one whenever the other anchor wins.
+/// It names no derived root deliberately, and no root can be inferred from this line.
+/// Which root the predicate ends up using depends on what else was supplied: a plan that IS
+/// read roots the check on itself (`containment_roots`), and where none is read only the
+/// anchors that are ON DISK decide unless no supplied anchor is (`resume_roots`). A root
+/// named here would be the wrong one in either case.
+///
+/// THREE CASES, NOT TWO. `try_exists` separates "not there" from "there, but a directory
+/// above it cannot be traversed", which `Path::exists` collapses into one `false`. This is
+/// the whole Fail-loudly half of `Q-55-emptyroot`'s remedy, and a loud line that states a
+/// falsehood about the filesystem is worse than a quiet one: it sends the operator to fix a
+/// path that is already correct. `resume_roots` splits the same three cases the same way.
 fn note_missing_anchors(
 	source: &Option<PathBuf>,
 	plan: &Option<PathBuf>,
 ) {
 	for (flag, anchor) in [("--source", source), ("--plan", plan)] {
-		if let Some(path) = anchor.as_ref().filter(|path| !path.exists()) {
-			eprintln!("note: {flag} {} does not exist", path.display());
+		let Some(path) = anchor.as_ref() else { continue };
+		match path.try_exists() {
+			Ok(true) => {}
+			Ok(false) => eprintln!("note: {flag} {} does not exist", path.display()),
+			Err(error) => {
+				eprintln!("note: {flag} {} could not be checked: {error}", path.display());
+			}
 		}
 	}
 }
@@ -1307,8 +1318,10 @@ fn resolve_metrics_path(
 }
 
 /// The canonical project root of a plan a surface actually READS, or `None` when that
-/// plan does not exist (nothing was read, so there is no root and the containment
-/// predicate below does not fire).
+/// plan does not exist (nothing was read, so THIS FUNCTION contributes no root and
+/// `checked_plan_root` is `None`). What happens then is the caller's decision and not a
+/// claim this function can make: `containment_roots` supplies anchor roots instead, so the
+/// predicate below does fire whenever an anchor was supplied.
 ///
 /// A PLAN, NOT AN ANCHOR, and the two are resolved differently on purpose. Existence is
 /// what makes a plan readable, so a plan that is not there yields no root here; an anchor is
@@ -1369,10 +1382,11 @@ fn checked_plan_root(
 /// ANCHOR WAS SUPPLIED, and that case is decided rather than overlooked: with no `--source`
 /// and no `--plan` there is nothing to pair an artifact with, so the historical
 /// current-directory-relative defaults stand and an explicit `--metrics` is read as named.
-/// Every case where an anchor IS supplied yields a root, including an anchor that does not
-/// exist; the clause that guarantees it lives in `resume_roots`, which is where an empty
-/// vector on a supplied anchor once leaked another project's artifact through all three
-/// surfaces at exit 0.
+/// Every case where an anchor IS supplied yields AT LEAST ONE root, including the case where
+/// the only anchor supplied does not exist; the clause that guarantees it lives in
+/// `resume_roots`, which is where an empty vector on a supplied anchor once leaked another
+/// project's artifact through all three surfaces at exit 0. Which supplied anchors get a root
+/// each is that function's rule, not this one's, and it is not "all of them".
 ///
 /// The predicate is not re-implemented and not widened: each root is still tested by
 /// `is_outside_root`, exactly as `run_resume` tests its own.
@@ -1391,9 +1405,25 @@ fn containment_roots(
 /// exists, so a log or ledger whose leaf has not been created yet still has its directory
 /// prefix resolved and cannot slip past the predicate by being absent.
 ///
-/// A `..` in the re-appended remainder stays literal, which is sound rather than a hole:
-/// it can only survive when a directory ABOVE it is missing, and a path whose intermediate
-/// directory is missing cannot be opened either, so no readable file hides behind one.
+/// A `..` in the re-appended remainder stays literal. FOR THE ARTIFACT, AND ONLY FOR THE
+/// ARTIFACT, that is sound rather than a hole: such a `..` can only survive when a directory
+/// ABOVE it is missing, and a path whose intermediate directory is missing cannot be OPENED
+/// either, so no readable file hides behind one. Every term of that argument is about a path
+/// that gets opened, which is why it does not extend past the artifact.
+///
+/// FOR AN ANCHOR (`resume_roots`) THE ARGUMENT DOES NOT CARRY, because an anchor is never
+/// opened. The literal `..` is not dropped at an open that never happens; it survives into
+/// `project_root_of_source` and becomes the root the artifacts are compared against, so
+/// `<proj>/ghost/../q.plan.toml` and `<proj>/q.plan.toml` name one file and get opposite
+/// verdicts, and the anchor's own log is refused under a root printed as `<proj>/ghost/..`,
+/// which is not a directory. That is RECORDED, not closed: normalising the remainder is
+/// authored logic in the one function the artifact resolution, the containment predicate and
+/// the anchor resolution all share, and it is not what either of this round's findings asked
+/// for. What bounds it is the shape it needs: a `..` traversing a directory that does not
+/// exist, on an anchor that does not exist, with NO other supplied anchor that does. The
+/// last clause is `resume_roots`'s narrowing, measured rather than assumed: beside an anchor
+/// on disk the ghost anchor now contributes no root and the log is read, while the
+/// single-anchor spelling above is unchanged by it.
 fn resolve_for_containment(path: &Path) -> PathBuf {
 	let absolute = if path.is_absolute() {
 		path.to_path_buf()
@@ -1486,35 +1516,59 @@ fn default_report_path(task: &str) -> PathBuf {
 /// `status --resume` always, and `status` and `next` through `containment_roots` whenever
 /// no plan resolves. The containment rule SUPPLIES the root rather than being
 /// re-implemented here (`Q-55-resumepairing`): a `--source` and a `--plan` must resolve to
-/// the SAME root, which is expressed by requiring the artifact to be under EVERY anchor's
-/// root rather than by comparing the roots to each other. With one anchor alone the anchor
-/// is the root, as it has always been; with NEITHER there is no root and the predicate does
-/// not fire, the same case in which the log and ledger defaults keep their historical
-/// current-directory-relative paths.
+/// the SAME root, which is expressed by requiring the artifact to be under EVERY DECIDING
+/// anchor's root rather than by comparing the roots to each other. With one anchor alone the
+/// anchor is the root, as it has always been; with NEITHER there is no root and the predicate
+/// does not fire, the same case in which the log and ledger defaults keep their historical
+/// current-directory-relative paths. WHICH ANCHORS DECIDE is the second half of this
+/// function's rule and is stated below; it is not always all of the supplied ones.
 ///
-/// AN ANCHOR THAT DOES NOT EXIST STILL YIELDS A ROOT, resolved by the same
-/// `resolve_for_containment` the predicate already resolves the ARTIFACT with: absolutise,
-/// canonicalise the longest existing ancestor, re-append the rest. That is the load-bearing
-/// clause and it is not an edge case. Dropping such an anchor (an `fs::canonicalize` that
-/// fails because the leaf is not on disk) left a SUPPLIED anchor contributing NO root, and
-/// with no second anchor the vector went empty, every `is_outside_root` quantifier over it
-/// went vacuous, and one character changed in a `--source` turned the refusal into an
-/// explicit foreign `--metrics` or `--ledger-fragment` read, counted, and echoed verbatim
-/// at exit 0 by `status`, `next` and `status --resume` alike, with both `--json` reason
-/// fields `null`. Resolving PARTIALLY rather than refusing outright keeps the anchor's own
-/// directory usable, so a plan file that has not been written yet still reads its own
-/// project's log, while giving the quantifier a root to reject a foreign artifact against.
-/// The typo itself is reported separately by `note_missing_anchors`, since a root derived
-/// from a name with nothing behind it is a guess the operator should be told about.
+/// AN ANCHOR THAT DOES NOT EXIST STILL YIELDS A ROOT WHEN IT IS THE ONLY THING TO GO ON,
+/// resolved by the same `resolve_for_containment` the predicate already resolves the
+/// ARTIFACT with: absolutise, canonicalise the longest existing ancestor, re-append the
+/// rest. That is the load-bearing clause and it is not an edge case. Dropping such an anchor
+/// (an `fs::canonicalize` that fails because the leaf is not on disk) left a SUPPLIED anchor
+/// contributing NO root, and with no second anchor the vector went empty, every
+/// `is_outside_root` quantifier over it went vacuous, and one character changed in a
+/// `--source` turned the refusal into an explicit foreign `--metrics` or `--ledger-fragment`
+/// read, counted, and echoed verbatim at exit 0 by `status`, `next` and `status --resume`
+/// alike, with both `--json` reason fields `null`. Resolving PARTIALLY rather than refusing
+/// outright keeps the anchor's own directory usable, so a plan file that has not been
+/// written yet still reads its own project's log, while giving the quantifier a root to
+/// reject a foreign artifact against. The typo itself is reported separately by
+/// `note_missing_anchors`, since a root derived from a name with nothing behind it is a
+/// guess the operator should be told about.
+///
+/// BUT SUCH A ROOT IS A GUESS, AND A GUESS DOES NOT OVERRULE AN ANCHOR THAT IS ON DISK.
+/// Where at least one supplied anchor exists, only the anchors that exist decide, and the
+/// guessed one is left out. Letting it in put a second root beside the real one, and since
+/// containment requires the artifact to be under EVERY root, a `--plan` naming a path in
+/// another project that had never been written withheld the `--source` project's OWN log and
+/// OWN ledger, reporting `log-not-this-project` and `ledger-not-this-project` about the
+/// project the anchor names. That is the consequence `Q-55-emptyroot` declined an option to
+/// avoid ("losing its own log for a run against a plan file not yet written"), arriving
+/// through the option that was taken, so the guess is now scoped to the case that motivated
+/// it: nothing else to go on. Both closures survive the narrowing, which is what makes it
+/// safe: a lone missing anchor is still the only anchor, so it still supplies its root and
+/// the vector is still never empty on a supplied anchor; a missing anchor beside an existing
+/// one defers to the existing one, which is the root that invocation had before the `--plan`
+/// was typed at all.
+///
+/// AN ANCHOR WHOSE EXISTENCE CANNOT BE DETERMINED COUNTS AS EXISTING (`try_exists` erring,
+/// which is a directory above it the caller cannot traverse, not an absence). Guessing the
+/// other way would drop its root on the strength of an error, and of the two directions only
+/// this one can add a root rather than remove one. `note_missing_anchors` splits the same
+/// three cases the same way, so the note never calls such an anchor missing either.
 fn resume_roots(
 	source: &Option<PathBuf>,
 	plan: &Option<PathBuf>,
 ) -> Vec<PathBuf> {
-	[source, plan]
-		.into_iter()
-		.filter_map(|anchor| anchor.as_ref())
-		.map(|anchor| project_root_of_source(&resolve_for_containment(anchor)))
-		.collect()
+	let supplied: Vec<&PathBuf> =
+		[source, plan].into_iter().filter_map(|anchor| anchor.as_ref()).collect();
+	let on_disk: Vec<&PathBuf> =
+		supplied.iter().copied().filter(|anchor| anchor.try_exists().unwrap_or(true)).collect();
+	let deciding = if on_disk.is_empty() { &supplied } else { &on_disk };
+	deciding.iter().map(|anchor| project_root_of_source(&resolve_for_containment(anchor))).collect()
 }
 
 /// The `status --resume` slice: print the ledger's `## RESUME STATE` block verbatim,

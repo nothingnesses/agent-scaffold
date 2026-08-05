@@ -660,9 +660,15 @@ fn a_surface_that_reads_no_plan_is_supplied_a_root() {
 /// here rather than in separate tests.
 ///
 /// The OWN-ARTIFACT block is the shape check on the remedy (`Q-55-emptyroot`): the root is
-/// derived from the anchor's path as spelled, not withheld, so an anchor whose file has not
-/// been written yet still reads ITS OWN project's log and ledger. A remedy that treated an
-/// underivable root as unpairable would omit those too, and this block would go red.
+/// derived from the anchor's path itself, resolved as far as the filesystem allows, rather
+/// than withheld, so an anchor whose file has not been written yet still reads ITS OWN
+/// project's log and ledger. A remedy that treated an underivable root as unpairable would
+/// omit those too, and this block would go red.
+///
+/// EVERY RUN HERE SUPPLIES ONE ANCHOR AND THAT ANCHOR IS THE MISSING ONE, which is the
+/// configuration the guessed root is scoped to (`resume_roots`). The narrowing that keeps a
+/// missing anchor from overruling one on disk is pinned separately, in
+/// `a_missing_anchor_does_not_overrule_an_anchor_that_exists`.
 #[test]
 fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 	let root = scratch("missinganchor");
@@ -744,6 +750,14 @@ fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 		"stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
+	// The note is `Q-55-emptyroot`'s Fail-loudly half and it is owed on EVERY surface that
+	// roots on a name with nothing behind it, not only on `next`. Deleting the
+	// `note_missing_anchors` call in `run_status` left the whole suite green, so the two
+	// `status` slices are pinned here exactly as the `next` run above is.
+	assert!(
+		stderr.contains(&format!("note: --source {missing} does not exist")),
+		"`status --resume` owes the typo too; stderr:\n{stderr}"
+	);
 
 	let (code, stdout, stderr) = run(
 		&home,
@@ -755,6 +769,10 @@ fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 		"stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("\"records\": 3"), "stdout:\n{stdout}");
+	assert!(
+		stderr.contains(&format!("note: --source {missing} does not exist")),
+		"and on stderr, not stdout, so `--json` stays parseable; stderr:\n{stderr}"
+	);
 
 	// THE ONE-CHARACTER CONTROL: the same anchor spelled correctly, which already refused
 	// before this fix. Both spellings must now give the SAME verdict, and only the missing
@@ -804,6 +822,159 @@ fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 		);
 		assert!(stderr.is_empty(), "{command}: no anchor, so no note; stderr:\n{stderr}");
 	}
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// A MISSING ANCHOR DOES NOT OVERRULE AN ANCHOR THAT EXISTS (`Q-55-anchorveto`). The root a
+/// missing anchor supplies is a guess about a name with nothing behind it, and the test above
+/// scopes that guess to the case that motivated it: nothing else to go on. Where a supplied
+/// anchor IS on disk, only the anchors on disk decide.
+///
+/// THREE CONTROLS ON ONE FIXTURE, varying ONLY the `--plan`, because the defect is invisible
+/// against the wrong one. C0 supplies no `--plan` at all, which is the baseline an operator
+/// who then types a stale path actually had; C1 supplies a `--plan` that does not exist; C2
+/// supplies the SAME PATH written. C1 must answer like C0, not like C2. An enumeration that
+/// always passes a `--plan` and varies only whether the file is there contains C1 and C2 and
+/// cannot contain C0, so it reports C1 as correct.
+///
+/// RED against the round 3 tip on C1: the missing `--plan` contributed a second root in
+/// `beta`, containment requires the artifact under EVERY root, and `alpha`'s OWN default log
+/// and OWN default ledger were withheld at exit 0 with `log-not-this-project` and
+/// `ledger-not-this-project` asserted about the project the `--source` names.
+///
+/// C2 IS PINNED AS UNCHANGED, so the narrowing cannot be mistaken for a general loosening:
+/// two anchors that both exist in different projects still reject each other's artifacts,
+/// which is the divergent pairing `Q-55-resumepairing` decided and accepted cost (iv)
+/// records.
+#[test]
+fn a_missing_anchor_does_not_overrule_an_anchor_that_exists() {
+	let root = scratch("anchorveto");
+	let home = build_home(&root);
+
+	// `alpha` is a top-level sibling of `home`, Markdown-primary so no plan is ever read from
+	// it, with its own TWO-record log and its own `<task>.ledger.md` at their DEFAULT paths.
+	// Both artifacts are therefore derived from the `--source` itself, not named on the
+	// command line: there is nothing here for the operator to have pointed anywhere.
+	let alpha = root.join("alpha");
+	write(&alpha.join("docs").join("plans").join("m.plan.toml"), &plan_toml_markdown_primary());
+	write(&alpha.join("docs").join("plans").join("m.ledger.md"), &resume_block("ALPHA"));
+	write(
+		&alpha.join("docs").join("metrics").join("workflow.jsonl"),
+		&log(&["alpha-one", "alpha-two"]),
+	);
+	let source = arg(&alpha.join("docs").join("plans").join("m.plan.toml"));
+	let beta_plan = arg(&root.join("beta").join("docs").join("plans").join("s.md"));
+
+	// C0 and C1 must agree on all four of these, and each is measured on both the human and
+	// the machine surface plus the independent `status --resume` slice.
+	for (label, extra) in
+		[("C0 no --plan", Vec::new()), ("C1 --plan missing", vec!["--plan", &beta_plan])]
+	{
+		let mut argv = vec!["next", "--source", &source];
+		argv.extend_from_slice(&extra);
+		let (code, stdout, stderr) = run(&home, &argv);
+		assert_eq!(code, Some(0), "{label}: stderr:\n{stderr}");
+		assert!(
+			stdout.contains("metrics: 2 records"),
+			"{label}: alpha's OWN log; stdout:\n{stdout}"
+		);
+		assert!(
+			stdout.contains("ALPHA resume state."),
+			"{label}: alpha's OWN ledger; stdout:\n{stdout}"
+		);
+
+		let mut argv = vec!["next", "--json", "--source", &source];
+		argv.extend_from_slice(&extra);
+		let (code, stdout, stderr) = run(&home, &argv);
+		assert_eq!(code, Some(0), "{label}: stderr:\n{stderr}");
+		assert!(
+			stdout.contains("\"metrics_absent_reason\": null"),
+			"{label}: a project's own log is this project's; stdout:\n{stdout}"
+		);
+		assert!(
+			stdout.contains("\"resume_state_absent_reason\": null"),
+			"{label}: and so is its own ledger; stdout:\n{stdout}"
+		);
+		assert!(stdout.contains("ALPHA resume state."), "{label}: stdout:\n{stdout}");
+
+		let mut argv = vec!["status", "--resume", "--source", &source];
+		argv.extend_from_slice(&extra);
+		let (code, stdout, stderr) = run(&home, &argv);
+		assert_eq!(code, Some(0), "{label}: stderr:\n{stderr}");
+		assert!(
+			stdout.contains("ALPHA resume state."),
+			"{label}: the slice that calls `resume_roots` directly; stdout:\n{stdout}"
+		);
+		assert!(
+			!stdout.contains("nothing to resume"),
+			"{label}: no refusal of alpha's own ledger; stdout:\n{stdout}"
+		);
+	}
+
+	// Reading the artifacts does NOT cost the typo its note: the anchor is still not there and
+	// C1 still says so, which is the half of `Q-55-emptyroot` that Fail loudly bought.
+	let (_, _, stderr) = run(&home, &["next", "--source", &source, "--plan", &beta_plan, "--json"]);
+	assert!(
+		stderr.contains(&format!("note: --plan {beta_plan} does not exist")),
+		"the stale path is still reported; stderr:\n{stderr}"
+	);
+
+	// C2: the SAME `--plan` path, now written. The divergent pairing is untouched.
+	write(&root.join("beta").join("docs").join("plans").join("s.md"), &plan_markdown("complete"));
+	let (code, stdout, stderr) = run(&home, &["next", "--source", &source, "--plan", &beta_plan]);
+	assert_eq!(code, Some(0), "C2: stderr:\n{stderr}");
+	assert!(stdout.contains("metrics: unavailable,"), "C2: stdout:\n{stdout}");
+	assert!(!stdout.contains("ALPHA resume state."), "C2: stdout:\n{stdout}");
+	let (code, stdout, stderr) =
+		run(&home, &["status", "--resume", "--source", &source, "--plan", &beta_plan]);
+	assert_eq!(code, Some(0), "C2: stderr:\n{stderr}");
+	assert!(stdout.contains("nothing to resume"), "C2: stdout:\n{stdout}");
+
+	let _ = fs::remove_dir_all(&root);
+}
+
+/// AN ANCHOR THE TOOL CANNOT ASK ABOUT IS NOT AN ANCHOR THAT IS MISSING. `Path::exists`
+/// answers `false` both for a path that is not there and for one whose metadata cannot be
+/// read, so a plan sitting on disk inside a directory the caller cannot traverse was reported
+/// as not existing. The note is the whole Fail-loudly half of `Q-55-emptyroot`'s remedy, and
+/// a loud line that states a falsehood about the filesystem is worse than a quiet one: it
+/// sends the operator to fix a path that is already correct. `try_exists` splits the two and
+/// each gets its own line.
+///
+/// RED against the round 3 tip: the run below printed `does not exist` for a file the final
+/// assertion then finds on disk.
+#[cfg(unix)]
+#[test]
+fn an_anchor_that_cannot_be_checked_is_not_reported_as_missing() {
+	use std::os::unix::fs::PermissionsExt;
+
+	let root = scratch("uncheckable");
+	let home = build_home(&root);
+	let plans = root.join("proj").join("docs").join("plans");
+	write(&plans.join("p.plan.toml"), &plan_toml_markdown_primary());
+	let source = arg(&plans.join("p.plan.toml"));
+
+	fs::set_permissions(&plans, fs::Permissions::from_mode(0o000)).unwrap();
+	// Whether the mode actually hides the file, measured rather than assumed: as root it does
+	// not, and then the anchor is simply THERE, which is a third case with its own (correct)
+	// answer and nothing for this test to say.
+	let opaque = fs::metadata(plans.join("p.plan.toml")).is_err();
+	let (code, _, stderr) = run(&home, &["status", "--source", &source]);
+	fs::set_permissions(&plans, fs::Permissions::from_mode(0o755)).unwrap();
+
+	assert_eq!(code, Some(0), "a note is not an error; stderr:\n{stderr}");
+	if opaque {
+		assert!(
+			!stderr.contains("does not exist"),
+			"the anchor is on disk, so this sentence is false; stderr:\n{stderr}"
+		);
+		assert!(
+			stderr.contains(&format!("note: --source {source} could not be checked")),
+			"and the operator is still told the answer is unknown; stderr:\n{stderr}"
+		);
+	}
+	assert!(plans.join("p.plan.toml").exists(), "the anchor was there the whole time");
 
 	let _ = fs::remove_dir_all(&root);
 }

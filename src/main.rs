@@ -1057,7 +1057,7 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 				// `metadata().is_ok()`, so the `None` that lands here answers false for a log
 				// that is not there AND for one whose directory cannot be traversed. The SAME
 				// probe splits them: `Ok` asserts absence and prescribes recording
-				// rounds, `Err` says only that the question could not be answered and names the
+				// rounds, `Err` says that the question could not be answered and names the
 				// error, in the vocabulary `note_missing_anchors` already uses, because a real
 				// log may sit behind that error and sending its operator to record rounds that
 				// are already recorded is the falsehood `Q-55-emptyroot` decided against.

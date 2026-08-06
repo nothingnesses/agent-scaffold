@@ -340,5 +340,29 @@ fn a_round_log_that_cannot_be_checked_is_not_reported_as_missing() {
 		"the log behind the error was a working one; stdout:\n{stdout}"
 	);
 
+	// THE SAME `Err` CLASS AT EVERY UID, by the technique the `Err`-class anchors in
+	// `tests/unsafe_pairings_are_refused_and_omitted.rs` already use: a TRAILING SLASH on that
+	// same real, readable log demands a directory in the last component, which is a structural
+	// error rather than a permission check, so the probe is `Err(ENOTDIR)` for root too, where
+	// the mode-600 block above degenerates. That block stays: it alone pins the `EACCES` class.
+	let with_slash = "docs/metrics/workflow.jsonl/";
+	let (code, stdout, stderr) = validate(
+		&dir,
+		&["--workflow", "--source", "docs/plans/p.plan.toml", "--metrics", with_slash],
+	);
+	assert_eq!(
+		code,
+		Some(1),
+		"a check that could not run must still refuse; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	assert!(
+		stderr.contains(&format!("round log at {with_slash} could not be checked (")),
+		"the path probed and its errno are what make the sentence useful; stderr:\n{stderr}"
+	);
+	assert!(
+		!stderr.contains("no round log at"),
+		"the log is on disk, so this sentence is false; stderr:\n{stderr}"
+	);
+
 	fs::remove_dir_all(&dir).unwrap();
 }

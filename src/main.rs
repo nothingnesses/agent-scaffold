@@ -842,7 +842,8 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 
 	// Read each present file once and keep its contents, so the workflow check can
 	// reuse them rather than reading twice.
-	let metrics_contents = if metrics_path.exists() {
+	let metrics_probe = metrics_path.try_exists();
+	let metrics_contents = if matches!(metrics_probe, Ok(true)) {
 		let contents = fs::read_to_string(&metrics_path)?;
 		let errors = metrics::validate_log(&contents);
 		if errors.is_empty() {
@@ -1052,18 +1053,18 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 				// the tier boundary and nothing wider: without `--workflow` an absent log is
 				// still a stderr note at exit 0, because nobody asked for the check there.
 				//
-				// TWO CLAIMS, NOT ONE, and only the first is safe to make. `Path::exists` is
+				// TWO CLAIMS, NOT ONE, and only the first is safe to make. `Ok(true)` is
 				// `metadata().is_ok()`, so the `None` that lands here answers false for a log
-				// that is not there AND for one whose directory cannot be traversed.
-				// `try_exists` splits them: `Ok` asserts absence and prescribes recording
+				// that is not there AND for one whose directory cannot be traversed. The SAME
+				// probe splits them: `Ok` asserts absence and prescribes recording
 				// rounds, `Err` says only that the question could not be answered and names the
 				// error, in the vocabulary `note_missing_anchors` already uses, because a real
 				// log may sit behind that error and sending its operator to record rounds that
 				// are already recorded is the falsehood `Q-55-emptyroot` decided against.
-				// ARM-SCOPED BY `Q-55-existsgate`: the gate above keeps `exists()`, so plain
+				// ARM-SCOPED BY `Q-55-existsgate`: the gate above keeps that predicate, so plain
 				// `validate` is untouched and only the surface that asked for the check gains
 				// the distinction. Exit 1 either way, since the check did not run regardless.
-				_ => problems.push(match metrics_path.try_exists() {
+				_ => problems.push(match &metrics_probe {
 					Ok(_) => format!(
 						"--workflow requested but no round log at {}: the workflow check could not run, so it cannot report that the invariants hold; pass a `--metrics` naming this project's log, or record the project's review rounds there",
 						metrics_path.display()

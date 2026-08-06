@@ -264,7 +264,7 @@ fn workflow_with_no_metrics_log_hard_errors_instead_of_skipping() {
 }
 
 /// A ROUND LOG THE TOOL CANNOT ASK ABOUT IS NOT A ROUND LOG THAT IS ABSENT
-/// (`Q-55-existsgate`). The gate the policy above hangs on is `Path::exists`, which is
+/// (`Q-55-existsgate`). The gate the policy above hangs on is
 /// `fs::metadata(..).is_ok()` and so answers false both for a log that is not there and for
 /// one behind a directory the process cannot traverse. Asserting absence for the second, and
 /// then telling the operator to record rounds, sends them to fix a path that is already

@@ -45,7 +45,7 @@ status = \"not-started\"
 order = 1
 ";
 
-/// A minimal, schema-valid Markdown `--plan` holding one `not-started` Roadmap step, so
+/// A minimal, schema-valid Markdown `--plan` holding one `not started` Roadmap step, so
 /// the Markdown arm of the same match reaches the workflow check with nothing to enforce.
 /// Only its PRESENCE matters below: the tier policy answers before any check runs.
 const PLAN_MD: &str = "\
@@ -55,7 +55,7 @@ const PLAN_MD: &str = "\
 
 | Step | Status |
 | --- | --- |
-| `only-step` | not-started |
+| `only-step` | not started |
 
 ## Step Detail
 

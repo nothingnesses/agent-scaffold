@@ -435,7 +435,7 @@ struct ValidateArgs {
 	/// Path to a `<task>.plan.toml` structured source to validate (its schema and internal cross-references). When omitted, no source is validated. When it declares `[meta].primary = "toml"`, it also drives the --workflow check (its steps, questions, waivers, and baseline) instead of the Markdown --plan.
 	#[arg(long)]
 	source: Option<PathBuf>,
-	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error, and so is a round log that lies outside the project root of the plan being checked: the tool cannot vouch that such a log's records belong to that plan, so it REFUSES the pairing and exits non-zero rather than reporting on it. So is no round log at the resolved path at all: the check cannot run, and a check that did not run must not report success.
+	/// Cross-reference the plan's Roadmap status against the round log (the workflow invariants): every `complete` step must have converged round records. Reads the plan from a TOML source (via --source) when it declares `[meta].primary = "toml"`, else from the Markdown --plan; the round log comes from --metrics (see that flag's help for the rule). A TOML-primary --source needs no --plan (a TOML-only project has no Markdown plan); the Markdown path still needs --plan present. Requesting --workflow with neither a TOML-primary --source nor a --plan is an error, and so is a round log that lies outside the project root of the plan being checked: the tool cannot vouch that such a log's records belong to that plan, so it REFUSES the pairing and exits non-zero rather than reporting on it. So is no round log at the resolved path at all, or a path the check cannot answer that question for: the check cannot run, and a check that did not run must not report success.
 	#[arg(long)]
 	workflow: bool,
 	/// Path to a `workflow.toml` control-constants spec supplying the convergence streaks, round cap, and backstop severity the --workflow check reads. When omitted, the built-in default (today's constants) is used, so the check is unchanged. A malformed spec is a hard error (non-zero exit). Requires --workflow (the flag is meaningless without it, and would otherwise leave a malformed spec unparsed and exit 0).
@@ -1051,10 +1051,28 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 				// non-instrumented project and a mis-anchored run are distinguishable. This is
 				// the tier boundary and nothing wider: without `--workflow` an absent log is
 				// still a stderr note at exit 0, because nobody asked for the check there.
-				_ => problems.push(format!(
-					"--workflow requested but no round log at {}: the workflow check could not run, so it cannot report that the invariants hold; pass a `--metrics` naming this project's log, or record the project's review rounds there",
-					metrics_path.display()
-				)),
+				//
+				// TWO CLAIMS, NOT ONE, and only the first is safe to make. `Path::exists` is
+				// `metadata().is_ok()`, so the `None` that lands here answers false for a log
+				// that is not there AND for one whose directory cannot be traversed.
+				// `try_exists` splits them: `Ok` asserts absence and prescribes recording
+				// rounds, `Err` says only that the question could not be answered and names the
+				// error, in the vocabulary `note_missing_anchors` already uses, because a real
+				// log may sit behind that error and sending its operator to record rounds that
+				// are already recorded is the falsehood `Q-55-emptyroot` decided against.
+				// ARM-SCOPED BY `Q-55-existsgate`: the gate above keeps `exists()`, so plain
+				// `validate` is untouched and only the surface that asked for the check gains
+				// the distinction. Exit 1 either way, since the check did not run regardless.
+				_ => problems.push(match metrics_path.try_exists() {
+					Ok(_) => format!(
+						"--workflow requested but no round log at {}: the workflow check could not run, so it cannot report that the invariants hold; pass a `--metrics` naming this project's log, or record the project's review rounds there",
+						metrics_path.display()
+					),
+					Err(error) => format!(
+						"--workflow requested but the round log at {} could not be checked ({error}): the workflow check could not run, so it cannot report that the invariants hold",
+						metrics_path.display()
+					),
+				}),
 			}
 		}
 	}

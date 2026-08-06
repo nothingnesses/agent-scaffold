@@ -21,7 +21,8 @@
 //!   the resolved path hard-errors (exit 1) naming that path, on the TOML arm and the
 //!   Markdown arm alike (`workflow-enforcement-tier-inc3`, the tier policy). Plain
 //!   `validate` without `--workflow` keeps its stderr note and its exit 0, because
-//!   nobody asked for the check there.
+//!   nobody asked for the check there. A path the tool cannot answer that question for gets
+//!   the same exit 1 and a different sentence, since asserting absence there would be false.
 
 use std::{
 	fs,
@@ -62,6 +63,14 @@ const PLAN_MD: &str = "\
 ### `only-step`: The only step
 
 Body.
+";
+
+/// One schema-valid `round` record for `PLAN_TOML`'s only step, so a fixture log built from
+/// it is a real round log rather than an empty file.
+const ROUND_RECORD: &str = "\
+{\"type\":\"round\",\"task\":\"only-step\",\"step\":\"only-step\",\"increment\":\"only-step\",\
+\"artifact\":\"a\",\"phase\":\"work_review\",\"changed_since_prev\":true,\"outcome\":\"clean\",\
+\"valid_findings\":0,\"severities\":[],\"consecutive_clean\":1,\"risk_class\":\"low_risk\"}
 ";
 
 /// Run the built binary's `validate` with the given args in `dir`, returning
@@ -249,6 +258,86 @@ fn workflow_with_no_metrics_log_hard_errors_instead_of_skipping() {
 	assert!(
 		!stderr.contains("could not run"),
 		"the tier policy must not reach a run that did not ask for the check; stderr:\n{stderr}"
+	);
+
+	fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A ROUND LOG THE TOOL CANNOT ASK ABOUT IS NOT A ROUND LOG THAT IS ABSENT
+/// (`Q-55-existsgate`). The gate the policy above hangs on is `Path::exists`, which is
+/// `fs::metadata(..).is_ok()` and so answers false both for a log that is not there and for
+/// one behind a directory the process cannot traverse. Asserting absence for the second, and
+/// then telling the operator to record rounds, sends them to fix a path that is already
+/// correct with evidence already on it.
+///
+/// THE FIXTURE IS MODE 600 ON THE LOG'S OWN DIRECTORY, not 000: the directory stays READABLE
+/// and stops being SEARCHABLE, so the log is listable by name while `fs::metadata` on it
+/// fails with EACCES. Mode 111 is the matching negative control (searchable, not readable),
+/// where the read succeeds and the run is the correct one; the discriminator is search
+/// permission on an ancestor and nothing about the log's own mode.
+///
+/// RED against `1799f8b`, the round 1 tip: that build printed `no round log at
+/// docs/metrics/workflow.jsonl ... record the project's review rounds there` at exit 1 for
+/// the log the closing control then reads clean at exit 0.
+#[cfg(unix)]
+#[test]
+fn a_round_log_that_cannot_be_checked_is_not_reported_as_missing() {
+	use std::os::unix::fs::PermissionsExt;
+
+	let dir = std::env::temp_dir().join(format!(
+		"agent-scaffold-validate-workflow-opaque-log-{}-{}",
+		std::process::id(),
+		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+	));
+	let plans = dir.join("docs").join("plans");
+	let metrics = dir.join("docs").join("metrics");
+	fs::create_dir_all(&plans).unwrap();
+	fs::create_dir_all(&metrics).unwrap();
+	fs::write(plans.join("p.plan.toml"), PLAN_TOML).unwrap();
+	// A REAL log, not an empty file, so what sits behind the error is round evidence rather
+	// than a placeholder: the falsehood is about a project that IS instrumented.
+	fs::write(metrics.join("workflow.jsonl"), ROUND_RECORD).unwrap();
+
+	fs::set_permissions(&metrics, fs::Permissions::from_mode(0o600)).unwrap();
+	// Whether the mode actually hides the entry, measured rather than assumed: as root it
+	// does not, and then the log is simply THERE, which is the correct case and has nothing
+	// for this test to say.
+	let opaque = fs::metadata(metrics.join("workflow.jsonl")).is_err();
+	let (code, stdout, stderr) =
+		validate(&dir, &["--workflow", "--source", "docs/plans/p.plan.toml"]);
+	// RESTORED BEFORE THE ASSERTIONS, so a failing one cannot leave an undeletable directory.
+	fs::set_permissions(&metrics, fs::Permissions::from_mode(0o755)).unwrap();
+
+	// The exit code is NOT what changes: the check genuinely could not run either way, so
+	// non-zero stays right and only the diagnosis was false.
+	assert_eq!(
+		code,
+		Some(1),
+		"a check that could not run must still refuse; stdout:\n{stdout}\nstderr:\n{stderr}"
+	);
+	if opaque {
+		assert!(
+			!stderr.contains("no round log at"),
+			"the log is on disk, so this sentence is false; stderr:\n{stderr}"
+		);
+		assert!(
+			stderr.contains("could not be checked"),
+			"and the operator is still told the answer is unknown; stderr:\n{stderr}"
+		);
+		assert!(
+			!stderr.contains("record the project's review rounds"),
+			"the rounds are already recorded at that path; stderr:\n{stderr}"
+		);
+	}
+
+	// THE CONTROL, on the same fixture with nothing but the mode changed back: the log was
+	// there, readable and valid, for the whole run above.
+	let (code, stdout, stderr) =
+		validate(&dir, &["--workflow", "--source", "docs/plans/p.plan.toml"]);
+	assert_eq!(code, Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
+	assert!(
+		stdout.contains("workflow invariants hold"),
+		"the log behind the error was a working one; stdout:\n{stdout}"
 	);
 
 	fs::remove_dir_all(&dir).unwrap();

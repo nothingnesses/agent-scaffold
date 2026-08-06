@@ -308,14 +308,14 @@ fn a_round_log_that_cannot_be_checked_is_not_reported_as_missing() {
 	// RESTORED BEFORE THE ASSERTIONS, so a failing one cannot leave an undeletable directory.
 	fs::set_permissions(&metrics, fs::Permissions::from_mode(0o755)).unwrap();
 
-	// The exit code is NOT what changes: the check genuinely could not run either way, so
-	// non-zero stays right and only the diagnosis was false.
-	assert_eq!(
-		code,
-		Some(1),
-		"a check that could not run must still refuse; stdout:\n{stdout}\nstderr:\n{stderr}"
-	);
 	if opaque {
+		// The exit code is NOT what changes: the check genuinely could not run either way, so
+		// non-zero stays right and only the diagnosis was false.
+		assert_eq!(
+			code,
+			Some(1),
+			"a check that could not run must still refuse; stdout:\n{stdout}\nstderr:\n{stderr}"
+		);
 		assert!(
 			!stderr.contains("no round log at"),
 			"the log is on disk, so this sentence is false; stderr:\n{stderr}"

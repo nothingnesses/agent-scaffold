@@ -276,7 +276,7 @@ fn workflow_with_no_metrics_log_hard_errors_instead_of_skipping() {
 /// where the read succeeds and the run is the correct one; the discriminator is search
 /// permission on an ancestor and nothing about the log's own mode.
 ///
-/// RED against `1799f8b`, the round 1 tip: that build printed `no round log at
+/// RED before this commit: the prior build printed `no round log at
 /// docs/metrics/workflow.jsonl ... record the project's review rounds there` at exit 1 for
 /// the log the closing control then reads clean at exit 0.
 #[cfg(unix)]

@@ -1070,7 +1070,7 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 						metrics_path.display()
 					),
 					Err(error) => format!(
-						"--workflow requested but the round log at {} could not be checked ({error}): the workflow check could not run, so it cannot report that the invariants hold",
+						"--workflow requested but the round log at {} could not be checked ({error}): the workflow check could not run, so it cannot report that the invariants hold; pass a `--metrics` naming this project's log",
 						metrics_path.display()
 					),
 				}),

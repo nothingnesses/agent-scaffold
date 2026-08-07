@@ -567,7 +567,7 @@ struct AuditArgs {
 /// `next`'s `NextProjection`).
 #[derive(Serialize)]
 struct Projection {
-	/// The plan projection, present only when a readable `--plan` was given. It carries no
+	/// The plan projection, present when a TOML-primary `--source` or a readable `--plan` supplies one. It carries no
 	/// reason field: there is exactly one cause, so a reason there would inform nobody.
 	plan: Option<PlanProjection>,
 	/// The metrics summary, present only when the metrics log exists AND is this plan's.

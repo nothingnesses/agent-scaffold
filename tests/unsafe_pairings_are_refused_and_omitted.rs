@@ -153,7 +153,7 @@ fn run(
 	)
 }
 
-/// Acceptance check 11, the validator's response and the first of inc2's four owed
+/// Acceptance check 11, the validator's response and the first of inc2's owed
 /// red-then-green cases.
 ///
 /// RED against the parent commit (inc1 landed, inc2 not): `home`'s three-record log is
@@ -1367,8 +1367,7 @@ fn resume_omits_the_default_ledger_under_a_divergent_pairing() {
 }
 
 /// Acceptance checks 14e and 14f, the machine surface and the fourth owed red-then-green
-/// case, pinned on BOTH commands because `status --json` has no golden and no test on its
-/// serialisation at all.
+/// case, pinned on BOTH commands because `status --json` has no golden.
 ///
 /// RED against the parent commit: none of the three fields exists. `no_active_loop_reason`
 /// is `#[serde(skip)]`, and `status`'s `Projection` has no reason field, so an omitted

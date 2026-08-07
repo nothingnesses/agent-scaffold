@@ -11,8 +11,8 @@ Scheduled as backlog behind the release gates. It blocks nothing and nothing blo
 None of the three is wrong about the product. Each pins a real behaviour, and the behaviour it pins is one this project deliberately has.
 
 - `checks::tests::a_non_repo_target_with_runnable_checks_errors` (`src/checks.rs:1477-1486`). Asserts `run(&dir, Isolation::WorkingTree)` returns `Err(RunError::NotARepo(_))`. Reasonable: `checks` runs its lint and format commands inside a throwaway git worktree so an in-place formatter can never mutate the live tree, and a target that is not a repository has no worktree to make, so erroring rather than silently running in place is the whole safety property.
-- `tests::init_plan_defaults_to_git_and_skips_inside_a_repo` (`src/main.rs:1735-1751`). Its FIRST assertion is the ambient-dependent one: `init_plan(Vcs::Git, &root)` must be `InitPlan::Init` in a fresh non-repo directory. The later assertions (a directory with a `.git`, and a subdirectory of one, both give `SkipExists`) construct their own condition and are unaffected. Reasonable: scaffolding into a populated repo must never re-initialise it (Safe on existing projects), and the `Init` case is the other half of that pair; without it the test would pass while `init_plan` skipped unconditionally.
-- `tests::install_precommit_hook_skips_a_non_repo` (`src/main.rs:2324-2335`). Asserts `install_precommit_hook(&root)` returns `HookInstall::Skipped(reason)` with the reason containing "not a git repository". Reasonable: the hook install is create-if-absent and must degrade to a noted skip rather than failing the scaffold, and this is the case that pins the note.
+- `tests::init_plan_defaults_to_git_and_skips_inside_a_repo` (`src/main.rs:2289-2305`). Its FIRST assertion is the ambient-dependent one: `init_plan(Vcs::Git, &root)` must be `InitPlan::Init` in a fresh non-repo directory. The later assertions (a directory with a `.git`, and a subdirectory of one, both give `SkipExists`) construct their own condition and are unaffected. Reasonable: scaffolding into a populated repo must never re-initialise it (Safe on existing projects), and the `Init` case is the other half of that pair; without it the test would pass while `init_plan` skipped unconditionally.
+- `tests::install_precommit_hook_skips_a_non_repo` (`src/main.rs:2878-2889`). Asserts `install_precommit_hook(&root)` returns `HookInstall::Skipped(reason)` with the reason containing "not a git repository". Reasonable: the hook install is create-if-absent and must degrade to a noted skip rather than failing the scaffold, and this is the case that pins the note.
 
 Observed failures, verbatim, from an explorer running with `TMPDIR` inside its worktree:
 
@@ -33,7 +33,7 @@ test result: FAILED. 370 passed; 3 failed
 Two separate scratch helpers, both rooted at the ambient temp directory:
 
 - `src/checks.rs:1037-1046`, `fn scratch(name)`, builds `std::env::temp_dir().join(format!("agent-scaffold-checks-test-{pid}-{name}"))`.
-- `src/main.rs:1725-1733`, a second `fn scratch(name)`, builds `std::env::temp_dir().join(format!("agent-scaffold-poc-{pid}-{name}"))`.
+- `src/main.rs:2279-2287`, a second `fn scratch(name)`, builds `std::env::temp_dir().join(format!("agent-scaffold-poc-{pid}-{name}"))`.
 
 `std::env::temp_dir()` honours `TMPDIR` on Unix. The three tests then exercise code whose repository detection walks UP from the given directory, so a `TMPDIR` anywhere inside a worktree, including a linked worktree, resolves to a directory that IS inside a repository and the not-a-repo precondition silently does not hold. Nothing in the tests states the precondition, so the failure presents as a product assertion failing rather than as an environment mismatch, which is why every agent that hits it spends time deciding whether it broke something.
 

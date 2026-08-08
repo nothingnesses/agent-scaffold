@@ -214,7 +214,7 @@ Specified here rather than left to the implementer, because the entire point is 
 `metrics_absent_reason`, on BOTH `NextProjection` and `status`'s `Projection`, beside the existing `metrics` field. `Some` exactly when `metrics` is `None`. This reason and `resume_state_absent_reason` below are computed by the CALLER and passed through `NextInputs` alongside `metrics_records` and `resume_state`, so `project` stays a pure function of its inputs.
 
 - `log-absent`: no file at the resolved metrics path.
-- `log-not-this-project`: the resolved path is not under the root of the plan this surface reads, so the tool cannot vouch that its records belong to that plan. This is the `Q-55-refusalscope` case.
+- `log-not-this-project`: the resolved path is not under the root, so the tool cannot vouch that its records belong to that plan. This is the `Q-55-refusalscope` case.
 
 `no_active_loop_reason`, on `NextProjection`, RETYPED from `Option<String>` to a closed enum and NO LONGER `#[serde(skip)]`. Retyping is preferred over adding a parallel serialised field: one reason, one type, rendered two ways, rather than two representations of the same fact that can disagree (One source of truth). The human renderer maps each existing variant back to the exact string it prints today, so `render_human` output and its golden are unchanged and the retype is behaviour-preserving on the human surface. `no_loop_reason`'s third string, "no in-progress or ready step", WAS UNREACHABLE for the reason given above and the reconciliation collapsed it to two answers, so no variant is specified for it.
 
@@ -226,7 +226,7 @@ Specified here rather than left to the implementer, because the entire point is 
 
 - `ledger-absent`: no file at the resolved ledger path.
 - `no-resume-section`: the ledger exists but carries no `## RESUME STATE` block.
-- `ledger-not-this-project`: the resolved ledger is not under the root of the plan this surface reads, which is either an explicit `--ledger-fragment` outside it or, on `next`, a DEFAULT ledger anchored on a `--source` that itself lies outside it. Both members are CONTAINMENT and neither is a project-identity test: a `--source` in a different project reaches this only when that project is not NESTED inside the root.
+- `ledger-not-this-project`: the resolved ledger is not under the root, which is either an explicit `--ledger-fragment` outside it or, on `next`, a DEFAULT ledger anchored on a `--source` that itself lies outside it. Both members are CONTAINMENT and neither is a project-identity test: a `--source` in a different project reaches this only when that project is not NESTED inside the root.
 
 THE PRECEDENCE RULE, on both path fields: where an absent cause and an unsafe cause both apply, THE UNSAFE VARIANT WINS, because unsafe is not absent (above) and a bare absence is exactly the conflation this vocabulary exists to prevent.
 

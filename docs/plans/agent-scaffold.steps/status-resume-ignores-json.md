@@ -12,8 +12,8 @@ Scheduled as backlog behind the release gates by human decision (2026-07-31), ag
 fn run_status(args: StatusArgs) -> io::Result<()> {
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
-	// A missing ledger or absent section is a note and exit 0, not a failure (`status` is
-	// best-effort).
+	// A missing ledger, an absent section, or a ledger that is not this plan's is a note and
+	// exit 0, not a failure (`status` is best-effort).
 	if args.resume {
 		return run_resume(&args);
 	}

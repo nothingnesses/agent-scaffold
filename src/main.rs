@@ -458,7 +458,7 @@ struct StatusArgs {
 	/// Emit the projection as JSON instead of a short human-readable summary.
 	#[arg(long)]
 	json: bool,
-	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `<task>.ledger.md` beside the plan source) instead of the state projection. Exits 0 with a note when the ledger or the section is absent.
+	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `<task>.ledger.md` beside the plan source) instead of the state projection. Exits 0 with a note when the ledger is absent, carries no such section, or is not this plan's.
 	#[arg(long)]
 	resume: bool,
 	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `<task>.ledger.md` BESIDE the plan source, where `<task>` is derived from that source's filename; the ledger lives next to the plan it belongs to, so no root derivation is involved. With neither --source nor --plan there is no directory to sit beside and the path stays `docs/plans/<task>.ledger.md` relative to the current directory. Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
@@ -1191,8 +1191,8 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	note_missing_anchors(&args.source, &args.plan);
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
-	// A missing ledger or absent section is a note and exit 0, not a failure (`status` is
-	// best-effort).
+	// A missing ledger, an absent section, or a ledger that is not this plan's is a note and
+	// exit 0, not a failure (`status` is best-effort).
 	if args.resume {
 		return run_resume(&args);
 	}

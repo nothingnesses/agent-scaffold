@@ -102,7 +102,7 @@ fn phase_principle_names(state: LoopState) -> &'static [&'static str] {
 pub(crate) enum MetricsAbsentReason {
 	/// No file at the resolved metrics path.
 	LogAbsent,
-	/// The resolved path is not under the root of the plan this surface reads, so the
+	/// The resolved path is not under the root, so the
 	/// tool cannot vouch that its records belong to that plan.
 	LogNotThisProject,
 }
@@ -137,7 +137,7 @@ pub(crate) enum ResumeStateAbsentReason {
 	LedgerAbsent,
 	/// The ledger exists but carries no `## RESUME STATE` block.
 	NoResumeSection,
-	/// The resolved ledger is not under the root of the plan this surface reads: either
+	/// The resolved ledger is not under the root: either
 	/// an explicit `--ledger-fragment` outside it, or a default ledger anchored on a
 	/// `--source` that itself lies outside it.
 	LedgerNotThisProject,

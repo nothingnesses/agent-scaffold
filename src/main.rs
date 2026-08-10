@@ -449,7 +449,7 @@ struct StatusArgs {
 	/// Path to a Markdown plan to project (its Roadmap steps and Open Questions items). When omitted, the plan part of the projection is empty.
 	#[arg(long)]
 	plan: Option<PathBuf>,
-	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the plan projection is read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
+	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the plan projection is read from it instead of --plan (else --plan is used).
 	#[arg(long)]
 	source: Option<PathBuf>,
 	/// Path to the JSONL metrics log to summarise (a record count). An explicit value is used verbatim. When omitted, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of --source (else of --plan), or the source's own directory when it has no such ancestor. With neither --source nor --plan there is nothing to anchor to and the path stays `docs/metrics/workflow.jsonl` relative to the current directory.
@@ -473,7 +473,7 @@ struct NextArgs {
 	/// Path to a Markdown plan to project (its Roadmap steps). When omitted, and no TOML-primary --source is given, there is no plan source and the active loop is empty.
 	#[arg(long)]
 	plan: Option<PathBuf>,
-	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the steps are read from it instead of --plan (else --plan is used, so a Markdown-primary or absent source is unaffected).
+	/// Path to a `<task>.plan.toml` structured source. When it declares `[meta].primary = "toml"`, the steps are read from it instead of --plan (else --plan is used).
 	#[arg(long)]
 	source: Option<PathBuf>,
 	/// Path to the JSONL metrics log the round evidence is read from. An explicit value is used verbatim. When omitted, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of --source (else of --plan), or the source's own directory when it has no such ancestor. With neither --source nor --plan there is nothing to anchor to and the path stays `docs/metrics/workflow.jsonl` relative to the current directory.
@@ -1094,8 +1094,7 @@ fn run_validate(args: ValidateArgs) -> io::Result<()> {
 /// Read a `<task>.plan.toml` at `path` and return it only when it is the plan's
 /// source of truth (`[meta].primary == "toml"`), the Inc 4 (Q-46) gate for `status`.
 /// A `None` path, a missing file, or a source whose `[meta].primary` is `markdown` all
-/// yield `None`, so the caller falls back to the Markdown `--plan` and the live repo (no
-/// TOML source, or a Markdown-primary one) is unaffected.
+/// yield `None`, so the caller falls back to the Markdown `--plan`.
 ///
 /// A source that FAILS to parse also yields `None`, but because the caller explicitly
 /// passed `--source`, a one-line stderr note makes the fallback visible rather than
@@ -1198,7 +1197,7 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	}
 	// The Inc 4 gate: when a `--source` is a `<task>.plan.toml` declaring
 	// `[meta].primary = "toml"`, project the plan from it; otherwise fall back to the
-	// Markdown `--plan`, so a Markdown-primary or absent source is unaffected.
+	// Markdown `--plan`.
 	let toml_primary = toml_source(&args.source)?;
 	let plan = if let Some(source) = &toml_primary {
 		Some(PlanProjection {
@@ -1506,7 +1505,7 @@ fn unpairable_log_note(
 	root: &Path,
 ) -> String {
 	format!(
-		"the round log {} is not under the plan's project root {}, so its records cannot be paired with this plan",
+		"the round log {} is not under the project root {}, so its records cannot be paired with this plan",
 		log.display(),
 		root.display()
 	)
@@ -1519,7 +1518,7 @@ fn unpairable_ledger_note(
 	root: &Path,
 ) -> String {
 	format!(
-		"the ledger {} is not under the plan's project root {}; nothing to resume",
+		"the ledger {} is not under the project root {}; nothing to resume",
 		ledger.display(),
 		root.display()
 	)

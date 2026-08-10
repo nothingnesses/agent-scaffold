@@ -454,7 +454,7 @@ fn next_withholds_the_whole_loop_on_an_unpairable_log() {
 	);
 	// The reason names the resolved log and the derived root, in their place.
 	assert!(
-		stdout.contains("metrics: unavailable, the round log docs/metrics/workflow.jsonl is not under the plan's project root"),
+		stdout.contains("metrics: unavailable, the round log docs/metrics/workflow.jsonl is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 	assert!(stdout.contains(&arg(&away)), "the derived root is named; stdout:\n{stdout}");
@@ -498,7 +498,7 @@ fn status_omits_only_the_unpairable_part() {
 	);
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
@@ -522,7 +522,7 @@ fn status_omits_only_the_unpairable_part() {
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(
 		stdout
-			.contains("the ledger docs/plans/nope.ledger.md is not under the plan's project root"),
+			.contains("the ledger docs/plans/nope.ledger.md is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("no ledger at"), "unsafe is not absent; stdout:\n{stdout}");
@@ -599,7 +599,7 @@ fn a_surface_that_reads_no_plan_is_supplied_a_root() {
 	);
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 
@@ -609,7 +609,7 @@ fn a_surface_that_reads_no_plan_is_supplied_a_root() {
 	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
 	assert!(!stdout.contains("RESUME STATE (verbatim from the ledger)"), "stdout:\n{stdout}");
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"the same note `status --resume` prints; stdout:\n{stdout}"
 	);
 
@@ -704,7 +704,7 @@ fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 	assert!(!stdout.contains("3 records"), "home's log is not this anchor's; stdout:\n{stdout}");
 	assert!(!stdout.contains("HOME resume state."), "no line of the block; stdout:\n{stdout}");
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 	// Fail loudly, the condition the remedy was accepted with: the operator is TOLD the
@@ -746,7 +746,7 @@ fn an_anchor_that_does_not_exist_still_supplies_a_root() {
 		run(&home, &["status", "--resume", "--source", &missing, "--ledger-fragment", fragment]);
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
@@ -1077,7 +1077,7 @@ fn an_uncheckable_plan_anchor_does_not_remove_the_other_anchors_root() {
 	assert!(!stdout.contains("4 records"), "beta's log is not this pairing's; stdout:\n{stdout}");
 	assert!(!stdout.contains("BETA resume state."), "no line of the block; stdout:\n{stdout}");
 	assert!(
-		stdout.contains(&format!("the ledger {beta_ledger} is not under the plan's project root")),
+		stdout.contains(&format!("the ledger {beta_ledger} is not under the project root")),
 		"stdout:\n{stdout}"
 	);
 
@@ -1234,7 +1234,7 @@ fn an_uncheckable_source_anchor_does_not_remove_the_other_anchors_root() {
 		"the derived task is beta's, which does not make the block this pairing's; stdout:\n{stdout}"
 	);
 	assert!(
-		stdout.contains(&format!("the ledger {beta_ledger} is not under the plan's project root")),
+		stdout.contains(&format!("the ledger {beta_ledger} is not under the project root")),
 		"stdout:\n{stdout}"
 	);
 
@@ -1354,7 +1354,7 @@ fn resume_omits_the_default_ledger_under_a_divergent_pairing() {
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(!stdout.contains("ALPHA resume state."), "no line of the block; stdout:\n{stdout}");
 	assert!(
-		stdout.contains("is not under the plan's project root"),
+		stdout.contains("is not under the project root"),
 		"the note says why; stdout:\n{stdout}"
 	);
 
@@ -1517,7 +1517,7 @@ fn the_resume_reasons_separate_and_cover_the_default_ledger() {
 		&["next", "--source", &away_plan, "--ledger-fragment", "docs/plans/p.ledger.md"],
 	);
 	assert!(
-		stdout.contains("the ledger docs/plans/p.ledger.md is not under the plan's project root"),
+		stdout.contains("the ledger docs/plans/p.ledger.md is not under the project root"),
 		"the note names the rejected ledger path in the block's place; stdout:\n{stdout}"
 	);
 	assert!(!stdout.contains("HOME resume state."), "stdout:\n{stdout}");
@@ -1558,10 +1558,10 @@ fn the_resume_reasons_separate_and_cover_the_default_ledger() {
 	assert_eq!(code, Some(0), "stderr:\n{stderr}");
 	assert!(!stdout.contains("ALPHA resume state."), "no line of the block; stdout:\n{stdout}");
 	// The note stands in the block's place here too. The LEDGER phrasing is asserted rather
-	// than the shared "not under the plan's project root" clause, which the metrics note on
+	// than the shared "not under the project root" clause, which the metrics note on
 	// this same pairing also carries.
 	assert!(
-		stdout.contains(&format!("the ledger {alpha_ledger} is not under the plan's project root")),
+		stdout.contains(&format!("the ledger {alpha_ledger} is not under the project root")),
 		"stdout:\n{stdout}"
 	);
 	// The METRICS half of the same pairing, still with no explicit `--metrics`.

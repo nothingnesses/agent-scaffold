@@ -100,7 +100,7 @@ fn phase_principle_names(state: LoopState) -> &'static [&'static str] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum MetricsAbsentReason {
-	/// No file at the resolved metrics path.
+	/// No file found at the resolved metrics path.
 	LogAbsent,
 	/// The resolved path is not under the root, so the
 	/// tool cannot vouch that its records belong to that plan.
@@ -133,7 +133,7 @@ pub(crate) enum NoActiveLoopReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum ResumeStateAbsentReason {
-	/// No file at the resolved ledger path.
+	/// No file found at the resolved ledger path.
 	LedgerAbsent,
 	/// The ledger exists but carries no `## RESUME STATE` block.
 	NoResumeSection,

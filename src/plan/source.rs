@@ -407,8 +407,7 @@ impl PlanToml {
 	/// is the Inc 4 gate. When it holds, `validate --workflow` and `status` read the
 	/// steps/questions (and, in the checks, the waivers and baseline) from this TOML
 	/// instead of the Markdown plan and the JSONL waiver/baseline records; when it is
-	/// `markdown` (the default) the Markdown + JSONL path is used unchanged, so a repo
-	/// with no TOML source, or one still declaring `markdown`, is unaffected.
+	/// `markdown` (the default) the Markdown + JSONL path is used unchanged.
 	pub(crate) fn is_toml_primary(&self) -> bool {
 		self.meta.primary == Primary::Toml
 	}

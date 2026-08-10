@@ -173,8 +173,7 @@ pub(crate) struct NextProjection {
 	/// The plan source path echoed verbatim (relative, never canonicalised), so the
 	/// output is identical on any machine.
 	pub(crate) source: String,
-	/// The round-log summary, present only when the metrics log was readable AND is the
-	/// plan's own.
+	/// The round-log summary, present only when the metrics log was readable.
 	pub(crate) metrics: Option<MetricsSummary>,
 	/// Why `metrics` is absent; `Some` exactly when `metrics` is `None`.
 	pub(crate) metrics_absent_reason: Option<MetricsAbsentReason>,
@@ -182,7 +181,7 @@ pub(crate) struct NextProjection {
 	/// steps, every step terminal, or a round log this tool cannot vouch for).
 	pub(crate) active_loop: Option<ActiveLoop>,
 	/// The ledger's `## RESUME STATE` block, extracted verbatim, or `None` when the
-	/// ledger is absent, carries no such section, or is not this plan's.
+	/// ledger is absent or carries no such section.
 	pub(crate) resume_state: Option<String>,
 	/// Why `resume_state` is absent; `Some` exactly when `resume_state` is `None`.
 	pub(crate) resume_state_absent_reason: Option<ResumeStateAbsentReason>,

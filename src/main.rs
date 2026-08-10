@@ -458,7 +458,7 @@ struct StatusArgs {
 	/// Emit the projection as JSON instead of a short human-readable summary.
 	#[arg(long)]
 	json: bool,
-	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `<task>.ledger.md` beside the plan source) instead of the state projection. Exits 0 with a note when the ledger is absent, carries no such section, or is not this plan's.
+	/// Print the ledger's `## RESUME STATE` block verbatim (from --ledger-fragment, or `<task>.ledger.md` beside the plan source) instead of the state projection. Exits 0 with a note when the ledger is absent or carries no such section.
 	#[arg(long)]
 	resume: bool,
 	/// Path to the ledger fragment to read the `## RESUME STATE` block from (with --resume). Defaults to `<task>.ledger.md` BESIDE the plan source, where `<task>` is derived from that source's filename; the ledger lives next to the plan it belongs to, so no root derivation is involved. With neither --source nor --plan there is no directory to sit beside and the path stays `docs/plans/<task>.ledger.md` relative to the current directory. Requires --resume (the flag is meaningless without it, and would otherwise be silently ignored on an exit-0 run).
@@ -570,7 +570,7 @@ struct Projection {
 	/// The plan projection, present when a TOML-primary `--source` or a readable `--plan` supplies one. It carries no
 	/// reason field: there is exactly one cause, so a reason there would inform nobody.
 	plan: Option<PlanProjection>,
-	/// The metrics summary, present only when the metrics log exists AND is this plan's.
+	/// The metrics summary, present only when the metrics log exists.
 	metrics: Option<MetricsProjection>,
 	/// Why `metrics` is absent; `Some` exactly when `metrics` is `None`. The vocabulary is
 	/// shared with `next` (`src/next.rs`) so the two commands cannot drift.

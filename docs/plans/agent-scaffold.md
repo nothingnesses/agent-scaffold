@@ -1783,7 +1783,6 @@ INC4:
 - `src/main.rs:Projection`'s `plan` field doc comment, covered by check 22, and `run_status`'s comment, which no acceptance check states, and `StatusArgs::resume`'s `--help` string, which no acceptance check states either.
 - `src/next.rs`'s two containment reason definitions, which carried the same clause `Q-55-reasondefs` deleted from this file; no acceptance check states them.
 - `tests/unsafe_pairings_are_refused_and_omitted.rs`, the two comment corrections `Q-55-twinsites` authorised; no acceptance check states them.
-- NOT `README.md`, NOT `pack/AGENTS.md` and NOT the deployed `.agents/` copies: inc4 changes no behaviour, so no shipped prose goes stale and no drift guard is touched. NOT `CHANGELOG.md`, for the same reason: inc4 corrects one user-visible string, `src/main.rs:StatusArgs::resume`'s `--help` text, and a corrected help string is a documentation fix rather than a change to read about.
 
 ## Scope: what this step does not do
 

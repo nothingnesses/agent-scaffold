@@ -102,8 +102,7 @@ fn phase_principle_names(state: LoopState) -> &'static [&'static str] {
 pub(crate) enum MetricsAbsentReason {
 	/// No file found at the resolved metrics path.
 	LogAbsent,
-	/// The resolved path is not under the root, so the
-	/// tool cannot vouch that its records belong to that plan.
+	/// The resolved path is not under the root.
 	LogNotThisProject,
 }
 
@@ -160,7 +159,7 @@ impl NoActiveLoopReason {
 }
 
 /// The whole `next` projection, serialised by `--json`. Every derived part is optional so
-/// a missing plan, a missing log, or a log that cannot be paired with this plan yields a
+/// a missing plan, a missing log, or a log that cannot be paired yields a
 /// partial projection rather than a failure (mirrors `status`'s `Projection`); nothing
 /// here is a source of truth. Each optional part carries a closed reason enum beside it,
 /// so `--json` reports WHY a part is absent rather than a bare `null` that reads the same
@@ -665,7 +664,7 @@ pub(crate) fn project(inputs: NextInputs) -> NextProjection {
 		isolation_tier: &inputs.isolation_tier,
 		principles: inputs.principles,
 	};
-	// UNSAFE IS NOT ABSENT. A log this tool cannot pair with the plan is not "this project
+	// UNSAFE IS NOT ABSENT. A log this tool cannot pair is not "this project
 	// has no rounds", it is "this tool cannot tell you anything about this project's
 	// rounds", so the loop is WITHHELD rather than projected. Treating it as absent would
 	// let the zero-rounds path run and fabricate `awaiting-first-review` for a step whose

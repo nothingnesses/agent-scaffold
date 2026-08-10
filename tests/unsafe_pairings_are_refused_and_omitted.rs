@@ -6,8 +6,8 @@
 //! `--metrics` naming a foreign log, a symlinked source borrowing its neighbours' log, a
 //! `..` that climbs out of the plan's root, and a `--source`/`--plan` pair belonging to
 //! two different projects all still joined one project's plan to another's evidence. The
-//! predicate here asks one question, of the resolved artifact against the CANONICAL root
-//! of the plan THAT SURFACE READS, and each surface answers it differently:
+//! predicate here asks one question, of the resolved artifact against the CANONICAL root,
+//! and each surface answers it differently:
 //! `validate --workflow` REFUSES (exit non-zero), `status` and `next` OMIT the affected
 //! part with a reason at exit 0, and `status --resume` omits its block.
 //!

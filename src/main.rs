@@ -560,7 +560,7 @@ struct AuditArgs {
 
 /// A derived, best-effort projection of the workflow state, serialised by `status`. Every
 /// part is optional so a missing plan, a missing metrics file, or a metrics file that
-/// cannot be paired with this plan yields a partial projection rather than a failure;
+/// cannot be paired yields a partial projection rather than a failure;
 /// nothing here is a source of truth (it is regenerable from the plan and the metrics
 /// log). The metrics half carries a closed reason beside it, so `--json` reports WHY it is
 /// absent rather than a bare `null` that reads the same for every cause (mirrors
@@ -1177,7 +1177,7 @@ fn note_missing_anchors(
 /// (`default_ledger_path`). A projection read from the wrong project's files is not an empty
 /// projection, it is a confident wrong one.
 ///
-/// Where the resolved log cannot be paired with the plan at all (the same containment
+/// Where the resolved log cannot be paired at all (the same containment
 /// predicate `validate --workflow` refuses on), the metrics half is LEFT OUT with a reason
 /// in its place and the run still exits 0. `status` never refuses: an unpairable log is a
 /// part that is not available for the projection, which is the documented contract applied
@@ -1190,7 +1190,7 @@ fn run_status(args: StatusArgs) -> io::Result<()> {
 	note_missing_anchors(&args.source, &args.plan);
 	// The thin `status --resume` slice: print the ledger's `## RESUME STATE` block
 	// verbatim (reusing the same extractor `next` uses) instead of the state projection.
-	// A missing ledger, an absent section, or a ledger that is not this plan's is a note and
+	// A missing ledger or an absent section is a note and
 	// exit 0, not a failure (`status` is best-effort).
 	if args.resume {
 		return run_resume(&args);
@@ -1481,7 +1481,7 @@ fn resolve_for_containment(path: &Path) -> PathBuf {
 
 /// THE containment predicate, consulted by `validate --workflow`, `status`, `next` and
 /// `status --resume` alike and never re-implemented per surface: is the artifact I am
-/// about to read OUTSIDE the root of the plan I am about to check?
+/// about to read OUTSIDE the root?
 ///
 /// It is one question, not two conditions layered. Containment refuses only what lies
 /// OUTSIDE that root subtree, so a foreign artifact INSIDE it (a log copied into this
@@ -1505,7 +1505,7 @@ fn unpairable_log_note(
 	root: &Path,
 ) -> String {
 	format!(
-		"the round log {} is not under the project root {}, so its records cannot be paired with this plan",
+		"the round log {} is not under the project root {}, so its records cannot be paired",
 		log.display(),
 		root.display()
 	)

@@ -1717,11 +1717,13 @@ mod tests {
 
 	#[test]
 	fn w5_accepts_an_increment_waiver_whose_id_does_not_strip_to_its_step() {
-		// THE UNBLOCKING (Q-70). This is the shape the retired lexical rule made
-		// unwritable: an increment id that does not end `-inc<alnum>`, so
-		// `leading_slug` returns it unchanged and it can never equal the step slug, while
-		// the round log joins it to that step. The waiver is now accepted on the evidence
-		// of the records. `workflow-enforcement-tier-fold` is the live instance.
+		// THE UNBLOCKING (Q-70). The retired lexical rule required the increment id's
+		// leading slug to equal the waiver's `step`. `leading_slug` returns an id that does
+		// not end `-inc<alnum>` unchanged. For such an id the rule therefore admitted only a
+		// waiver whose step slug was the id itself. This fixture is the shape it refused:
+		// that id on a step it does not equal, which the round log joins it to. The waiver
+		// is now accepted on the evidence of the records.
+		// `workflow-enforcement-tier-fold` is the live instance.
 		assert_eq!(
 			leading_slug("beta-fold"),
 			"beta-fold",

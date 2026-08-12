@@ -788,6 +788,14 @@ pub(crate) fn validate_source(contents: &str) -> Vec<String> {
 	// `WaiverReason::required_tier`; the presence rules are re-stated here byte-
 	// faithfully because they run against these typed structs rather than the JSON
 	// map `check_record` reads (one behaviour, two data representations).
+	//
+	// The declared-increment membership check below is NEITHER of those, and has no
+	// `check_record` ancestor: that arm reads one record and cannot see a step's declared
+	// increments. It is an internal cross-reference of this document, the same class as
+	// `[step.provenance].decisions` above, and it asks a different question from W5's
+	// ownership rule: this one asks whether the step DECLARES the increment, W5 asks
+	// whether the ROUND LOG joins the increment to the step (Q-70). Both must hold, and
+	// neither substitutes for the other.
 	for step in &plan.steps {
 		let step_increments: BTreeSet<&str> =
 			step.increments.iter().map(|increment| increment.id.as_str()).collect();

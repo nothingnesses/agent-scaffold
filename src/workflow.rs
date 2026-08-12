@@ -541,10 +541,30 @@ pub(crate) fn w3_problems(
 }
 
 /// The phrase naming the steps the round log joins an increment to, for W5's ownership
-/// refusal: "step `a`" for one owner and "steps `a`, `b`" for several. Several is
-/// authorable on the JSONL substrate, where a record's `step` is a free string.
-fn step_attribution(owners: &BTreeSet<&str>) -> String {
-	let list = owners.iter().map(|slug| format!("`{slug}`")).collect::<Vec<_>>().join(", ");
+/// refusal: "step `a`" for one owner and "steps `a`, `b`" for several. Each owner maps to
+/// whether ANY record declared it in a structured `step` id; one no record declared is
+/// marked as derived from a record's `task`, because `round_step_slug` computed it
+/// through the `leading_slug` shim and it need not be a Roadmap step or occur anywhere in
+/// the log. Without that mark the refusal would present a computed value as something the
+/// records carry.
+///
+/// SEVERAL OWNERS ARISE TWO WAYS AND NEITHER NEEDS A MALFORMED LOG. Two records for one
+/// increment may carry different structured `step` ids, which the JSONL substrate permits
+/// because a record's `step` is a free string. Or one record may carry a structured `step`
+/// while another is pre-migration, in which case the second resolves through
+/// `leading_slug(task)` and can land on a different value.
+fn step_attribution(owners: &BTreeMap<&str, bool>) -> String {
+	let list = owners
+		.iter()
+		.map(|(slug, declared)| {
+			if *declared {
+				format!("`{slug}`")
+			} else {
+				format!("`{slug}` (derived from a record's `task`)")
+			}
+		})
+		.collect::<Vec<_>>()
+		.join(", ");
 	if owners.len() == 1 {
 		format!("step {list}")
 	} else {
@@ -560,14 +580,21 @@ fn step_attribution(owners: &BTreeSet<&str>) -> String {
 ///   Roadmap does not track is dangling).
 /// - An `increment`-unit waiver's `step` must own its `increment`, judged against the
 ///   ROUND LOG through the shared `waiver_covers_round` predicate: some `type:"round"`
-///   record must carry that increment id AND join to that step, so a waiver naming a
+///   record must resolve to that increment id AND join to that step, so a waiver naming a
 ///   real-but-wrong step is reported rather than silently mis-scoped. Q-70 decided this
-///   relation against the log rather than against the increment id's leading slug, so
-///   the refusal states a fact the records carry instead of a substring of the id.
-///   An increment with NO round records at all is REPORTED too (receipt
-///   `Q-70-emptycase`): the log attributes it to no step, so nothing evidences the
-///   ownership the waiver asserts. That NARROWS what a waiver may cover against the
-///   retired lexical rule, which accepted such a waiver silently.
+///   relation against the log rather than against the WAIVED INCREMENT ID's leading slug.
+///   BOTH AXES STILL DEGRADE PER RECORD, per the accessor block above: a record carrying
+///   the structured Inc 2 ids joins on them, while a pre-migration record resolves its
+///   increment through `task` and its step through `leading_slug(task)`. So the step a
+///   refusal names is READ from a record's `step` id where one exists and is DERIVED
+///   otherwise, and a derived value need not be a Roadmap step or occur anywhere in the
+///   log. The message marks which, rather than presenting either as what the records
+///   carry; retiring the derivation itself would mean changing `round_step_slug`, which
+///   W3 shares, and no decision has asked for that.
+///   An increment NO record resolves to is REPORTED too (receipt `Q-70-emptycase`): the
+///   log joins it to no step, so nothing evidences the ownership the waiver asserts. That
+///   NARROWS what a waiver may cover against the retired lexical rule, which accepted such
+///   a waiver silently.
 /// - A `record-backed` waiver's `evidence` must join to an existing
 ///   `type:"escalation"` record whose `human_decision` is `decision`, whose `task`
 ///   equals the evidence pointer, AND that is scoped to the waived unit (the
@@ -601,27 +628,37 @@ fn w5_problems(
 			));
 		}
 		// An increment-unit waiver's `step` must own its `increment`, evidenced by the
-		// round log rather than by the id's leading slug (Q-70). A mis-scoped waiver
-		// naming a real-but-wrong step is reported here (and refused by W3), and so is a
-		// waiver whose increment the log never records, which owns nothing yet.
+		// round log rather than by the WAIVED INCREMENT ID's leading slug (Q-70). A
+		// mis-scoped waiver naming a real-but-wrong step is reported here (and refused by
+		// W3), and so is a waiver no round record resolves to, which owns nothing yet.
 		if waiver.unit == WaiverUnit::Increment {
 			if let Some(increment) = waiver.increment.as_deref() {
 				if !rounds.iter().any(|round| waiver_covers_round(waiver, round)) {
-					// The steps the log DOES join this increment to, so the refusal names
-					// what the records say instead of a step derived from the id.
-					let owners: BTreeSet<&str> = rounds
-						.iter()
-						.filter(|round| round_increment_id(round) == increment)
-						.map(round_step_slug)
-						.collect();
+					// Each step the log DOES join this increment to, mapped to whether any
+					// record DECLARED that step in a structured `step` id. `round_step_slug`
+					// prefers that id and falls back to `leading_slug(round.task)` for a
+					// pre-migration record, so an owner no record declares was computed by
+					// the join rather than carried by the log. The message marks the
+					// difference, so the refusal never presents a computed step as one the
+					// records state.
+					let mut owners: BTreeMap<&str, bool> = BTreeMap::new();
+					for round in
+						rounds.iter().filter(|round| round_increment_id(round) == increment)
+					{
+						let declared = round.step.is_some();
+						owners
+							.entry(round_step_slug(round))
+							.and_modify(|seen| *seen |= declared)
+							.or_insert(declared);
+					}
 					if owners.is_empty() {
 						problems.push(format!(
-							"{}: increment waiver names increment `{}`, which has no `type:\"round\"` records, so the round log attributes it to no step",
+							"{}: increment waiver names increment `{}`, which no `type:\"round\"` record resolves to (a record resolves to its structured `increment` id, or to its `task` when that id is absent), so the round log joins it to no step",
 							waiver.locator, increment
 						));
 					} else {
 						problems.push(format!(
-							"{}: increment waiver names step `{}` but the round log attributes increment `{}` to {}",
+							"{}: increment waiver names step `{}` but the round log joins increment `{}` to {}",
 							waiver.locator,
 							waiver.step,
 							increment,
@@ -977,6 +1014,41 @@ mod tests {
 		);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(problems[0].contains("reached a consecutive-clean streak of 1"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn an_increment_waiver_does_not_exempt_a_sibling_increment_of_the_same_step() {
+		// THE INCREMENT AXIS OF THE SHARED PREDICATE, on W3's side (round 1, `W1A-1`). One
+		// `complete` step carries two increments: `stall-incB` converged and carries the
+		// only waiver, `stall-incA` is short. The waiver names the WRONG increment of the
+		// RIGHT step, so it must exempt nothing and the shortfall must still be reported.
+		//
+		// Its siblings pin the other two axes and neither reaches this one:
+		// `a_step_waiver_does_not_exempt_a_short_streak_increment` pins the UNIT axis, and
+		// `a_mis_scoped_increment_waiver_does_not_exempt_a_short_streak_increment` pins the
+		// STEP axis. Without this case a build that dropped
+		// `waiver_covers_round`'s increment comparison would report `workflow invariants
+		// hold` at exit 0 over an unconverged `risky` increment, with the whole suite green.
+		let log = [
+			round_line("stall-incA", "AGENTS.md", "new_valid", 0, "risky"),
+			round_line("stall-incA", "AGENTS.md", "clean", 1, "risky"),
+			round_line("stall-incB", "AGENTS.md", "clean", 1, "risky"),
+			round_line("stall-incB", "AGENTS.md", "clean", 2, "risky"),
+		]
+		.join("\n");
+		let waivers = waivers(&increment_waiver_line("stall", "stall-incB", "stall-incB"));
+		let problems = w3_problems(
+			&WorkflowSpec::builtin(),
+			&steps(&one_step_plan("stall", "complete")),
+			&rounds(&log),
+			&waivers,
+		);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("increment `stall-incA` reached a consecutive-clean streak of 1"),
+			"{}",
+			problems[0]
+		);
 	}
 
 	#[test]
@@ -1522,8 +1594,9 @@ mod tests {
 	fn w5_flags_an_increment_waiver_whose_step_does_not_own_its_increment() {
 		// O3, restated against the round log (Q-70): an increment-unit waiver's `step`
 		// must be the step the log joins its `increment` to. A waiver naming a
-		// real-but-wrong step (`alpha`) for an increment the records attribute to `beta`
-		// is reported, so a mis-scoped waiver cannot hide behind a real slug.
+		// real-but-wrong step (`alpha`) for an increment the records join to `beta` is
+		// reported, so a mis-scoped waiver cannot hide behind a real slug. `beta` goes
+		// unmarked in the message because the record DECLARES it in a structured `step`.
 		//
 		// THE OBSERVED CONTRADICTION, so the fixture carries the round records that
 		// establish the true owner rather than leaving the increment unlogged. Without
@@ -1544,8 +1617,7 @@ mod tests {
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains("increment waiver names step `alpha`")
-				&& problems[0]
-					.contains("the round log attributes increment `beta-incB` to step `beta`"),
+				&& problems[0].contains("the round log joins increment `beta-incB` to step `beta`"),
 			"{}",
 			problems[0]
 		);
@@ -1555,23 +1627,30 @@ mod tests {
 	fn w5_flags_an_increment_waiver_whose_increment_has_no_round_records() {
 		// Q-70-emptycase, the unobserved case, decided by the human as REPORT IT over
 		// staying silent and over reporting only when the log is non-empty. An
-		// increment-unit waiver whose increment has NO round records anywhere is reported:
-		// the log attributes the increment to no step, so nothing evidences the ownership
-		// the waiver asserts. This is the deliberate NARROWING the round-log rule ships,
+		// increment-unit waiver whose increment NO round record resolves to is reported:
+		// the log joins the increment to no step, so nothing evidences the ownership the
+		// waiver asserts. This is the deliberate NARROWING the round-log rule ships,
 		// since the retired lexical rule accepted such a waiver whenever the id happened to
 		// strip to the step slug.
 		//
 		// The message must assert a fact the records carry, so it names no step at all: the
 		// retired rule reported a step derived from the id, which need not exist in the
 		// plan.
+		//
+		// THE LOG IS NON-EMPTY AND SIMPLY LACKS THIS INCREMENT, which is what makes the
+		// case the INCREMENT axis rather than an absent log. An empty slice cannot tell
+		// "no record for this increment" from "no records at all", so a build that dropped
+		// the increment axis from `waiver_covers_round` and compared the step alone would
+		// still pass it (round 1, `W1A-1`).
 		let steps = steps(&one_step_plan("alpha", "complete"));
 		let waiver = increment_waiver_line("alpha", "alpha-inc1", "alpha-inc1");
 		let escalations = escalations(&escalation_line("alpha-inc1"));
-		let problems = w5_problems(&waivers(&waiver), &steps, &[], &escalations);
+		let other = rounds(&owning_round_line("alpha", "alpha-other"));
+		let problems = w5_problems(&waivers(&waiver), &steps, &other, &escalations);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
 			problems[0].contains(
-				"increment waiver names increment `alpha-inc1`, which has no `type:\"round\"` records, so the round log attributes it to no step"
+				"increment waiver names increment `alpha-inc1`, which no `type:\"round\"` record resolves to (a record resolves to its structured `increment` id, or to its `task` when that id is absent), so the round log joins it to no step"
 			),
 			"{}",
 			problems[0]
@@ -1604,10 +1683,12 @@ mod tests {
 	}
 
 	#[test]
-	fn w5_names_every_step_the_log_attributes_a_waived_increment_to() {
-		// The refusal reports what the records say, so an increment the log attributes to
-		// SEVERAL steps (authorable on the JSONL substrate, where a record's `step` is a
-		// free string) names all of them rather than picking one.
+	fn w5_names_every_step_the_log_joins_a_waived_increment_to() {
+		// The refusal reports what the records say, so an increment the log joins to SEVERAL
+		// steps names all of them rather than picking one. This is the first of the two
+		// routes to several owners: two records carrying DIFFERENT structured `step` ids,
+		// which the JSONL substrate permits because a record's `step` is a free string. Both
+		// owners are declared, so neither is marked derived.
 		let plan = concat!(
 			"## Roadmap\n",
 			"| Step    | Status   |\n",
@@ -1624,9 +1705,90 @@ mod tests {
 		let problems = w5_problems(&waivers(&waiver), &steps(plan), &rounds(&log), &escalations);
 		assert_eq!(problems.len(), 1, "{problems:?}");
 		assert!(
+			problems[0]
+				.contains("the round log joins increment `shared-inc1` to steps `beta`, `gamma`"),
+			"{}",
+			problems[0]
+		);
+		assert!(!problems[0].contains("derived"), "{}", problems[0]);
+	}
+
+	#[test]
+	fn w5_marks_an_owner_derived_from_a_pre_migration_records_task() {
+		// PROVENANCE IN THE REFUSAL (round 1, `W1B-1`). A pre-migration record carries no
+		// structured `step`, so `round_step_slug` derives its step with
+		// `leading_slug(task)`. That value need not be a Roadmap step and need not occur
+		// anywhere in the log: here it is `alpha-fold`, which the Roadmap does not carry.
+		// The message must therefore mark it as derived rather than present it as a step the
+		// records state, which is the half of the recorded `src/` message defect that the
+		// empty-owners branch does not reach.
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step    | Status      |\n",
+			"| ------- | ----------- |\n",
+			"| `alpha` | in progress |\n",
+			"| `beta`  | in progress |\n",
+		);
+		let premigration = round_line("alpha-fold", "a", "clean", 1, "risky");
+		let waiver = increment_waiver_line("beta", "alpha-fold", "alpha-fold");
+		let escalations = escalations(&escalation_line("alpha-fold"));
+		let problems =
+			w5_problems(&waivers(&waiver), &steps(plan), &rounds(&premigration), &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
 			problems[0].contains(
-				"the round log attributes increment `shared-inc1` to steps `beta`, `gamma`"
+				"the round log joins increment `alpha-fold` to step `alpha-fold` (derived from a record's `task`)"
 			),
+			"{}",
+			problems[0]
+		);
+		assert_eq!(
+			steps(plan).iter().filter(|step| step.slug == "alpha-fold").count(),
+			0,
+			"the fixture's point is that the derived owner is not a Roadmap step"
+		);
+
+		// THE SECOND ROUTE TO SEVERAL OWNERS, which needs no free-string abuse (`W1B-3`):
+		// one structured record and one pre-migration record for the SAME increment resolve
+		// to different steps, and only the derived one is marked.
+		let log = [owning_round_line("alpha", "alpha-fold"), premigration].join("\n");
+		let problems = w5_problems(&waivers(&waiver), &steps(plan), &rounds(&log), &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains(
+				"the round log joins increment `alpha-fold` to steps `alpha`, `alpha-fold` (derived from a record's `task`)"
+			),
+			"{}",
+			problems[0]
+		);
+	}
+
+	#[test]
+	fn w5_does_not_mark_an_owner_a_record_declares_even_when_another_derives_it() {
+		// The mark is per OWNER and not per record: an owner one record declares in its
+		// structured `step` is a value the log carries, whatever route a second record took
+		// to the same value. So a declared record plus a pre-migration record that derives
+		// the SAME step yields one unmarked owner, and the refusal does not tell the reader
+		// to distrust a step the log states.
+		let plan = concat!(
+			"## Roadmap\n",
+			"| Step    | Status      |\n",
+			"| ------- | ----------- |\n",
+			"| `alpha` | in progress |\n",
+			"| `beta`  | in progress |\n",
+		);
+		let waiver = increment_waiver_line("beta", "alpha-inc1", "alpha-inc1");
+		let log = [
+			owning_round_line("alpha", "alpha-inc1"),
+			round_line("alpha-inc1", "a", "clean", 1, "risky"),
+		]
+		.join("\n");
+		let escalations = escalations(&escalation_line("alpha-inc1"));
+		let problems = w5_problems(&waivers(&waiver), &steps(plan), &rounds(&log), &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains("the round log joins increment `alpha-inc1` to step `alpha`")
+				&& !problems[0].contains("derived"),
 			"{}",
 			problems[0]
 		);
@@ -1964,8 +2126,9 @@ mod tests {
 		// Q-70 on the TOML substrate: a `[[step.waiver]]` inherits its `step` from the step
 		// it nests on (`waivers_from_toml`), so the contradiction is authored by nesting the
 		// waiver on `alpha` while the round log joins its increment to `beta`. W5 refuses it
-		// on what the records say, and its message names `beta` because the records do, not
-		// because the id strips to it. Both steps are `in-progress`, so only W5 speaks.
+		// on what the records say, and its message names `beta` unmarked because the record
+		// DECLARES it in a structured `step`, not because the id strips to it. Both steps are
+		// `in-progress`, so only W5 speaks.
 		let source = concat!(
 			"[meta]\ntitle = \"t\"\nprimary = \"toml\"\n",
 			"[[step]]\nslug = \"alpha\"\ntitle = \"A\"\nstatus = \"in-progress\"\norder = 1\n",
@@ -1981,7 +2144,7 @@ mod tests {
 		assert!(
 			problems[0].contains("TOML waiver `w`")
 				&& problems[0].contains(
-					"increment waiver names step `alpha` but the round log attributes increment `shared-inc1` to step `beta`"
+					"increment waiver names step `alpha` but the round log joins increment `shared-inc1` to step `beta`"
 				),
 			"{}",
 			problems[0]

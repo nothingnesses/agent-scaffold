@@ -1322,6 +1322,14 @@ risk_class = "risky"
 id = "workflow-enforcement-tier-inc4"
 risk_class = "risky"
 
+[[step.increment]]
+id = "workflow-enforcement-tier-fold"
+risk_class = "risky"
+
+[[step.increment]]
+id = "workflow-enforcement-tier-endproperty-fold"
+risk_class = "risky"
+
 [[step.waiver]]
 id = "workflow-enforcement-tier-w1"
 unit = "increment"

@@ -19,6 +19,7 @@ orphan_tasks = [
   "q66-q67-fold",
   "q70-capture",
   "uniform-isolation",
+  "vc-step-fold",
   "workflow-hardening",
 ]
 
@@ -1413,7 +1414,7 @@ risk_class = "risky"
 
 [[step.increment]]
 id = "validation-constraints-inc5"
-risk_class = "low_risk"
+risk_class = "risky"
 
 [[step.increment]]
 id = "validation-constraints-inc6"

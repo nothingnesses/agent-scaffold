@@ -1611,6 +1611,47 @@ mod tests {
 	}
 
 	#[test]
+	fn w5_reports_the_ownership_problem_beside_the_other_checks_on_one_waiver() {
+		// THE OWNERSHIP ARM IS INDEPENDENT OF ITS SIBLINGS (round 3, `W3B-2`). W5 runs four
+		// per-waiver checks in one loop, and this one waiver raises three of them at once:
+		// its `step` is not a Roadmap step, the round log joins its `increment` to another
+		// step, and its `evidence` joins to no escalation. All three must be reported, so an
+		// author fixes three faults in one pass rather than meeting the next one on each
+		// re-run. A build that skipped the evidence join once an earlier problem existed, or
+		// the ownership arm once the Roadmap-step check failed, passes every fixture that
+		// raises one problem alone.
+		//
+		// The escalation present carries a DIFFERENT `task`, so the evidence join fails on
+		// the pointer and on the unit scope alike and no single clause of it is pinned here.
+		let steps = steps(&one_step_plan("beta", "complete"));
+		let waiver = increment_waiver_line("ghost", "alpha-inc1", "no-such-pointer");
+		let log = owning_round_line("beta", "alpha-inc1");
+		let escalations = escalations(&escalation_line("other-inc1"));
+		let problems = w5_problems(&waivers(&waiver), &steps, &rounds(&log), &escalations);
+		assert_eq!(problems.len(), 3, "{problems:?}");
+		assert!(
+			problems[0]
+				.contains("`type:\"waiver\"` names step `ghost`, which is not a Roadmap step"),
+			"{}",
+			problems[0]
+		);
+		assert!(
+			problems[1].contains(
+				"increment waiver names step `ghost` but the round log joins increment `alpha-inc1` to step `beta`"
+			),
+			"{}",
+			problems[1]
+		);
+		assert!(
+			problems[2].contains(
+				"`record-backed` waiver cites evidence `no-such-pointer` but no `type:\"escalation\"` record with `human_decision` `decision` is scoped to this waiver's unit"
+			),
+			"{}",
+			problems[2]
+		);
+	}
+
+	#[test]
 	fn w5_flags_an_increment_waiver_whose_increment_has_no_round_records() {
 		// Q-70-emptycase, the unobserved case, decided by the human as REPORT IT over
 		// staying silent and over reporting only when the log is non-empty. An
@@ -1647,6 +1688,31 @@ mod tests {
 		let log = owning_round_line("alpha", "alpha-inc1");
 		let problems = w5_problems(&waivers(&waiver), &steps, &rounds(&log), &escalations);
 		assert!(problems.is_empty(), "{problems:?}");
+	}
+
+	#[test]
+	fn w5_flags_an_increment_waiver_when_the_round_log_carries_no_records_at_all() {
+		// THE EMPTY-LOG AXIS of the same decision (Q-70-emptycase). One option the human
+		// declined was to report only when the log is non-empty. Here the log carries no
+		// readable `type:"round"` record at all, and the refusal is the same one the
+		// sibling above asserts.
+		//
+		// THE SIBLING CANNOT REACH THIS CASE, which is why this test is beside it rather
+		// than folded into it: its log is non-empty and merely lacks the waived increment,
+		// so a build reporting only on a non-empty log passes it and fails here (round 3,
+		// `W3B-1`). The two fixtures pin two axes and the decision needs both.
+		let steps = steps(&one_step_plan("alpha", "complete"));
+		let waiver = increment_waiver_line("alpha", "alpha-inc1", "alpha-inc1");
+		let escalations = escalations(&escalation_line("alpha-inc1"));
+		let problems = w5_problems(&waivers(&waiver), &steps, &[], &escalations);
+		assert_eq!(problems.len(), 1, "{problems:?}");
+		assert!(
+			problems[0].contains(
+				"increment waiver names increment `alpha-inc1`, which no `type:\"round\"` record resolves to (by its structured `increment` id, else its `task`; a record the schema check rejected is not read), so the round log joins it to no step"
+			),
+			"{}",
+			problems[0]
+		);
 	}
 
 	#[test]

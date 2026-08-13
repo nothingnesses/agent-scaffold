@@ -4,6 +4,12 @@
 
 A small command-line tool that scaffolds a repeatable agent workflow into a project: front-load context, write a structured plan, review it, implement in small steps, then review the work. It drops a canonical `AGENTS.md`, a planning-document template, and a few reusable prompts, so the structure does not have to be hand-rolled for every repository.
 
+## The `agent-flow` rename
+
+This project is being renamed to `agent-flow`, and that crate name is reserved at <https://crates.io/crates/agent-flow>. Releases move there once the rename lands. Until then `agent-scaffold` is the crate to install, and every published `agent-scaffold` version stays installable.
+
+The `agent-scaffold` name is then free for whoever wants to reclaim it. To ask for it, open an issue on <https://github.com/nothingnesses/agent-scaffold>, the repository that will carry the `agent-flow` rename.
+
 ## Motivations
 
 - Setting the workflow up by hand for each project is repetitive: the same planning skeleton, the same guidance and principles, the same reusable prompts. This tool drops them in one command.

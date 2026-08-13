@@ -42,10 +42,11 @@ pub enum Ownership {
 #[derive(Debug, Clone, Deserialize)]
 struct AssetSpec {
 	/// Path of the source file within the pack. An absolute path, or one carrying a
-	/// `..` component, is refused at load (`LoadError::UnsafeAssetSource`), so the
-	/// within-the-pack claim holds rather than being merely documented: the loader
-	/// joins this onto the pack root to READ it, so an escaping value would copy a
-	/// file from outside the pack into the scaffolded project.
+	/// `..` component, is refused by `PackSource::read` before it opens anything
+	/// (`LoadError::UnsafeAssetSource`), so the within-the-pack claim holds rather
+	/// than being merely documented: this is joined onto the pack root to READ, so an
+	/// escaping value would copy a file from outside the pack into the scaffolded
+	/// project.
 	source: String,
 	/// Destination path relative to the output directory. An absolute path, or one
 	/// carrying a `..` component, is refused at load (`LoadError::UnsafeAssetDest`),
@@ -92,7 +93,11 @@ struct ModuleSpec {
 	/// Declaring `guidance = "file.md"` makes that file required: if an enabled
 	/// module names a partial the pack does not ship, the load fails. This is unlike
 	/// the tool-computed `instrument.md`, which is silently optional; a declared
-	/// guidance file is not.
+	/// guidance file is not. A FILENAME IN THE PACK is enforced, not merely stated:
+	/// an absolute path or one carrying a `..` component is refused by
+	/// `PackSource::read` before it opens anything
+	/// (`LoadError::UnsafeModuleGuidance`), so a guidance partial cannot splice a
+	/// file from outside the pack into `{{modules}}`.
 	#[serde(default)]
 	guidance: Option<String>,
 	/// The modules this module auto-enables (transitively) when it is selected. A
@@ -182,13 +187,25 @@ pub enum LoadError {
 		module: String,
 	},
 	/// An `[[asset]]`'s `source` is not contained by the pack directory: it is
-	/// absolute, or it carries a `..` component. Refused at load, so no such asset is
-	/// ever read. Distinct from `UnsafeAssetDest` because the two name different
-	/// fields and a reader shown the wrong one loses time on the wrong side of the
-	/// manifest entry.
+	/// absolute, or it carries a `..` component. Refused before the read, so no such
+	/// file is ever opened. Distinct from `UnsafeAssetDest` because the two name
+	/// different fields and a reader shown the wrong one loses time on the wrong side
+	/// of the manifest entry.
 	UnsafeAssetSource {
 		/// The `source` that would escape the pack directory.
 		source: String,
+	},
+	/// A `[[module]]`'s `guidance` is not contained by the pack directory: it is
+	/// absolute, or it carries a `..` component. The same refusal as
+	/// `UnsafeAssetSource`, from the same predicate at the same read site, but its own
+	/// variant because `guidance` is a different field on a different section: a
+	/// reader told an ASSET SOURCE escaped would look for an `[[asset]]` that does not
+	/// carry the offending path.
+	UnsafeModuleGuidance {
+		/// The module whose `guidance` would escape the pack directory.
+		module: String,
+		/// The `guidance` path that would escape it.
+		guidance: String,
 	},
 	/// An `[[asset]]`'s `dest` is not contained by the output directory: it is
 	/// absolute, or it carries a `..` component. Refused at load, so no such asset
@@ -242,6 +259,14 @@ impl std::fmt::Display for LoadError {
 				f,
 				"asset source `{source}` leaves the pack directory; a source must be a relative path \
 				 with no `..` component"
+			),
+			LoadError::UnsafeModuleGuidance {
+				module,
+				guidance,
+			} => write!(
+				f,
+				"module `{module}` guidance file `{guidance}` leaves the pack directory; a guidance \
+				 path must be a relative path with no `..` component"
 			),
 			LoadError::UnsafeAssetDest {
 				source,
@@ -327,29 +352,95 @@ pub enum PackSource<'a> {
 	Directory(PathBuf),
 }
 
+/// Why a `PackSource::read` did not return the file's bytes: the relative path was
+/// refused because it leaves the pack, or the read itself failed.
+///
+/// A refusal is NOT an I/O failure and is not typed as one. The path never reached
+/// the filesystem, so reporting it as a read error would describe an attempt that
+/// never happened, and would leave a caller unable to tell the two apart without
+/// matching on a message. `read` cannot name the FIELD the path came from (it sees
+/// only a relative string), so each caller maps `Escapes` onto its own field-named
+/// `LoadError` variant.
+#[derive(Debug)]
+pub enum ReadError {
+	/// `rel` is not contained by the pack directory: it is absolute, or it carries a
+	/// `..` component. Refused BEFORE the read, so the file outside is never opened.
+	Escapes(String),
+	/// Reading the file inside the pack failed.
+	Io(io::Error),
+}
+
+impl std::fmt::Display for ReadError {
+	fn fmt(
+		&self,
+		f: &mut std::fmt::Formatter<'_>,
+	) -> std::fmt::Result {
+		match self {
+			ReadError::Escapes(rel) => write!(
+				f,
+				"`{rel}` leaves the pack directory; a pack path must be relative with no `..` \
+				 component"
+			),
+			ReadError::Io(error) => write!(f, "{error}"),
+		}
+	}
+}
+
+impl From<ReadError> for io::Error {
+	fn from(error: ReadError) -> Self {
+		match error {
+			ReadError::Escapes(_) => io::Error::new(io::ErrorKind::InvalidInput, error.to_string()),
+			ReadError::Io(error) => error,
+		}
+	}
+}
+
 impl PackSource<'_> {
 	/// Read a file within the pack by its relative path. Public so callers can
 	/// read pack files the manifest does not itself resolve, such as the pack's
 	/// `principles.toml`.
+	///
+	/// THE ONE containment boundary for pack-controlled paths. Every path a pack
+	/// author writes reaches the filesystem through here (an `[[asset]]`'s `source`
+	/// and a `[[module]]`'s `guidance`; the fixed `pack.toml`, `principles.toml` and
+	/// `instrument.md` literals pass through too and can never escape), so the rule
+	/// is applied at this single site rather than once per caller, and a later caller
+	/// inherits it rather than having to remember it (Principle 1, prefer the cleaner
+	/// long-term architecture over the smallest diff). The refusal happens before the
+	/// join is opened, so an escaping path is never read, not merely never used.
+	///
+	/// Only the `Directory` arm is checked. `Embedded` resolves against a
+	/// compile-time map with no filesystem access at all, so it has nothing to
+	/// escape from and gets no check.
 	pub fn read(
 		&self,
 		rel: &str,
-	) -> io::Result<String> {
+	) -> Result<String, ReadError> {
 		match self {
 			PackSource::Embedded(dir) => dir
 				.get_file(rel)
 				.and_then(|file| file.contents_utf8())
 				.map(str::to_owned)
 				.ok_or_else(|| {
-					io::Error::new(io::ErrorKind::NotFound, format!("pack file not found: {rel}"))
+					ReadError::Io(io::Error::new(
+						io::ErrorKind::NotFound,
+						format!("pack file not found: {rel}"),
+					))
 				}),
-			PackSource::Directory(root) => fs::read_to_string(root.join(rel)),
+			PackSource::Directory(root) => {
+				if !crate::safe_path::is_contained_relative(rel) {
+					return Err(ReadError::Escapes(rel.to_string()));
+				}
+				fs::read_to_string(root.join(rel)).map_err(ReadError::Io)
+			}
 		}
 	}
 
-	/// Parse the pack's `pack.toml` manifest.
+	/// Parse the pack's `pack.toml` manifest. The path is a fixed literal, so the
+	/// containment refusal in `read` cannot fire here; it is mapped rather than
+	/// special-cased so this stays a plain read.
 	fn manifest(&self) -> io::Result<Manifest> {
-		let source = self.read("pack.toml")?;
+		let source = self.read("pack.toml").map_err(io::Error::from)?;
 		toml::from_str(&source).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 	}
 }
@@ -467,16 +558,22 @@ pub fn module_guidance(
 			if let Some(guidance) = &module.guidance {
 				// A declared guidance file is required: name the module and the
 				// missing file so a bare `No such file or directory` is not the only
-				// clue. This wraps only this call site; `PackSource::read` is
+				// clue. A path that leaves the pack is refused by `read` before any
+				// open, and is reported as the refusal it is rather than dressed up as
+				// a failed read. This wraps only this call site; `PackSource::read` is
 				// unchanged for every other caller.
-				let partial = source.read(guidance).map_err(|error| {
-					LoadError::Io(io::Error::new(
+				let partial = source.read(guidance).map_err(|error| match error {
+					ReadError::Escapes(guidance) => LoadError::UnsafeModuleGuidance {
+						module: module.name.clone(),
+						guidance,
+					},
+					ReadError::Io(error) => LoadError::Io(io::Error::new(
 						error.kind(),
 						format!(
 							"module `{}` guidance file `{guidance}` could not be read: {error}",
 							module.name
 						),
-					))
+					)),
 				})?;
 				block.push_str(partial.trim_end());
 				block.push_str("\n\n");
@@ -525,22 +622,19 @@ pub fn load(
 	// An asset or variable tagged with a module the pack does not declare is a
 	// pack-authoring error, checked for every entry regardless of selection.
 	for spec in &manifest.asset {
-		// BOTH ends of an asset entry are free strings the loader joins onto a directory
-		// it owns, so both are contained by the same predicate. A `source` is joined onto
-		// the pack root to READ, so an absolute or `..`-bearing one copies a file from
-		// outside the pack into the scaffolded project; a `dest` is joined onto the output
-		// directory to WRITE, so the same shapes write outside the directory the run
-		// reports writing to. Refuse both at the load boundary, before any asset is read
-		// and before the caller can print a plan preview, so a dry run cannot preview a
-		// read or a write the action would refuse (Principle 3, safe on existing projects;
-		// Principle 5, make illegal states unrepresentable). Checked for every declared
-		// entry regardless of selection, like the module tag below, since an escaping path
-		// is a pack-authoring error whether or not its module is on.
-		if !crate::safe_path::is_contained_relative(&spec.source) {
-			return Err(LoadError::UnsafeAssetSource {
-				source: spec.source.clone(),
-			});
-		}
+		// A `dest` is documented as relative to the output directory and is joined onto
+		// it verbatim, so an absolute or `..`-bearing one writes outside the directory
+		// the run reports writing to. Refuse at the load boundary, before any asset is
+		// read and before the caller can print a plan preview, so a dry run cannot
+		// preview a write the action would refuse (Principle 3, safe on existing
+		// projects; Principle 5, make illegal states unrepresentable). Checked for every
+		// declared entry regardless of selection, like the module tag below, since an
+		// escaping dest is a pack-authoring error whether or not its module is on.
+		//
+		// The matching READ-side rule is not repeated here. A `source` reaches the
+		// filesystem only through `PackSource::read`, which contains it there for every
+		// caller, so a second check at this site would be the same predicate applied
+		// twice and could drift from the one that actually guards the read.
 		if !crate::safe_path::is_contained_relative(&spec.dest) {
 			return Err(LoadError::UnsafeAssetDest {
 				source: spec.source.clone(),
@@ -590,7 +684,14 @@ pub fn load(
 			Some(module) => enabled.contains(module.as_str()),
 		})
 		.map(|spec| {
-			let raw = source.read(&spec.source)?;
+			// `read` refuses a `source` that leaves the pack before it opens anything;
+			// label the refusal with the field it came from.
+			let raw = source.read(&spec.source).map_err(|error| match error {
+				ReadError::Escapes(source) => LoadError::UnsafeAssetSource {
+					source,
+				},
+				ReadError::Io(error) => LoadError::Io(error),
+			})?;
 			let contents = if spec.render { render(&raw, &vars) } else { raw };
 			Ok(Asset {
 				dest: spec.dest,
@@ -855,10 +956,10 @@ mod tests {
 
 	#[test]
 	fn an_escaping_source_is_refused_at_load() {
-		// The loader joins `source` onto the pack root to READ it, so a `..` component
-		// walks out of the pack and an absolute path discards it: either copies a file
-		// from outside the pack into the scaffolded project. Both are refused when the
-		// manifest is loaded, before that read happens.
+		// F4b: `source` is joined onto the pack root to READ, so a `..` component walks
+		// out of the pack and an absolute path discards it: either copies a file from
+		// outside the pack into the scaffolded project. `PackSource::read` refuses both
+		// before it opens anything, and `load` labels the refusal with the field.
 		for source in ["../secret.md", "../../secret.md", "a/../../secret.md", "/etc/passwd"] {
 			let root = fixture_pack(
 				"escaping-source",
@@ -885,6 +986,79 @@ mod tests {
 			}
 			fs::remove_dir_all(&root).unwrap();
 		}
+	}
+
+	#[test]
+	fn an_escaping_module_guidance_is_refused_before_any_read() {
+		// F4b, the second caller of the shared read site. `guidance` is not an
+		// `[[asset]]` field and never passes through `load`, so a check on `spec.source`
+		// alone leaves it open. It is refused by the same predicate at the same site.
+		for guidance in ["../secret.md", "../../secret.md", "/etc/passwd"] {
+			let root = scratch("escaping-guidance");
+			fs::create_dir_all(&root).unwrap();
+			fs::write(
+				root.join("pack.toml"),
+				format!(
+					"[[module]]\nname = \"evil\"\ndescription = \"d\"\nguidance = \"{guidance}\"\n\n\
+					 [[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n"
+				),
+			)
+			.unwrap();
+			fs::write(root.join("a.md"), "x\n").unwrap();
+			let source = PackSource::Directory(root.clone());
+			match module_guidance(&source, &["evil".to_string()]) {
+				Err(error @ LoadError::UnsafeModuleGuidance {
+					..
+				}) => {
+					// The message names the module AND the guidance path, and names the
+					// FIELD: a reader told an asset source escaped would hunt for an
+					// `[[asset]]` that does not carry this path.
+					let message = error.to_string();
+					assert!(message.contains(guidance), "{message}");
+					assert!(message.contains("evil"), "{message}");
+					assert!(message.contains("guidance"), "{message}");
+					assert!(!message.contains("asset source"), "{message}");
+					// It is a refusal, not a failed read: the wording must not claim an
+					// attempt that never happened.
+					assert!(!message.contains("could not be read"), "{message}");
+				}
+				other => panic!(
+					"expected UnsafeModuleGuidance for `{guidance}`, got {:?}",
+					other.map(|_| ())
+				),
+			}
+			fs::remove_dir_all(&root).unwrap();
+		}
+	}
+
+	#[test]
+	fn the_read_site_contains_every_pack_controlled_path() {
+		// The containment lives at `PackSource::read`, so it holds for a path no caller
+		// has been written for yet, which is the property that makes it one site rather
+		// than one check per caller. Asserted directly on `read`, since every caller
+		// reaches the filesystem through it.
+		// The pack is a SUBDIRECTORY of the scratch root, so the escape target stays
+		// inside this test's own directory rather than landing in the shared temp dir.
+		let root = scratch("read-site");
+		let pack = root.join("pack");
+		fs::create_dir_all(&pack).unwrap();
+		fs::write(root.join("outside.md"), "outside\n").unwrap();
+		fs::write(pack.join("inside.md"), "inside\n").unwrap();
+		let source = PackSource::Directory(pack);
+		// A contained path reads its own bytes.
+		assert_eq!(source.read("inside.md").unwrap(), "inside\n");
+		// An escaping path is refused, and refused as an escape rather than as an I/O
+		// error, whatever the caller.
+		for rel in ["../outside.md", "/etc/passwd"] {
+			match source.read(rel) {
+				Err(ReadError::Escapes(reported)) => assert_eq!(reported, rel),
+				other => panic!("expected Escapes for `{rel}`, got {:?}", other.map(|_| ())),
+			}
+		}
+		// The embedded pack gets no check and is unaffected: its lookup touches no
+		// filesystem, so it has nothing to escape from.
+		assert!(builtin().read("pack.toml").is_ok());
+		fs::remove_dir_all(&root).unwrap();
 	}
 
 	#[test]

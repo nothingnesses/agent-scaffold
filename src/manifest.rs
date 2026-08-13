@@ -41,7 +41,11 @@ pub enum Ownership {
 /// One `[[asset]]` entry in a pack manifest.
 #[derive(Debug, Clone, Deserialize)]
 struct AssetSpec {
-	/// Path of the source file within the pack.
+	/// Path of the source file within the pack. An absolute path, or one carrying a
+	/// `..` component, is refused at load (`LoadError::UnsafeAssetSource`), so the
+	/// within-the-pack claim holds rather than being merely documented: the loader
+	/// joins this onto the pack root to READ it, so an escaping value would copy a
+	/// file from outside the pack into the scaffolded project.
 	source: String,
 	/// Destination path relative to the output directory. An absolute path, or one
 	/// carrying a `..` component, is refused at load (`LoadError::UnsafeAssetDest`),
@@ -177,6 +181,15 @@ pub enum LoadError {
 		/// The undeclared module name the entry referenced.
 		module: String,
 	},
+	/// An `[[asset]]`'s `source` is not contained by the pack directory: it is
+	/// absolute, or it carries a `..` component. Refused at load, so no such asset is
+	/// ever read. Distinct from `UnsafeAssetDest` because the two name different
+	/// fields and a reader shown the wrong one loses time on the wrong side of the
+	/// manifest entry.
+	UnsafeAssetSource {
+		/// The `source` that would escape the pack directory.
+		source: String,
+	},
 	/// An `[[asset]]`'s `dest` is not contained by the output directory: it is
 	/// absolute, or it carries a `..` component. Refused at load, so no such asset
 	/// ever reaches the plan preview or a write.
@@ -222,6 +235,13 @@ impl std::fmt::Display for LoadError {
 			} => write!(
 				f,
 				"{kind} `{entry}` is tagged with module `{module}`, which no [[module]] declares"
+			),
+			LoadError::UnsafeAssetSource {
+				source,
+			} => write!(
+				f,
+				"asset source `{source}` leaves the pack directory; a source must be a relative path \
+				 with no `..` component"
 			),
 			LoadError::UnsafeAssetDest {
 				source,
@@ -505,14 +525,22 @@ pub fn load(
 	// An asset or variable tagged with a module the pack does not declare is a
 	// pack-authoring error, checked for every entry regardless of selection.
 	for spec in &manifest.asset {
-		// A `dest` is documented as relative to the output directory and is joined onto
-		// it verbatim, so an absolute or `..`-bearing one writes outside the directory
-		// the run reports writing to. Refuse at the load boundary, before any asset is
-		// read and before the caller can print a plan preview, so a dry run cannot
-		// preview a write the action would refuse (Principle 3, safe on existing
-		// projects; Principle 5, make illegal states unrepresentable). Checked for every
-		// declared entry regardless of selection, like the module tag below, since an
-		// escaping dest is a pack-authoring error whether or not its module is on.
+		// BOTH ends of an asset entry are free strings the loader joins onto a directory
+		// it owns, so both are contained by the same predicate. A `source` is joined onto
+		// the pack root to READ, so an absolute or `..`-bearing one copies a file from
+		// outside the pack into the scaffolded project; a `dest` is joined onto the output
+		// directory to WRITE, so the same shapes write outside the directory the run
+		// reports writing to. Refuse both at the load boundary, before any asset is read
+		// and before the caller can print a plan preview, so a dry run cannot preview a
+		// read or a write the action would refuse (Principle 3, safe on existing projects;
+		// Principle 5, make illegal states unrepresentable). Checked for every declared
+		// entry regardless of selection, like the module tag below, since an escaping path
+		// is a pack-authoring error whether or not its module is on.
+		if !crate::safe_path::is_contained_relative(&spec.source) {
+			return Err(LoadError::UnsafeAssetSource {
+				source: spec.source.clone(),
+			});
+		}
 		if !crate::safe_path::is_contained_relative(&spec.dest) {
 			return Err(LoadError::UnsafeAssetDest {
 				source: spec.source.clone(),
@@ -823,6 +851,58 @@ mod tests {
 			}
 			fs::remove_dir_all(&root).unwrap();
 		}
+	}
+
+	#[test]
+	fn an_escaping_source_is_refused_at_load() {
+		// The loader joins `source` onto the pack root to READ it, so a `..` component
+		// walks out of the pack and an absolute path discards it: either copies a file
+		// from outside the pack into the scaffolded project. Both are refused when the
+		// manifest is loaded, before that read happens.
+		for source in ["../secret.md", "../../secret.md", "a/../../secret.md", "/etc/passwd"] {
+			let root = fixture_pack(
+				"escaping-source",
+				&format!(
+					"[[asset]]\nsource = \"{source}\"\ndest = \"leaked.md\"\nownership = \"working\"\n"
+				),
+				"a.md",
+				"x\n",
+			);
+			match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+				Err(error @ LoadError::UnsafeAssetSource {
+					..
+				}) => {
+					// The message names the offending source, and names it as a SOURCE: a
+					// reader shown a `dest` message for a `source` problem looks at the wrong
+					// side of the entry.
+					let message = error.to_string();
+					assert!(message.contains(source), "{message}");
+					assert!(message.contains("asset source"), "{message}");
+					assert!(!message.contains("dest"), "{message}");
+				}
+				other =>
+					panic!("expected UnsafeAssetSource for `{source}`, got {:?}", other.map(|_| ())),
+			}
+			fs::remove_dir_all(&root).unwrap();
+		}
+	}
+
+	#[test]
+	fn a_nested_relative_source_still_loads() {
+		// Non-vacuous: the containment check refuses only what leaves the pack. A source
+		// in a subdirectory of the pack still loads and still reads its own bytes.
+		let root = scratch("contained-source");
+		fs::create_dir_all(root.join("nested")).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[asset]]\nsource = \"nested/a.md\"\ndest = \"a.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("nested/a.md"), "nested body\n").unwrap();
+		let assets = load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[])
+			.unwrap_or_else(|error| panic!("a nested source must load: {error}"));
+		assert_eq!(assets[0].contents, "nested body\n");
+		fs::remove_dir_all(&root).unwrap();
 	}
 
 	#[test]

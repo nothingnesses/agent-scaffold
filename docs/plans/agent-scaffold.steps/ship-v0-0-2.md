@@ -2,10 +2,13 @@
 
 Decided (`Q-71`, human, 2026-08-13). The 2026-08-13 workflow audit (`docs/plans/workflow-calibration.explorations/2026-08-13-audit-when-the-loop-turned.md`) reports one release, `v0.0.1`, on project day 2, 937 commits ago, and eleven consecutive days producing zero completed steps across 196 commits. This step ends that. Its purpose is delivery, so its scope is closed and every addition to it defeats it.
 
+WIDENED ONCE, by human decision `Q-75` (2026-08-13, decision receipt `type:"decision"` `q_id:"Q-75"`), to add `F4b`, the pack `source` read escape found during the implementation of `F4` and reported rather than fixed. The closed-scope sentence above stands and is not repealed: `Q-75` is the single authorised exception to it, recorded as an exception so it is visible as one, and a second addition needs its own human decision rather than this precedent.
+
 SCOPE, exactly, and nothing else:
 
 - Fix `F1` (the unescaped projection).
 - Fix `F4` (the missing pack `dest` containment).
+- Fix `F4b` (the missing pack `source` containment), the read-side twin of `F4`, admitted by `Q-75`.
 - The README items the `Q-65` crates.io checklist requires: link to `agent-flow`, and state that the `agent-scaffold` name is free for whoever wants to reclaim it, by opening an issue on the `agent-flow` GitHub repository.
 - Reserve `agent-flow` on crates.io at 0.0.2.
 - Publish `agent-scaffold` 0.0.2, leaving the earlier `agent-scaffold` versions un-yanked so the name stays reclaimable.
@@ -73,11 +76,39 @@ ACCEPTANCE CRITERIA for `F4`, each executable:
 
 MAKE THE CLAIM TRUE RATHER THAN DELETE IT, recommended. Deleting the claim is cheaper and is what `src/checks.rs:17-26` does for `.agents/checks.toml`, arguing the trusted-config boundary explicitly. That argument does not carry over: a `.agents/checks.toml` is authored by the user in their own repository, whereas `--template` names a pack the user may have fetched from anywhere, so the pack is external input rather than the user's own configuration. Principle 3 (Safe on existing projects) settles it, and rejecting at the boundary rather than guarding at the write is Principle 5 (Make illegal states unrepresentable). If the implementer takes the delete option instead, the doc comments at `src/manifest.rs:46` and `:271` must stop saying "relative to the output directory" and the README must state the real contract, so the step still closes the gap between what is claimed and what holds.
 
+### Defect `F4b`: a pack `source` can read outside the pack directory
+
+NOT an audit finding. It was found during this step's own implementation of `F4`, reported rather than fixed, and admitted here by `Q-75` (human, 2026-08-13), which is the one authorised widening of the scope above. The number carries `4` because it is the read-side twin of `F4`, in the same struct and closed by the same predicate, and the letter because the audit's `F1` to `F4` numbering is a closed record this defect is not part of.
+
+Verified against the source at `d06f1b5`, whose `src/` is identical to `a4394e4`. `src/manifest.rs:44` documents `AssetSpec.source` as "Path of the source file within the pack". Nothing enforces that. The read site, `PackSource::Directory::read` (`src/manifest.rs:307`), is a bare `fs::read_to_string(root.join(rel))`, which a `..` component escapes and an absolute path discards the root of entirely, exactly as `apply_asset` does on the write side. Two callers pass pack-controlled text to it: `src/manifest.rs:532` (`spec.source`, once per asset) and `src/manifest.rs:433` (`module.guidance`, once per enabled module). The three literal callers (`pack.toml`, `principles.toml`, `instrument.md`) pass fixed strings and are not affected.
+
+Principle 5 (Make illegal states unrepresentable) is the principle this breaks: a doc comment declares the state illegal and no code makes that true, which is the admit-then-guard shape the principle exists to prevent, except that here nothing guards either. Principle 1 (Prefer the cleaner long-term architecture over the smallest diff) is what settles it inside this step rather than after it: once `F4` lands, `AssetSpec` enforces containment on `dest` and not on `source`, which is an incoherent boundary rather than a smaller one.
+
+REPRODUCTION (measured by this planning pass at `d06f1b5`; paths shortened for legibility, the run used a scratch directory):
+
+```
+mkdir -p /tmp/f4b/pack /tmp/f4b/out
+printf 'TOP SECRET\n' > /tmp/f4b/secret.md
+printf '[[asset]]\nsource = "../secret.md"\ndest = "leaked.md"\nownership = "working"\n' > /tmp/f4b/pack/pack.toml
+cargo run -- scaffold --template /tmp/f4b/pack --output-dir /tmp/f4b/out --vcs none --write
+```
+
+Measured: exit 0, the plan line reads `create  leaked.md`, the summary reads "Wrote to /tmp/f4b/out (1 changed, 0 left untouched)", and `/tmp/f4b/out/leaked.md` contains `TOP SECRET`. An absolute `source` reproduces the same result. Two differences from `F4` matter for the acceptance criteria. First, the `dest` is legal, so the output names only `leaked.md` and the leak is invisible in what the run reports. Second, `--dry-run` in place of `--write` prints the same `create  leaked.md` at exit 0, and the outside file has already been read by then, because `load` (`src/manifest.rs:532`) reads the contents into `Asset.contents` before any plan line is printed.
+
+ACCEPTANCE CRITERIA for `F4b`, each executable:
+
+1. Red then green on both shapes, the `..` and the absolute. Before the fix each copies an outside file into the scaffolded project at exit 0; after it each is refused at a non-zero exit, the message names the offending `source`, and nothing is written. Both land as tests.
+2. `--dry-run` is refused too, and the outside file is never opened, not merely never written. This is `F4`'s criterion 2 on the read side, and here it is the whole of the defect rather than a preview detail: the read is the leak.
+3. One predicate, one site. The containment predicate `F4`'s fix introduces, named `safe_path::is_contained_relative` on the implementer's branch as of this writing and absent at `d06f1b5`, is applied at the `PackSource::Directory` arm of `src/manifest.rs:307`, so `spec.source` and `module.guidance` are both covered by one application (Principle 1, Prefer the cleaner long-term architecture over the smallest diff). A fix that checks `spec.source` alone leaves `module.guidance` open and does not close this defect. `PackSource::Embedded` needs no check and gets none: its paths are compile-time and its lookup touches no filesystem. If the implementer instead rejects at manifest-parse time, the outcome must say how `module.guidance` is covered, since it is not an `[[asset]]` field.
+4. Nothing else moves: `cargo test` passes with the built-in asset list unchanged, and a normal `scaffold` run drops the same set of files it dropped before.
+
+FIX DIRECTION is settled by `Q-75` and no alternative is open. `F4`'s delete-the-claim option does not exist here: a `--template` pack is external input the user may have fetched from anywhere, so the `src/checks.rs:17-26` trusted-config argument does not carry over, and `Q-75` records the human rejecting the document-the-boundary option on that ground.
+
 ### Release mechanics
 
 Ordering matters here, because the README's link has to resolve when the crate is published:
 
-1. Land both fixes and regenerate the projection.
+1. Land the three fixes (`F1`, `F4`, `F4b`) and regenerate the projection.
 2. Set `Cargo.toml` `version` to `0.0.2` and close the `CHANGELOG.md` `## [Unreleased]` section as `## [0.0.2]`, dated.
 3. Reserve `agent-flow` on crates.io at 0.0.2, so the README link has a target.
 4. Add the two README items. crates.io treats `-` and `_` as one name, so reserving `agent-flow` also reserves `agent_flow`.

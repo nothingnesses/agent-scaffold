@@ -206,3 +206,92 @@ fn an_absolute_module_guidance_is_refused_and_reads_nothing_outside_the_pack() {
 	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
 	let _ = fs::remove_dir_all(&root);
 }
+
+// -- The symlink shapes --
+//
+// A pack path can also escape without any `..` and without being absolute, by naming
+// a symbolic link the pack itself ships. These three cases are ADDED beside the four
+// string-shape cases above rather than replacing any of them: the string shapes and
+// the link shapes fail different halves of the rule, and only running both pins that
+// the read site applies both.
+
+/// Symlink `link_name` inside `pack` to `target`, replacing any existing entry.
+#[cfg(unix)]
+fn link(
+	pack: &Path,
+	link_name: &str,
+	target: &Path,
+) {
+	let at = pack.join(link_name);
+	let _ = fs::remove_file(&at);
+	std::os::unix::fs::symlink(target, at).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_source_is_refused_and_reads_nothing_outside_the_pack() {
+	let root = scratch("symlink-source");
+	let pack = write_pack(&root, "link.md");
+	link(&pack, "link.md", &root.join("secret.md"));
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	assert_refused(&scaffold(&pack, &out, "--write"), "link.md", &out);
+	assert_refused(&scaffold(&pack, &out, "--dry-run"), "link.md", &out);
+	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_module_guidance_is_refused_and_reads_nothing_outside_the_pack() {
+	let root = scratch("symlink-guidance");
+	let pack = write_guidance_pack(&root, "link.md");
+	link(&pack, "link.md", &root.join("secret.md"));
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	assert_guidance_refused(&scaffold_with_module(&pack, &out, "--write"), "link.md", &out);
+	assert_guidance_refused(&scaffold_with_module(&pack, &out, "--dry-run"), "link.md", &out);
+	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_symlink_cannot_restore_arbitrary_reach() {
+	// A DISTINCT shape, not a variant of the two above: one link to a directory lets a
+	// path string that is relative and carries no `..` reach anything the link's target
+	// contains, which is how the absolute-path refusal is defeated without ever writing
+	// an absolute path. The escape target stays inside this test's own root.
+	let root = scratch("dir-symlink");
+	let pack = write_pack(&root, "up/secret.md");
+	link(&pack, "up", &root);
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	assert_refused(&scaffold(&pack, &out, "--write"), "up/secret.md", &out);
+	assert_refused(&scaffold(&pack, &out, "--dry-run"), "up/secret.md", &out);
+	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pack_internal_symlink_still_scaffolds() {
+	// Non-vacuity for the whole run, matching the unit-level pin: the rule is about
+	// where a path lands, so a link INSIDE the pack is legitimate and a real scaffold
+	// through one must still drop the file with the linked contents.
+	let root = scratch("internal-symlink");
+	let pack = write_pack(&root, "alias.md");
+	fs::create_dir_all(pack.join("sub")).unwrap();
+	fs::write(pack.join("sub/real.md"), "REAL BODY\n").unwrap();
+	link(&pack, "alias.md", Path::new("sub/real.md"));
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = scaffold(&pack, &out, "--write");
+	assert_eq!(output.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+	assert_eq!(fs::read_to_string(out.join("leaked.md")).unwrap(), "REAL BODY\n");
+	let _ = fs::remove_dir_all(&root);
+}

@@ -41,12 +41,13 @@ pub enum Ownership {
 /// One `[[asset]]` entry in a pack manifest.
 #[derive(Debug, Clone, Deserialize)]
 struct AssetSpec {
-	/// Path of the source file within the pack. An absolute path, or one carrying a
-	/// `..` component, is refused by `PackSource::read` before it opens anything
-	/// (`LoadError::UnsafeAssetSource`), so the within-the-pack claim holds rather
-	/// than being merely documented: this is joined onto the pack root to READ, so an
-	/// escaping value would copy a file from outside the pack into the scaffolded
-	/// project.
+	/// Path of the source file within the pack. This is joined onto the pack root to
+	/// READ, so a value that escaped would copy a file from outside the pack into the
+	/// scaffolded project. `PackSource::read` refuses one that does, before it opens
+	/// the file (`LoadError::UnsafeAssetSource`), on both counts: the string must be
+	/// relative and carry no `..` component, AND the path it lands on, following any
+	/// symbolic link, must be inside the pack directory. So the within-the-pack claim
+	/// holds rather than being merely documented.
 	source: String,
 	/// Destination path relative to the output directory. An absolute path, or one
 	/// carrying a `..` component, is refused at load (`LoadError::UnsafeAssetDest`),
@@ -94,10 +95,11 @@ struct ModuleSpec {
 	/// module names a partial the pack does not ship, the load fails. This is unlike
 	/// the tool-computed `instrument.md`, which is silently optional; a declared
 	/// guidance file is not. A FILENAME IN THE PACK is enforced, not merely stated:
-	/// an absolute path or one carrying a `..` component is refused by
-	/// `PackSource::read` before it opens anything
-	/// (`LoadError::UnsafeModuleGuidance`), so a guidance partial cannot splice a
-	/// file from outside the pack into `{{modules}}`.
+	/// `PackSource::read` refuses a path that is absolute, that carries a `..`
+	/// component, or that lands outside the pack directory once symbolic links are
+	/// followed (`LoadError::UnsafeModuleGuidance`), and refuses it before it opens
+	/// the file. So a guidance partial cannot splice a file from outside the pack
+	/// into `{{modules}}`.
 	#[serde(default)]
 	guidance: Option<String>,
 	/// The modules this module auto-enables (transitively) when it is selected. A
@@ -228,6 +230,18 @@ pub enum LoadError {
 	},
 }
 
+/// Why a pack path was refused, as a phrase for a refusal message: the lexical cause
+/// when the string itself broke the rule, else the resolved one, which is the only
+/// remaining way a path the string rule accepts can be refused at the read site.
+///
+/// Derived rather than carried, so a refusal names its actual cause without every
+/// error variant having to thread one. A message that asserted a single fixed cause
+/// would be false of some input it refuses, which is the defect this replaces.
+fn pack_path_cause(reference: &str) -> &'static str {
+	crate::safe_path::lexical_failure(reference)
+		.unwrap_or("it resolves outside the pack directory, through a symbolic link")
+}
+
 impl std::fmt::Display for LoadError {
 	fn fmt(
 		&self,
@@ -257,24 +271,33 @@ impl std::fmt::Display for LoadError {
 				source,
 			} => write!(
 				f,
-				"asset source `{source}` leaves the pack directory; a source must be a relative path \
-				 with no `..` component"
+				"asset source `{source}` is not a contained pack path ({}); a source must be \
+				 relative, carry no `..` component, and resolve to a location inside the pack \
+				 directory",
+				pack_path_cause(source)
 			),
 			LoadError::UnsafeModuleGuidance {
 				module,
 				guidance,
 			} => write!(
 				f,
-				"module `{module}` guidance file `{guidance}` leaves the pack directory; a guidance \
-				 path must be a relative path with no `..` component"
+				"module `{module}` guidance file `{guidance}` is not a contained pack path ({}); a \
+				 guidance path must be relative, carry no `..` component, and resolve to a location \
+				 inside the pack directory",
+				pack_path_cause(guidance)
 			),
 			LoadError::UnsafeAssetDest {
 				source,
 				dest,
 			} => write!(
 				f,
-				"asset `{source}` has dest `{dest}`, which leaves the output directory; a dest must \
-				 be a relative path with no `..` component"
+				"asset `{source}` has dest `{dest}`, which is not a contained output path ({}); a \
+				 dest must be relative and carry no `..` component",
+				// The write side applies the lexical rule only, so every refusal here has a
+				// lexical cause and the fallback is unreachable. It is worded as an absence
+				// rather than as a resolution claim the write side does not make.
+				crate::safe_path::lexical_failure(dest)
+					.unwrap_or("it is not accepted as an output path")
 			),
 			LoadError::UndeclaredModuleRequire {
 				module,
@@ -378,8 +401,9 @@ impl std::fmt::Display for ReadError {
 		match self {
 			ReadError::Escapes(rel) => write!(
 				f,
-				"`{rel}` leaves the pack directory; a pack path must be relative with no `..` \
-				 component"
+				"`{rel}` is not a contained pack path ({}); a pack path must be relative, carry no \
+				 `..` component, and resolve to a location inside the pack directory",
+				pack_path_cause(rel)
 			),
 			ReadError::Io(error) => write!(f, "{error}"),
 		}
@@ -406,8 +430,19 @@ impl PackSource<'_> {
 	/// `instrument.md` literals pass through too and can never escape), so the rule
 	/// is applied at this single site rather than once per caller, and a later caller
 	/// inherits it rather than having to remember it (Principle 1, prefer the cleaner
-	/// long-term architecture over the smallest diff). The refusal happens before the
-	/// join is opened, so an escaping path is never read, not merely never used.
+	/// long-term architecture over the smallest diff).
+	///
+	/// TWO RULES, in order: the path string must be relative and carry no `..`
+	/// component, and the location it lands on, following any symbolic link, must be
+	/// inside the pack directory. The first alone would decide only what the string
+	/// NAMES, and a pack that ships a link can name something inside and land
+	/// anywhere. Either refusal happens before the file is opened, so a path that
+	/// escapes by EITHER rule is never read, not merely never used.
+	///
+	/// Deciding where a path lands requires the filesystem, so this site stats and
+	/// follows links before it refuses. It never reads the CONTENTS of a path it goes
+	/// on to refuse. The lexical rule alone remains available for the boundaries that
+	/// must answer without disk access (see `safe_path`).
 	///
 	/// Only the `Directory` arm is checked. `Embedded` resolves against a
 	/// compile-time map with no filesystem access at all, so it has nothing to
@@ -428,10 +463,21 @@ impl PackSource<'_> {
 					))
 				}),
 			PackSource::Directory(root) => {
+				// The lexical rule first, as a fail-fast: it costs no filesystem access and
+				// it answers for a path that does not exist, so an obviously escaping string
+				// is refused without a stat.
 				if !crate::safe_path::is_contained_relative(rel) {
 					return Err(ReadError::Escapes(rel.to_string()));
 				}
-				fs::read_to_string(root.join(rel)).map_err(ReadError::Io)
+				// Then the resolved rule, which is what actually contains the read. The
+				// lexical rule decides what a string NAMES; only this decides where it
+				// LANDS, and a symbolic link is exactly the gap between the two. A path
+				// that cannot be canonicalised (most often a missing file) is an I/O error,
+				// so a missing pack file still reports as missing rather than as an escape.
+				match crate::safe_path::resolved_within(root, rel).map_err(ReadError::Io)? {
+					Some(real) => fs::read_to_string(real).map_err(ReadError::Io),
+					None => Err(ReadError::Escapes(rel.to_string())),
+				}
 			}
 		}
 	}
@@ -1044,14 +1090,24 @@ mod tests {
 		fs::create_dir_all(&pack).unwrap();
 		fs::write(root.join("outside.md"), "outside\n").unwrap();
 		fs::write(pack.join("inside.md"), "inside\n").unwrap();
+		// A path that names something inside the pack and LANDS outside it, which the
+		// string rule cannot see. Added beside the two string shapes below rather than
+		// in place of either: this test is the only unit-level pin on the one-site
+		// property, so all three shapes have to run through it.
+		#[cfg(unix)]
+		std::os::unix::fs::symlink("../outside.md", pack.join("link.md")).unwrap();
 		let source = PackSource::Directory(pack);
 		// A contained path reads its own bytes.
 		assert_eq!(source.read("inside.md").unwrap(), "inside\n");
 		// An escaping path is refused, and refused as an escape rather than as an I/O
 		// error, whatever the caller.
-		for rel in ["../outside.md", "/etc/passwd"] {
+		#[cfg(unix)]
+		let shapes: &[&str] = &["../outside.md", "/etc/passwd", "link.md"];
+		#[cfg(not(unix))]
+		let shapes: &[&str] = &["../outside.md", "/etc/passwd"];
+		for rel in shapes {
 			match source.read(rel) {
-				Err(ReadError::Escapes(reported)) => assert_eq!(reported, rel),
+				Err(ReadError::Escapes(reported)) => assert_eq!(&reported, rel),
 				other => panic!("expected Escapes for `{rel}`, got {:?}", other.map(|_| ())),
 			}
 		}
@@ -1076,6 +1132,126 @@ mod tests {
 		let assets = load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[])
 			.unwrap_or_else(|error| panic!("a nested source must load: {error}"));
 		assert_eq!(assets[0].contents, "nested body\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn a_pack_internal_symlink_still_loads() {
+		// The companion non-vacuity pin for the RESOLVED rule, beside the one above for
+		// the string rule. The rule is about where a path LANDS, so a link whose target
+		// is inside the pack is legitimate and must keep working. Without this pin a
+		// later over-tightening ("refuse any symlink") would break a legitimate pack and
+		// no gate would catch it: the shipped pack has no symlinks, so the "a normal
+		// scaffold run drops the same set of files" criterion cannot see it.
+		let root = scratch("internal-symlink");
+		fs::create_dir_all(root.join("sub")).unwrap();
+		fs::write(
+			root.join("pack.toml"),
+			"[[asset]]\nsource = \"alias.md\"\ndest = \"a.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(root.join("sub/real.md"), "real body\n").unwrap();
+		std::os::unix::fs::symlink("sub/real.md", root.join("alias.md")).unwrap();
+		let assets = load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[])
+			.unwrap_or_else(|error| panic!("a pack-internal symlink must load: {error}"));
+		assert_eq!(assets[0].contents, "real body\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn a_symlinked_pack_root_still_works() {
+		// A `--template` naming a link TO the pack directory is legitimate: both ends of
+		// the comparison are canonicalised, so the root resolves to the same real
+		// directory its own files do. Pinned because canonicalising only one end would
+		// break this while still refusing the escapes, and every escape test would stay
+		// green.
+		let root = scratch("symlinked-root");
+		let real = root.join("real-pack");
+		fs::create_dir_all(&real).unwrap();
+		fs::write(
+			real.join("pack.toml"),
+			"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		fs::write(real.join("a.md"), "body\n").unwrap();
+		let link = root.join("linked-pack");
+		std::os::unix::fs::symlink(&real, &link).unwrap();
+		let assets = load(&PackSource::Directory(link), &HashMap::new(), &HashMap::new(), &[])
+			.unwrap_or_else(|error| panic!("a symlinked pack root must work: {error}"));
+		assert_eq!(assets[0].contents, "body\n");
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn a_symlinked_source_or_guidance_is_refused_with_its_own_field() {
+		// Both consumer fields, through the link shape, at the unit level: each must be
+		// refused and each must be labelled with its own field, the property the two
+		// error variants exist for.
+		let root = scratch("symlink-fields");
+		let pack = root.join("pack");
+		fs::create_dir_all(&pack).unwrap();
+		fs::write(root.join("secret.md"), "secret\n").unwrap();
+		std::os::unix::fs::symlink("../secret.md", pack.join("link.md")).unwrap();
+		fs::write(pack.join("body.md"), "{{modules}}\n").unwrap();
+
+		// The asset `source` shape.
+		fs::write(
+			pack.join("pack.toml"),
+			"[[asset]]\nsource = \"link.md\"\ndest = \"leaked.md\"\nownership = \"working\"\n",
+		)
+		.unwrap();
+		let source = PackSource::Directory(pack.clone());
+		match load(&source, &HashMap::new(), &HashMap::new(), &[]) {
+			Err(error @ LoadError::UnsafeAssetSource {
+				..
+			}) => {
+				let message = error.to_string();
+				assert!(message.contains("link.md"), "{message}");
+				assert!(message.contains("asset source"), "{message}");
+				// The cause names the resolution, not a `..` the string does not carry.
+				assert!(message.contains("symbolic link"), "{message}");
+			}
+			other => panic!("expected UnsafeAssetSource, got {:?}", other.map(|_| ())),
+		}
+
+		// The module `guidance` shape, which `load` never sees.
+		fs::write(
+			pack.join("pack.toml"),
+			"[[module]]\nname = \"evil\"\ndescription = \"d\"\nguidance = \"link.md\"\n\n\
+			 [[asset]]\nsource = \"body.md\"\ndest = \"body.md\"\nownership = \"working\"\nrender = true\n",
+		)
+		.unwrap();
+		match module_guidance(&source, &["evil".to_string()]) {
+			Err(error @ LoadError::UnsafeModuleGuidance {
+				..
+			}) => {
+				let message = error.to_string();
+				assert!(message.contains("link.md"), "{message}");
+				assert!(message.contains("evil"), "{message}");
+				assert!(message.contains("symbolic link"), "{message}");
+				assert!(!message.contains("could not be read"), "{message}");
+			}
+			other => panic!("expected UnsafeModuleGuidance, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_missing_pack_file_still_reports_as_missing_not_as_an_escape() {
+		// The resolved rule cannot canonicalise a path that does not exist, so a missing
+		// file must stay an I/O error rather than becoming a containment refusal. Pins
+		// the error shape the `module_guidance` wrapper prints.
+		let root = scratch("missing-file");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(root.join("pack.toml"), "").unwrap();
+		let source = PackSource::Directory(root.clone());
+		match source.read("absent.md") {
+			Err(ReadError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
+			other => panic!("expected a NotFound Io error, got {:?}", other.map(|_| ())),
+		}
 		fs::remove_dir_all(&root).unwrap();
 	}
 

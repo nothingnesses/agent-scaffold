@@ -295,3 +295,149 @@ fn a_pack_internal_symlink_still_scaffolds() {
 	assert_eq!(fs::read_to_string(out.join("leaked.md")).unwrap(), "REAL BODY\n");
 	let _ = fs::remove_dir_all(&root);
 }
+
+// -- The literals the tool reads by name --
+//
+// `principles.toml` and `instrument.md` are read by literal name rather than through
+// an `[[asset]]`, and their call sites once discarded every error because the only
+// reachable one meant "the pack ships none". The resolved rule made a refusal
+// reachable for them too. These cases pin that a refused literal is now reported
+// rather than silently treated as absent. ADDED beside the eight cases above; none of
+// those is replaced.
+
+/// Write a pack at `<root>/pack` that renders `{{principles}}` and `{{instrument}}`
+/// into one asset, with `literal` deployed as a link OUT of the pack. Returns the pack.
+#[cfg(unix)]
+fn write_literal_pack(
+	root: &Path,
+	literal: &str,
+) -> PathBuf {
+	fs::write(root.join("outside.txt"), "id = \"x\"\nname = \"X\"\nsummary = \"s\"\n").unwrap();
+	let pack = root.join("pack");
+	fs::create_dir_all(&pack).unwrap();
+	fs::write(
+		pack.join("pack.toml"),
+		"[[asset]]\nsource = \"body.md\"\ndest = \"AGENTS.md\"\nownership = \"working\"\nrender = \
+		 true\n",
+	)
+	.unwrap();
+	fs::write(pack.join("body.md"), "P:{{principles}}\nI:{{instrument}}\n").unwrap();
+	std::os::unix::fs::symlink(root.join("outside.txt"), pack.join(literal)).unwrap();
+	pack
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_instrument_fragment_is_reported_not_silently_dropped() {
+	let root = scratch("literal-instrument");
+	let pack = write_literal_pack(&root, "instrument.md");
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+		.args(["scaffold", "--template"])
+		.arg(&pack)
+		.arg("--output-dir")
+		.arg(&out)
+		.args(["--vcs", "none", "--instrument", "--write"])
+		.output()
+		.unwrap();
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert_ne!(output.status.code(), Some(0), "stdout: {stdout}\nstderr: {stderr}");
+	assert!(stderr.contains("instrument.md"), "the message must name the file: {stderr}");
+	assert!(!stdout.contains("Wrote to"), "a write was reported: {stdout}");
+	assert!(!out.join("AGENTS.md").exists(), "a degraded AGENTS.md was written");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_principles_file_is_reported_not_silently_dropped() {
+	let root = scratch("literal-principles");
+	let pack = write_literal_pack(&root, "principles.toml");
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+		.args(["scaffold", "--template"])
+		.arg(&pack)
+		.arg("--output-dir")
+		.arg(&out)
+		.args(["--vcs", "none", "--write"])
+		.output()
+		.unwrap();
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert_ne!(output.status.code(), Some(0), "stdout: {stdout}\nstderr: {stderr}");
+	assert!(stderr.contains("principles.toml"), "the message must name the file: {stderr}");
+	// It must say it could not READ the file, not that it could not parse it: the file
+	// never became text.
+	assert!(!stderr.contains("could not parse"), "named the wrong step: {stderr}");
+	assert!(!out.join("AGENTS.md").exists(), "a degraded AGENTS.md was written");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_pack_manifest_is_refused_with_a_message_naming_it() {
+	// The `pack.toml` literal goes through `io::Error::from` and carries no field
+	// label, so nothing pinned its wording. It is the first read a run makes, so on a
+	// linked pack it is the first thing a user sees.
+	let root = scratch("literal-manifest");
+	let pack = root.join("pack");
+	fs::create_dir_all(&pack).unwrap();
+	fs::write(
+		root.join("outside.toml"),
+		"[[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n",
+	)
+	.unwrap();
+	std::os::unix::fs::symlink(root.join("outside.toml"), pack.join("pack.toml")).unwrap();
+	fs::write(pack.join("a.md"), "a\n").unwrap();
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = scaffold(&pack, &out, "--write");
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert_ne!(output.status.code(), Some(0), "stderr: {stderr}");
+	assert!(stderr.contains("pack.toml"), "the message must name the manifest: {stderr}");
+	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pack_shipping_neither_optional_literal_still_scaffolds() {
+	// Non-vacuity for the whole run: absence must stay silent. A pack with no
+	// `principles.toml` and no `instrument.md` renders both blocks empty at exit 0,
+	// which is what `README.md` promises and what an over-tightening would break.
+	let root = scratch("literal-absent");
+	let pack = root.join("pack");
+	fs::create_dir_all(&pack).unwrap();
+	fs::write(
+		pack.join("pack.toml"),
+		"[[asset]]\nsource = \"body.md\"\ndest = \"AGENTS.md\"\nownership = \"working\"\nrender = \
+		 true\n",
+	)
+	.unwrap();
+	fs::write(pack.join("body.md"), "P:{{principles}}\nI:{{instrument}}\n").unwrap();
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+		.args(["scaffold", "--template"])
+		.arg(&pack)
+		.arg("--output-dir")
+		.arg(&out)
+		.args(["--vcs", "none", "--instrument", "--write"])
+		.output()
+		.unwrap();
+	assert_eq!(
+		output.status.code(),
+		Some(0),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert_eq!(fs::read_to_string(out.join("AGENTS.md")).unwrap(), "P:\nI:\n");
+	let _ = fs::remove_dir_all(&root);
+}

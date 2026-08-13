@@ -2,13 +2,21 @@
 //! and the tool then joins onto a base directory.
 //!
 //! Several callers join such a string onto a directory they own: `plan::source` joins a
-//! `[meta].sidecars` front/tail ref (and a `[step.provenance].findings` ref) onto the
-//! plan directory to READ it, and `manifest` joins an `[[asset]].dest` onto the
-//! `--output-dir` to WRITE it and an `[[asset]].source` or a `[[module]].guidance` onto
-//! the pack root to READ it. Both inputs are external (a `.plan.toml` or a
-//! `--template` pack the user may have fetched from anywhere), so the rules are
-//! authored here once rather than copied per caller (Principle 1, prefer the cleaner
-//! long-term architecture over the smallest diff).
+//! `[meta].sidecars` front/tail ref onto the plan directory to READ it, and `manifest`
+//! joins an `[[asset]].dest` onto the `--output-dir` to WRITE it and an
+//! `[[asset]].source` or a `[[module]].guidance` onto the pack root to READ it. Both
+//! inputs are external (a `.plan.toml` or a `--template` pack the user may have fetched
+//! from anywhere), so the rules are authored here once rather than copied per caller
+//! (Principle 1, prefer the cleaner long-term architecture over the smallest diff).
+//!
+//! ONE CALLER USES THE LEXICAL RULE WITHOUT JOINING ANYTHING. A
+//! `[step.provenance].findings` ref is shape-checked with `is_contained_relative` and
+//! is never joined onto a directory and never read: `render` puts it on the Roadmap
+//! Notes line as text. That difference matters for a later change rather than for this
+//! one, so it is recorded here: `resolved_within` must NOT be applied to a findings
+//! ref, because it requires the path to exist, while `plan::source` deliberately does
+//! not existence-check one (a findings file is committed and then deleted at task
+//! close, so a valid historical pointer can name an absent path).
 //!
 //! TWO RULES, at two strengths, because a caller that can touch the filesystem can
 //! answer a question a caller that cannot must leave open:

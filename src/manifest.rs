@@ -189,8 +189,9 @@ pub enum LoadError {
 		module: String,
 	},
 	/// An `[[asset]]`'s `source` is not contained by the pack directory: it is
-	/// absolute, or it carries a `..` component. Refused before the read, so no such
-	/// file is ever opened. Distinct from `UnsafeAssetDest` because the two name
+	/// absolute, it carries a `..` component, or it lands outside the pack once
+	/// symbolic links are followed. Refused before the file is opened, so no such
+	/// file is ever read. Distinct from `UnsafeAssetDest` because the two name
 	/// different fields and a reader shown the wrong one loses time on the wrong side
 	/// of the manifest entry.
 	UnsafeAssetSource {
@@ -198,7 +199,8 @@ pub enum LoadError {
 		source: String,
 	},
 	/// A `[[module]]`'s `guidance` is not contained by the pack directory: it is
-	/// absolute, or it carries a `..` component. The same refusal as
+	/// absolute, it carries a `..` component, or it lands outside the pack once
+	/// symbolic links are followed. The same refusal as
 	/// `UnsafeAssetSource`, from the same predicate at the same read site, but its own
 	/// variant because `guidance` is a different field on a different section: a
 	/// reader told an ASSET SOURCE escaped would look for an `[[asset]]` that does not
@@ -208,6 +210,18 @@ pub enum LoadError {
 		module: String,
 		/// The `guidance` path that would escape it.
 		guidance: String,
+	},
+	/// A pack file the tool reads DIRECTLY, rather than through an `[[asset]]`, could
+	/// not be read: a containment refusal, or an unreadable file. An ABSENT file is
+	/// not this error, because absence is the documented meaning of a pack shipping no
+	/// such file; `PackSource::read_optional` returns `Ok(None)` for that and this
+	/// variant is for everything else.
+	UnreadablePackFile {
+		/// The pack-relative path, so the message names the file even when the inner
+		/// error does not (an unreadable file reports only the I/O cause).
+		rel: String,
+		/// Why the read did not happen.
+		problem: ReadError,
 	},
 	/// An `[[asset]]`'s `dest` is not contained by the output directory: it is
 	/// absolute, or it carries a `..` component. Refused at load, so no such asset
@@ -294,11 +308,19 @@ impl std::fmt::Display for LoadError {
 				"asset `{source}` has dest `{dest}`, which is not a contained output path ({}); a \
 				 dest must be relative and carry no `..` component",
 				// The write side applies the lexical rule only, so every refusal here has a
-				// lexical cause and the fallback is unreachable. It is worded as an absence
-				// rather than as a resolution claim the write side does not make.
+				// lexical cause ON UNIX, where the two predicates agree and the fallback does
+				// not fire. They do NOT agree everywhere: a `Prefix`-bearing path such as
+				// `C:foo.md` fails `is_contained_relative` while being neither absolute nor
+				// `..`-bearing, so on Windows the fallback is reached. It is worded as an
+				// absence rather than as a resolution claim the write side does not make, and
+				// it must stay a real phrase rather than become `unreachable!()`.
 				crate::safe_path::lexical_failure(dest)
 					.unwrap_or("it is not accepted as an output path")
 			),
+			LoadError::UnreadablePackFile {
+				rel,
+				problem,
+			} => write!(f, "could not read the pack's `{rel}`: {problem}"),
 			LoadError::UndeclaredModuleRequire {
 				module,
 				requires,
@@ -375,19 +397,22 @@ pub enum PackSource<'a> {
 	Directory(PathBuf),
 }
 
-/// Why a `PackSource::read` did not return the file's bytes: the relative path was
-/// refused because it leaves the pack, or the read itself failed.
+/// Why a `PackSource::read` did not return the file's bytes: the path was refused by
+/// a containment rule, or the read itself failed.
 ///
-/// A refusal is NOT an I/O failure and is not typed as one. The path never reached
-/// the filesystem, so reporting it as a read error would describe an attempt that
-/// never happened, and would leave a caller unable to tell the two apart without
-/// matching on a message. `read` cannot name the FIELD the path came from (it sees
-/// only a relative string), so each caller maps `Escapes` onto its own field-named
-/// `LoadError` variant.
+/// A refusal is NOT an I/O failure and is not typed as one. The file's CONTENTS were
+/// never read, so reporting it as a read error would describe a read that never
+/// happened, and would leave a caller unable to tell the two apart without matching
+/// on a message. Deciding where a path lands does stat and follow links, so a refusal
+/// is not free of filesystem access; it is free of the read it refuses. `read` cannot
+/// name the FIELD the path came from (it sees only a relative string), so each caller
+/// maps `Escapes` onto its own field-named `LoadError` variant.
 #[derive(Debug)]
 pub enum ReadError {
-	/// `rel` is not contained by the pack directory: it is absolute, or it carries a
-	/// `..` component. Refused BEFORE the read, so the file outside is never opened.
+	/// `rel` is not contained by the pack directory: it is absolute, it carries a
+	/// `..` component, or it lands outside the pack once symbolic links are followed.
+	/// Refused BEFORE the file is opened, so the outside file's contents are never
+	/// read.
 	Escapes(String),
 	/// Reading the file inside the pack failed.
 	Io(io::Error),
@@ -427,7 +452,10 @@ impl PackSource<'_> {
 	/// THE ONE containment boundary for pack-controlled paths. Every path a pack
 	/// author writes reaches the filesystem through here (an `[[asset]]`'s `source`
 	/// and a `[[module]]`'s `guidance`; the fixed `pack.toml`, `principles.toml` and
-	/// `instrument.md` literals pass through too and can never escape), so the rule
+	/// `instrument.md` literals pass through too and are subject to the same two
+	/// rules, which is what makes this THE boundary rather than most of one: a literal
+	/// names nothing that escapes, but the file it names can still BE a link out, and
+	/// then it is refused like anything else). The rule
 	/// is applied at this single site rather than once per caller, and a later caller
 	/// inherits it rather than having to remember it (Principle 1, prefer the cleaner
 	/// long-term architecture over the smallest diff).
@@ -482,9 +510,40 @@ impl PackSource<'_> {
 		}
 	}
 
-	/// Parse the pack's `pack.toml` manifest. The path is a fixed literal, so the
-	/// containment refusal in `read` cannot fire here; it is mapped rather than
-	/// special-cased so this stays a plain read.
+	/// Read an OPTIONAL pack file: `Ok(None)` means the pack ships no such file, and
+	/// that is the ONLY outcome a caller may treat as an absence. Every other outcome,
+	/// a containment refusal included, is an `Err` the caller must report.
+	///
+	/// This exists because "the pack ships no such file" and "the pack shipped a file
+	/// I refuse to read" are different facts, and an API that offers only `read` makes
+	/// them the same value: a caller that wants the first has to discard a `Result`,
+	/// which silently accepts the second. Moving the absence into the SUCCESS type is
+	/// the Principle 5 form (make illegal states unrepresentable), and it is what stops
+	/// a refusal being spelled the same way as an absence.
+	///
+	/// It does not make swallowing impossible, and nothing in Rust can: a caller may
+	/// still write `.unwrap_or_default()` on this too. What it buys is that the
+	/// correct optional-read primitive exists and is the obvious one to reach for, and
+	/// that a caller who still discards a refusal must write an explicit arm to do it,
+	/// which is visible in review and findable with one grep.
+	pub fn read_optional(
+		&self,
+		rel: &str,
+	) -> Result<Option<String>, ReadError> {
+		match self.read(rel) {
+			Ok(contents) => Ok(Some(contents)),
+			// ONLY a genuine absence becomes `None`. `Embedded` reports a missing file as
+			// `NotFound` too, so the built-in pack keeps answering "ships none" the same
+			// way a directory pack does.
+			Err(ReadError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+			Err(error) => Err(error),
+		}
+	}
+
+	/// Parse the pack's `pack.toml` manifest. The literal is subject to the same two
+	/// containment rules as any other pack path, so a `pack.toml` that is itself a
+	/// link out of the pack is refused here; the refusal is mapped to an `io::Error`
+	/// rather than special-cased, so this stays a plain read.
 	fn manifest(&self) -> io::Result<Manifest> {
 		let source = self.read("pack.toml").map_err(io::Error::from)?;
 		toml::from_str(&source).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
@@ -1251,6 +1310,52 @@ mod tests {
 		match source.read("absent.md") {
 			Err(ReadError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
 			other => panic!("expected a NotFound Io error, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn read_optional_answers_absence_with_none_and_never_with_an_error() {
+		// THE pin on the absence-stays-silent contract, which nothing held at any level
+		// before: the shipped pack ships both optional files, so no scaffold-parity gate
+		// can catch an over-tightening that makes a MISSING file loud. `README.md` and
+		// `ModuleSpec.guidance`'s doc both promise that a pack shipping neither file is
+		// legitimate.
+		let root = scratch("read-optional-absent");
+		fs::create_dir_all(&root).unwrap();
+		fs::write(root.join("pack.toml"), "").unwrap();
+		let source = PackSource::Directory(root.clone());
+		assert_eq!(source.read_optional("principles.toml").unwrap(), None);
+		assert_eq!(source.read_optional("instrument.md").unwrap(), None);
+		// A file the pack DOES ship comes back whole.
+		fs::write(root.join("instrument.md"), "FRAG\n").unwrap();
+		assert_eq!(source.read_optional("instrument.md").unwrap(), Some("FRAG\n".to_string()));
+		// The embedded pack answers the same way, which is what keeps the default
+		// scaffold's principles working.
+		assert!(builtin().read_optional("principles.toml").unwrap().is_some());
+		assert_eq!(builtin().read_optional("no-such-file.md").unwrap(), None);
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn read_optional_reports_a_refused_literal_rather_than_calling_it_absent() {
+		// B1: the resolved rule made `Escapes` reachable for a fixed literal for the
+		// first time. `read_optional` must NOT fold that into `Ok(None)`, or a refusal
+		// becomes indistinguishable from "the pack ships none" and the tool silently
+		// generates a wrong `AGENTS.md`.
+		let root = scratch("read-optional-refused");
+		let pack = root.join("pack");
+		fs::create_dir_all(&pack).unwrap();
+		fs::write(root.join("outside.toml"), "outside\n").unwrap();
+		std::os::unix::fs::symlink("../outside.toml", pack.join("principles.toml")).unwrap();
+		std::os::unix::fs::symlink("../outside.toml", pack.join("instrument.md")).unwrap();
+		let source = PackSource::Directory(pack);
+		for rel in ["principles.toml", "instrument.md"] {
+			match source.read_optional(rel) {
+				Err(ReadError::Escapes(reported)) => assert_eq!(reported, rel),
+				other => panic!("expected Escapes for `{rel}`, got {:?}", other.map(|_| ())),
+			}
 		}
 		fs::remove_dir_all(&root).unwrap();
 	}

@@ -522,10 +522,10 @@ impl PackSource<'_> {
 	/// a refusal being spelled the same way as an absence.
 	///
 	/// It does not make swallowing impossible, and nothing in Rust can: a caller may
-	/// still write `.unwrap_or_default()` on this too. What it buys is that the
-	/// correct optional-read primitive exists and is the obvious one to reach for, and
-	/// that a caller who still discards a refusal must write an explicit arm to do it,
-	/// which is visible in review and findable with one grep.
+	/// still write `.unwrap_or_default()` on this too, and a caller that does passes
+	/// `cargo clippy --all-targets -- -D warnings`. What it buys is that the correct
+	/// optional-read primitive exists and is the obvious one to reach for. The
+	/// invariant is held by review, not by the compiler.
 	pub fn read_optional(
 		&self,
 		rel: &str,
@@ -1316,11 +1316,8 @@ mod tests {
 
 	#[test]
 	fn read_optional_answers_absence_with_none_and_never_with_an_error() {
-		// THE pin on the absence-stays-silent contract, which nothing held at any level
-		// before: the shipped pack ships both optional files, so no scaffold-parity gate
-		// can catch an over-tightening that makes a MISSING file loud. `README.md` and
-		// `ModuleSpec.guidance`'s doc both promise that a pack shipping neither file is
-		// legitimate.
+		// Absence stays silent, held at the primitive level. A pack that ships neither
+		// optional file is legitimate (`README.md`).
 		let root = scratch("read-optional-absent");
 		fs::create_dir_all(&root).unwrap();
 		fs::write(root.join("pack.toml"), "").unwrap();

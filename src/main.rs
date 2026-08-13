@@ -2109,7 +2109,17 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 
 	// The active pack: the built-in one, or an external directory via --template.
 	let source = match &args.template {
-		Some(path) => manifest::PackSource::Directory(path.clone()),
+		Some(path) => {
+			// A failure of the --template ROOT belongs to the root, not to the first file
+			// inside it a run happens to read. This is the only site that knows the
+			// difference. `is_dir` follows links and answers false on any error, so one
+			// predicate covers a plain file, a link loop and a path that is not there.
+			if !path.is_dir() {
+				eprintln!("error: --template `{}` must name a directory", path.display());
+				std::process::exit(2);
+			}
+			manifest::PackSource::Directory(path.clone())
+		}
 		None => manifest::builtin(),
 	};
 

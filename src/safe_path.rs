@@ -1,13 +1,10 @@
 //! The containment rules for a free-string path a manifest or a plan source supplies
 //! and the tool then joins onto a base directory.
 //!
-//! Several callers join such a string onto a directory they own: `plan::source` joins a
-//! `[meta].sidecars` front/tail ref onto the plan directory to READ it, and `manifest`
-//! joins an `[[asset]].dest` onto the `--output-dir` to WRITE it and an
-//! `[[asset]].source` or a `[[module]].guidance` onto the pack root to READ it. Both
-//! inputs are external (a `.plan.toml` or a `--template` pack the user may have fetched
-//! from anywhere), so the rules are authored here once rather than copied per caller
-//! (Principle 1, prefer the cleaner long-term architecture over the smallest diff).
+//! The strings are external (a `.plan.toml` or a `--template` pack the user may have
+//! fetched from anywhere), so the rules are authored here once rather than copied per
+//! caller (Principle 1, prefer the cleaner long-term architecture over the smallest
+//! diff).
 //!
 //! ONE CALLER USES THE LEXICAL RULE WITHOUT JOINING ANYTHING. A
 //! `[step.provenance].findings` ref is shape-checked with `is_contained_relative` and

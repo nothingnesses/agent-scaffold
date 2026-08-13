@@ -382,8 +382,7 @@ fn a_linked_principles_file_is_reported_not_silently_dropped() {
 #[test]
 fn a_linked_pack_manifest_is_refused_with_a_message_naming_it() {
 	// The `pack.toml` literal goes through `io::Error::from` and carries no field
-	// label, so nothing pinned its wording. It is the first read a run makes, so on a
-	// linked pack it is the first thing a user sees.
+	// label, so nothing pinned its wording.
 	let root = scratch("literal-manifest");
 	let pack = root.join("pack");
 	fs::create_dir_all(&pack).unwrap();
@@ -439,5 +438,32 @@ fn a_pack_shipping_neither_optional_literal_still_scaffolds() {
 		String::from_utf8_lossy(&output.stderr)
 	);
 	assert_eq!(fs::read_to_string(out.join("AGENTS.md")).unwrap(), "P:\nI:\n");
+	let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_template_that_is_not_a_directory_is_reported_against_the_flag() {
+	// A failure of the `--template` root must name the flag and the path, not the
+	// first file inside the pack a run happens to read. Nothing pinned this message
+	// before, so nothing is replaced.
+	let root = scratch("template-not-a-dir");
+	let not_a_pack = root.join("pack.toml");
+	fs::write(&not_a_pack, "[[asset]]\n").unwrap();
+	let out = root.join("out");
+	fs::create_dir_all(&out).unwrap();
+
+	let output = scaffold(&not_a_pack, &out, "--write");
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert_ne!(output.status.code(), Some(0), "stderr: {stderr}");
+	assert!(stderr.contains("--template"), "the message must name the flag: {stderr}");
+	assert!(
+		stderr.contains(not_a_pack.to_str().unwrap()),
+		"the message must name the path: {stderr}"
+	);
+	assert!(
+		!stderr.contains("principles.toml"),
+		"a root failure must not be reported against a file inside the pack: {stderr}"
+	);
+	assert_eq!(fs::read_dir(&out).unwrap().count(), 0, "the output directory must stay empty");
 	let _ = fs::remove_dir_all(&root);
 }

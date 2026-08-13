@@ -1154,8 +1154,8 @@ decisions = ["Q-64"]
 slug = "rename-to-agent-flow"
 title = "rename the crate and binary from agent-scaffold to `agent-flow` at a stable, release-ready state (`Q-65`)"
 status = "deferred"
-order = 84
-blocked_by = []
+order = 100
+blocked_by = ["audit-user-prompt"]
 folds = []
 increment = []
 waiver = []
@@ -1445,6 +1445,50 @@ risk_class = "risky"
 [[step.increment]]
 id = "validation-constraints-inc6"
 risk_class = "risky"
+
+[[step]]
+slug = "ship-v0-0-2"
+title = "fix the two audit defects, reserve `agent-flow`, and publish `agent-scaffold` 0.0.2 (`Q-71`, `Q-74`)"
+status = "next"
+order = 98
+blocked_by = []
+folds = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-71", "Q-74"]
+findings = ["workflow-calibration.explorations/2026-08-13-audit-when-the-loop-turned.md"]
+
+[[step.increment]]
+id = "ship-v0-0-2-inc1"
+risk_class = "low_risk"
+
+[[step]]
+slug = "audit-user-prompt"
+title = "add the `audit.md` user prompt, carrying the three disciplines that made the 2026-08-13 audit measure anything (`Q-72`)"
+status = "not-started"
+order = 99
+blocked_by = ["ship-v0-0-2"]
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+decisions = ["Q-72"]
+findings = ["workflow-calibration.explorations/2026-08-13-audit-when-the-loop-turned.md"]
+
+[[step]]
+slug = "workflow-audit-followups"
+title = "the 2026-08-13 audit's remaining recommendations, held as one deferred pointer rather than a backlog"
+status = "deferred"
+order = 101
+blocked_by = []
+folds = []
+increment = []
+waiver = []
+
+[step.provenance]
+findings = ["workflow-calibration.explorations/2026-08-13-audit-when-the-loop-turned.md"]
 
 [[question]]
 id = "Q-1"
@@ -1968,6 +2012,34 @@ WHAT THE PASS OWES BACK. Explorers write to `docs/plans/validation-constraints.e
 DECIDED (human, 2026-08-12): DIRECTION (iii), THE ROUND-LOG JOIN, over retiring the ownership rule (direction (iv)) and over building both to compare, with receipt `type:"decision"` `q_id:"Q-70"` in `docs/metrics/workflow.jsonl`. A second decision, receipt `q_id:"Q-70-resolver"`, BOUNDS MECHANISM 3 NOW AND DESIGNS IT LATER, over designing and building it in this step and over dropping it entirely. Folded into `validation-constraints`, whose sidecar carries the fix, the increments and the bounds. `Q-70` is past the `[meta].w4_baseline` cutoff, so W4 enforces the receipt; the `Q-70-resolver` receipt is a sub-decision id under this registered parent and owes no question of its own, per the sub-decision ruling below.
 
 THE PASS'S ANSWER, recorded here so a later reader finds the conclusion without re-reading three explorations. FOUR SITES ANSWER "DOES THIS WAIVER OWN THIS INCREMENT", not the two this item frames the problem around: W3's covering-waiver match, W5's lexical strip, the per-step membership check in `src/plan/source.rs`, and the JSONL `check_record` waiver arm, which performs no ownership check at all. THE CORRECT ANSWER ALREADY EXISTS IN THE TOOL: W3's match at `src/workflow.rs:498-502` already computes the `(step, increment)` relation structurally from the round log, so the fix EXTRACTS AND SHARES that relation rather than inventing or relocating one, and W3 and W5 then consult one implementation. THE COUPLING QUESTION IS ANSWERED AND THE PREMISE INVERTS: whether the W5 fix shares a mechanism with the prospective waiver-note join is a CONSEQUENCE OF THE DIRECTION rather than an empirical unknown, YES under (iii) where both resolve through the same predicate and NO under (i) where they key on different sets; and the recorded schema constraint binds THE OTHER PAIR, because project identity adds `project` to `Round` while the note join needs `valid_findings` on the same `Round`, whereas direction (iii) adds no field to any struct. So `Q-55-mechanism`'s "one deliberate edit rather than a rider on a path fix" binds the note join and project identity and does NOT bind the W5 fix, which ships first and alone. LETTER (e) IS SETTLED ON EVIDENCE ALL THREE EXPLORERS MEASURED INDEPENDENTLY: a receipt `q_id` of the form `Q-<n>-<suffix>` whose parent `Q-<n>` is registered is a LEGITIMATE SUB-DECISION CONVENTION rather than a dangling receipt, so under the parent-resolution reading mechanism (2)'s red list is EMPTY TODAY and it is a REGRESSION GUARD rather than a defect finder. Re-measure that as two properties rather than a set, since the population moves: every unresolved receipt id is `Q-<n>-<suffix>` shaped, and every parent is registered."""
+
+[[question]]
+id = "Q-71"
+status = "decided"
+folded_into = "ship-v0-0-2"
+receipt = "Q-71"
+ask = """what to do first now that the 2026-08-13 workflow audit has reported, given its verdict that the workflow was not degenerate but BECAME degenerate between 2026-07-19 and 07-31, and given the fact it says frames everything else: one release, `v0.0.1`, on project day 2, 937 commits ago. OPTIONS PRESENTED: (a) fix two defects, then ship `v0.0.2`; (b) fix all four defects the audit found, then ship; (c) reform the workflow first, then ship; (d) descope the shipped guidance first, then ship. DECIDED (human, 2026-08-13): (a). THE TWO ARE THE AUDIT'S `F1` AND `F4`. `F1`: `render` interpolates free-text TOML into generated Markdown unescaped, so `escape_cell` (`src/plan/render.rs:538`) is applied at one call site of four and the projection can be made to carry structure the source never declared, which the project's own Markdown validator then rejects; this breaks the projection closure Principle 8 (Structured data first, project for humans) rests on. `F4`: `src/manifest.rs:46` and `:271` document a pack `dest` as relative to the output directory and no containment check exists anywhere, so a pack writes outside `--output-dir` while the run reports it wrote inside; the minimum fix is to make the claim true or delete it. THE RELEASE SCOPE IS EXACTLY those two fixes, the README items the `Q-65` crates.io checklist requires (link to `agent-flow`, state that the `agent-scaffold` name is reclaimable), the `agent-flow` reservation on crates.io at 0.0.2, and the `agent-scaffold` 0.0.2 publish. Nothing else. REJECTED (b) because `F2`'s fix is a real design question: joining declared increments to the round log changes what passes, so it cannot ride a release. REJECTED (c) because reforming the workflow generates no external evidence, which is what Principle 6 (Ground decisions in evidence) asks for before an approach is built out further. REJECTED (d) because deciding what to delete without knowing what anyone uses is the unvalidated build-out Principle 6 exists to prevent, however strongly Principle 2 (Minimal by default) supports the eventual descope. Folded into `ship-v0-0-2`; decision receipt `type:"decision"` `q_id:"Q-71"` in `docs/metrics/workflow.jsonl`. Decision and reasoning in `ship-v0-0-2`."""
+
+[[question]]
+id = "Q-72"
+status = "decided"
+folded_into = "audit-user-prompt"
+receipt = "Q-72"
+ask = """when the audit prompt lands, given that the 2026-08-13 audit was invoked ad hoc and nothing in the pack lets a user run one. OPTIONS PRESENTED: (a) after `v0.0.2` and before the rename; (b) inside `v0.0.2`, so the release ships it; (c) defer it until the loop changes are settled, so the prompt describes the reformed loop. DECIDED (human, 2026-08-13): (a). It adds a new `pack/user-prompts/audit.md` beside the six that exist there. It must carry the three disciplines that made the 2026-08-13 audit worth reading, rather than a general instruction to reflect: fix the criteria before measuring, name the failure condition in advance so it cannot move, and give the measuring to agents that do not benefit from the answer. Without those it is a prompt that produces a flattering summary. REJECTED (b) because every addition to the release defeats the release's purpose, which is to end a 34-day delivery drought. REJECTED (c) because the prompt records a measurement METHOD rather than the loop's constants, so it does not go stale when the constants change, and deferring it puts it behind the rename's 138-file churn for no gain. Folded into `audit-user-prompt`; decision receipt `type:"decision"` `q_id:"Q-72"` in `docs/metrics/workflow.jsonl`. Decision and reasoning in `audit-user-prompt`."""
+
+[[question]]
+id = "Q-73"
+status = "decided"
+folded_into = "workflow-calibration"
+receipt = "Q-73"
+ask = """where the 2026-08-13 audit's records live and in what format, given that the audit was delivered as a rendered HTML artifact. OPTIONS PRESENTED: (a) in `docs/plans/workflow-calibration.explorations/`, in Markdown; (b) in a new `docs/audits/` directory; (c) store the HTML artifact verbatim; (d) store both the Markdown and the HTML. DECIDED (human, 2026-08-13): (a), and ALREADY EXECUTED at `572e331`. `workflow-calibration` is the in-progress step whose stated purpose is calibrating the round constants from real use, and this audit is that step's deliverable, so its records belong to that step rather than to a directory of their own. REJECTED (b) because a new top-level directory separates the audit from the step whose evidence it is. REJECTED (c) and (d) because the HTML is a projection of the record and not the record, and keeping both makes two homes for one fact (Principle 8, Structured data first, project for humans; Principle 1, Prefer the cleaner long-term architecture over the smallest diff). The rendered artifact is still reachable: the record's own first line carries its URL. Folded into `workflow-calibration`; decision receipt `type:"decision"` `q_id:"Q-73"` in `docs/metrics/workflow.jsonl`. Decision and reasoning in `workflow-calibration`."""
+
+[[question]]
+id = "Q-74"
+status = "decided"
+folded_into = "ship-v0-0-2"
+receipt = "Q-74"
+ask = """what convergence bar the `v0.0.2` fix work is held to. OPTIONS PRESENTED: (a) `low_risk`, one clean round; (b) `risky`, two consecutive clean rounds; (c) a mechanical oracle-only acceptance with no review loop at all. DECIDED (human, 2026-08-13): (a), declared on `ship-v0-0-2-inc1`. THE REASONING THE HUMAN ACCEPTED: both defects arrive with working reproductions, so the fix pass starts from a red-then-green oracle rather than inventing one, and the audit measured `low_risk` loops converging 86.4% of the time at a median of 2 rounds, against `risky` loops that have not converged once in twelve days (0 of the 8 opened after 2026-07-31). REJECTED (b) because a bar not met once in twelve days is a bar that ends in a waiver, and the release cannot wait on one. REJECTED (c) because the oracle covers the two named defects and not what their fixes touch, and an escape there is a shipped escape. ONE MEASUREMENT NOTE FOR THE RECEIPT WRITER: the 86.4% figure is the audit record's ("86.4% of `low_risk`", under Condition 1), and so is the 0-of-8; the median of 2 rounds is carried from the decision as taken and is NOT stated in the audit record, so check it before it is quoted as measured. A SECOND NOTE ON THE PREMISE: as of `a4394e4` the audit record contains no `F1`/`F4` reproductions, only the ledger's specification of the two defects, so the reproductions the premise depends on were written into `ship-v0-0-2` by this planning pass rather than inherited. Folded into `ship-v0-0-2`; decision receipt `type:"decision"` `q_id:"Q-74"` in `docs/metrics/workflow.jsonl`. Decision and reasoning in `ship-v0-0-2`."""
 
 [[principle]]
 n = 1

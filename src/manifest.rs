@@ -43,7 +43,9 @@ pub enum Ownership {
 struct AssetSpec {
 	/// Path of the source file within the pack.
 	source: String,
-	/// Destination path relative to the output directory.
+	/// Destination path relative to the output directory. An absolute path, or one
+	/// carrying a `..` component, is refused at load (`LoadError::UnsafeAssetDest`),
+	/// so the relative claim holds rather than being merely documented.
 	dest: String,
 	/// Whether the dropped file is tool-owned or a user working file.
 	ownership: Ownership,
@@ -175,6 +177,15 @@ pub enum LoadError {
 		/// The undeclared module name the entry referenced.
 		module: String,
 	},
+	/// An `[[asset]]`'s `dest` is not contained by the output directory: it is
+	/// absolute, or it carries a `..` component. Refused at load, so no such asset
+	/// ever reaches the plan preview or a write.
+	UnsafeAssetDest {
+		/// The asset's source path within the pack, naming the offending entry.
+		source: String,
+		/// The `dest` that would escape the output directory.
+		dest: String,
+	},
 	/// A `[[module]]`'s `requires` named a module the pack does not declare in any
 	/// `[[module]]` section (a pack-authoring error). Distinct from
 	/// `UndeclaredModuleTag` because the reference is between two modules, not from
@@ -211,6 +222,14 @@ impl std::fmt::Display for LoadError {
 			} => write!(
 				f,
 				"{kind} `{entry}` is tagged with module `{module}`, which no [[module]] declares"
+			),
+			LoadError::UnsafeAssetDest {
+				source,
+				dest,
+			} => write!(
+				f,
+				"asset `{source}` has dest `{dest}`, which leaves the output directory; a dest must \
+				 be a relative path with no `..` component"
 			),
 			LoadError::UndeclaredModuleRequire {
 				module,
@@ -486,6 +505,20 @@ pub fn load(
 	// An asset or variable tagged with a module the pack does not declare is a
 	// pack-authoring error, checked for every entry regardless of selection.
 	for spec in &manifest.asset {
+		// A `dest` is documented as relative to the output directory and is joined onto
+		// it verbatim, so an absolute or `..`-bearing one writes outside the directory
+		// the run reports writing to. Refuse at the load boundary, before any asset is
+		// read and before the caller can print a plan preview, so a dry run cannot
+		// preview a write the action would refuse (Principle 3, safe on existing
+		// projects; Principle 5, make illegal states unrepresentable). Checked for every
+		// declared entry regardless of selection, like the module tag below, since an
+		// escaping dest is a pack-authoring error whether or not its module is on.
+		if !crate::safe_path::is_contained_relative(&spec.dest) {
+			return Err(LoadError::UnsafeAssetDest {
+				source: spec.source.clone(),
+				dest: spec.dest.clone(),
+			});
+		}
 		if let Some(module) = &spec.module {
 			if !declared.contains(module.as_str()) {
 				return Err(LoadError::UndeclaredModuleTag {
@@ -761,6 +794,78 @@ mod tests {
 		assert_eq!(assets[0].ownership, Ownership::Working);
 		assert_eq!(assets[0].contents, "hi there\n");
 		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn an_escaping_dest_is_refused_at_load() {
+		// F4: `dest` is joined onto `--output-dir` verbatim, so a `..` component walks out
+		// of it and an absolute path discards it. Both are refused when the manifest is
+		// loaded, before any asset is read, so no caller can preview or write one.
+		for dest in ["../escaped.md", "../../escaped.md", "a/../../escaped.md", "/etc/escaped.md"] {
+			let root = fixture_pack(
+				"escaping-dest",
+				&format!(
+					"[[asset]]\nsource = \"a.md\"\ndest = \"{dest}\"\nownership = \"working\"\n"
+				),
+				"a.md",
+				"x\n",
+			);
+			match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+				Err(error @ LoadError::UnsafeAssetDest {
+					..
+				}) => {
+					// The message names the offending dest and the asset that declared it.
+					let message = error.to_string();
+					assert!(message.contains(dest), "{message}");
+					assert!(message.contains("a.md"), "{message}");
+				}
+				other => panic!("expected UnsafeAssetDest for `{dest}`, got {:?}", other.map(|_| ())),
+			}
+			fs::remove_dir_all(&root).unwrap();
+		}
+	}
+
+	#[test]
+	fn an_escaping_dest_on_an_unselected_module_is_still_refused() {
+		// An escaping dest is a pack-authoring error, so it is refused whether or not its
+		// module is enabled, exactly as an undeclared module tag is.
+		let root = fixture_pack(
+			"escaping-dest-module",
+			"[[module]]\nname = \"extras\"\ndescription = \"d\"\n\n\
+			 [[asset]]\nsource = \"a.md\"\ndest = \"a.md\"\nownership = \"working\"\n\n\
+			 [[asset]]\nsource = \"a.md\"\ndest = \"../escaped.md\"\nownership = \"working\"\nmodule = \"extras\"\n",
+			"a.md",
+			"x\n",
+		);
+		match load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[]) {
+			Err(LoadError::UnsafeAssetDest {
+				..
+			}) => {}
+			other => panic!("expected UnsafeAssetDest, got {:?}", other.map(|_| ())),
+		}
+		fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn a_nested_relative_dest_still_loads() {
+		// Non-vacuous: the containment check refuses only what leaves the output
+		// directory. A nested relative dest, and one written with a leading `./`, both
+		// still load.
+		for dest in ["nested/deep/a.md", "./a.md"] {
+			let root = fixture_pack(
+				"contained-dest",
+				&format!(
+					"[[asset]]\nsource = \"a.md\"\ndest = \"{dest}\"\nownership = \"working\"\n"
+				),
+				"a.md",
+				"x\n",
+			);
+			let assets =
+				load(&PackSource::Directory(root.clone()), &HashMap::new(), &HashMap::new(), &[])
+					.unwrap_or_else(|error| panic!("`{dest}` must load: {error}"));
+			assert_eq!(assets[0].dest, dest);
+			fs::remove_dir_all(&root).unwrap();
+		}
 	}
 
 	/// A pack declaring one optional variable (`greeting`, with a default) and

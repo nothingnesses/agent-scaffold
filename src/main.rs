@@ -21,6 +21,7 @@ mod next;
 mod pack;
 mod plan;
 mod recommendation_rule;
+mod safe_path;
 mod tui;
 mod workflow;
 mod workflow_spec;

@@ -37,13 +37,7 @@ use {
 		Deserialize,
 		Serialize,
 	},
-	std::{
-		collections::BTreeSet,
-		path::{
-			Component,
-			Path,
-		},
-	},
+	std::collections::BTreeSet,
 };
 
 /// A parsed `<task>.plan.toml` document: the `[meta]` block, the `[[step]]`,
@@ -477,20 +471,14 @@ fn is_kebab_case_token(token: &str) -> bool {
 }
 
 /// Whether a `[meta].sidecars` front/tail reference is safe to join onto the plan
-/// directory: a task-relative path with no absolute root and no `..` (parent-dir)
-/// component. The render engine joins these free-string refs straight onto the base
+/// directory. The render engine joins these free-string refs straight onto the base
 /// directory, so an absolute ref would discard the base and a `..`-bearing ref would
 /// escape it, letting a crafted `.plan.toml` read a file OUTSIDE the plan directory and
-/// splice its bytes into `<task>.md`. Rejecting both at the boundary (Principle 21,
-/// validate external input where it enters; Principle 18, least authority) does not
-/// depend on the referenced file existing, so `render`, `render --check`, and
-/// `validate --source` all refuse the same thing.
+/// splice its bytes into `<task>.md`. The containment rule itself lives in
+/// `safe_path::is_contained_relative`, shared with the pack manifest's `dest` check,
+/// so the read boundary and the write boundary cannot drift apart.
 fn is_safe_sidecar_ref(reference: &str) -> bool {
-	let path = Path::new(reference);
-	!path.is_absolute()
-		&& path
-			.components()
-			.all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+	crate::safe_path::is_contained_relative(reference)
 }
 
 /// Whether `hash` is a well-formed abbreviated-or-full commit hash: non-empty

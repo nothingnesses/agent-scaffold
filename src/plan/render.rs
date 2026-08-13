@@ -293,7 +293,7 @@ fn assemble(
 ) -> String {
 	let mut sections: Vec<String> = Vec::new();
 	sections.push(banner(task));
-	sections.push(format!("# {} plan", plan.meta.title));
+	sections.push(format!("# {} plan", one_line(&plan.meta.title)));
 	sections.push(status_line(plan));
 
 	// Front prose sidecars, inlined verbatim in their declared order (each carries its
@@ -399,7 +399,13 @@ fn principles_section(principles: &[Principle]) -> String {
 	sorted.sort_by_key(|principle| principle.n);
 	let mut out = String::from("## Project Principles\n");
 	for principle in sorted {
-		let _ = write!(out, "\n{}. {} - {}", principle.n, principle.name, principle.text);
+		let _ = write!(
+			out,
+			"\n{}. {} - {}",
+			principle.n,
+			one_line(&principle.name),
+			one_line(&principle.text)
+		);
 	}
 	out
 }
@@ -433,7 +439,7 @@ fn questions_section(question_blobs: &[(&Question, String)]) -> String {
 			Some(receipt) => format!(" Receipt: `{receipt}`."),
 			None => String::new(),
 		};
-		let _ = write!(out, "\n- `{}` ({status}) {}{receipt}", question.id, question.ask);
+		let _ = write!(out, "\n- `{}` ({status}) {}{receipt}", question.id, one_line(&question.ask));
 	}
 	out
 }
@@ -530,13 +536,34 @@ fn waiver_note(waiver: &Waiver) -> String {
 	note
 }
 
-/// Escape a generated Markdown table cell so a stray `|` cannot break the table and no
-/// line ending can split the row. CommonMark treats a lone `\r`, a lone `\n`, and a
-/// `\r\n` all as line endings, so every form is neutralised to a space (a `\r\n` pair
-/// collapses to a single space). Applies only to generated cell text (the Roadmap
-/// Notes), not to opaque sidecar prose, which is never placed in a table.
+/// Neutralise a free-text TOML value that is interpolated into ONE generated line, so
+/// the source's free TEXT cannot control the generated document's STRUCTURE. CommonMark
+/// treats a lone `\r`, a lone `\n`, and a `\r\n` all as line endings, so every form
+/// becomes a space (a `\r\n` pair collapses to a single space); the result is trimmed,
+/// so a value that begins or ends with a line ending cannot leave the generated line
+/// padded (two trailing spaces are a CommonMark hard break, which is a structure change
+/// of its own).
+///
+/// Every site that writes a free-text value onto a generated line passes through here:
+/// the `# <title> plan` heading, each numbered principle, each Open-Questions queue
+/// item, and (via `escape_cell`) each Roadmap Notes cell. Without it a multi-line `ask`
+/// splits the queue list, and a second line shaped like a queue item fabricates an
+/// entry that no `[[question]]` declares, so a source `validate --source` accepts
+/// renders a `<task>.md` that `validate --plan` rejects. The opaque sidecar blobs are
+/// NOT passed through here: they are whole Markdown sections spliced verbatim by
+/// contract, not values on a generated line.
+fn one_line(text: &str) -> String {
+	text.replace("\r\n", " ").replace(['\n', '\r'], " ").trim().to_string()
+}
+
+/// Escape a generated Markdown table cell: `one_line` (no line ending may split the
+/// row) plus a `|` escape, so a stray pipe cannot break the table. The `|` escape is
+/// specific to a table cell, which is why it lives here rather than in `one_line`; a
+/// pipe on a heading, a principle, or a queue line is ordinary text. Applies only to
+/// generated cell text (the Roadmap Notes), not to opaque sidecar prose, which is never
+/// placed in a table.
 fn escape_cell(text: &str) -> String {
-	text.replace('|', "\\|").replace("\r\n", " ").replace(['\n', '\r'], " ")
+	one_line(&text.replace('|', "\\|"))
 }
 
 /// The Step Details section: each step's opaque body sidecar inlined verbatim, in the
@@ -1082,6 +1109,20 @@ mod tests {
 	}
 
 	#[test]
+	fn one_line_neutralizes_every_line_ending_and_trims() {
+		// F1: the rule `escape_cell` applied to the Notes cell, now applied at every site
+		// that writes a free-text value onto a generated line. A `|` is left alone here:
+		// it is ordinary text outside a table cell.
+		assert_eq!(one_line("a\rb"), "a b");
+		assert_eq!(one_line("a\r\nb"), "a b");
+		assert_eq!(one_line("a\nb"), "a b");
+		assert_eq!(one_line("a|b"), "a|b");
+		// A leading or trailing line ending leaves no padding: two trailing spaces would
+		// be a CommonMark hard break, which is a structure change of its own.
+		assert_eq!(one_line("\na\n\n"), "a");
+	}
+
+	#[test]
 	fn ordering_is_numeric_for_questions_and_slug_tiebroken_for_equal_order_steps() {
 		// C5: pin the increment's central ordering claims against a lexical-sort regression.
 		let out = render_plan(&fixture_plan()).expect("renders");
@@ -1124,6 +1165,134 @@ mod tests {
 			provenance_note(&findings_and_commits),
 			"why: findings notes/x.md; commits abc1234, def5678"
 		);
+	}
+
+	#[test]
+	fn a_multi_line_ask_cannot_fabricate_a_queue_item() {
+		// F1, the reported reproduction, pinned. A `[[question]].ask` whose second line is
+		// shaped like a queue item used to render as a SECOND list item, so a source
+		// `validate --source` accepts produced a `<task>.md` that `validate --plan`
+		// rejected for an item (`Q-42`) that no `[[question]]` declares.
+		let dir = scratch("multi-line-ask");
+		copy_fixture_sources(&dir);
+		let plan = dir.join("render-fixture.plan.toml");
+		let toml = fs::read_to_string(&plan).unwrap();
+		let edited = toml.replace(
+			"ask = \"An open ask still awaiting a decision.\"",
+			"ask = \"\"\"An open ask still awaiting a decision.\n- `Q-42` (undecided) a queue item \
+			 nobody authored.\"\"\"",
+		);
+		assert_ne!(toml, edited, "the replacement must actually change the TOML");
+		fs::write(&plan, &edited).unwrap();
+
+		// The source is ACCEPTED: that is what makes the projection's rejection a defect
+		// rather than a bad input caught at the boundary.
+		assert!(validate_source(&edited).is_empty(), "{:?}", validate_source(&edited));
+		let rendered = render_plan(&plan).expect("renders");
+
+		// The queue carries exactly the ids the source declares; `Q-42` is not among them.
+		let ids: Vec<String> =
+			crate::plan::parse_questions(&rendered).into_iter().map(|item| item.id).collect();
+		assert_eq!(ids, vec!["Q-1", "Q-2", "Q-3", "Q-9", "Q-10"], "{rendered}");
+		// `validate --plan` says nothing about `Q-42`. Scoped to `Q-42` on purpose: the
+		// projection carries a separate, pre-existing `superseded by` status-vocabulary
+		// problem on `Q-3`, which this test neither fixes nor pins.
+		let problems = crate::plan::validate_plan(&rendered);
+		assert!(
+			!problems.iter().any(|problem| problem.contains("Q-42")),
+			"the fabricated item must be gone: {problems:?}"
+		);
+		// Non-vacuous: the ask's second line is still PRESENT, folded onto the one queue
+		// line rather than dropped.
+		assert!(
+			rendered.contains(
+				"- `Q-1` (open) An open ask still awaiting a decision. - `Q-42` (undecided) a queue \
+				 item nobody authored."
+			),
+			"{rendered}"
+		);
+		let _ = fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn every_interpolated_free_text_site_stays_on_one_generated_line() {
+		// F1, all four interpolation sites: the `# <title> plan` heading, each numbered
+		// principle (name AND text), each Open-Questions queue item, and the Roadmap Notes
+		// cell. Each free-text field below carries a line ending, a `|`, and a leading
+		// `- ` list marker, so a site that does not neutralise its value fabricates a
+		// heading, a principle, a queue item, or a table row.
+		let source = concat!(
+			"[meta]\n",
+			"title = \"Fixture | title\\n- `Q-98` (undecided) a fabricated heading line\"\n",
+			"[[step]]\nslug = \"a\"\ntitle = \"A\"\nstatus = \"complete\"\norder = 1\n",
+			"[[step.waiver]]\nid = \"a-w1\"\nunit = \"step\"\nreason = \"predates-logging\"\n",
+			"evidence_tier = \"self-declared\"\n",
+			"note = \"A note | with a pipe\\n- `Q-97` (undecided) a fabricated row line\"\n",
+			"[[question]]\nid = \"Q-1\"\nstatus = \"open\"\n",
+			"ask = \"An ask | with a pipe\\n- `Q-42` (undecided) a fabricated queue line\"\n",
+			"[[principle]]\nn = 1\n",
+			"name = \"A name | with a pipe\\n- `Q-96` (undecided) a fabricated principle line\"\n",
+			"text = \"Some text | with a pipe\\n- `Q-95` (undecided) another fabricated line\"\n",
+		);
+		// The source is accepted, so the projection is the only thing under test.
+		assert!(validate_source(source).is_empty(), "{:?}", validate_source(source));
+		let plan = parse_toml(source).expect("parses");
+		let steps: Vec<(&Step, String)> =
+			plan.steps.iter().map(|step| (step, String::new())).collect();
+		let questions: Vec<(&Question, String)> =
+			plan.questions.iter().map(|question| (question, String::new())).collect();
+		let out = assemble(&plan, "t", &[], None, &steps, &questions);
+		let lines: Vec<&str> = out.lines().collect();
+
+		// Site 1, the title heading: exactly one `# ` line, carrying the whole title.
+		let headings: Vec<&&str> = lines.iter().filter(|line| line.starts_with("# ")).collect();
+		assert_eq!(
+			headings,
+			vec![
+				&"# Fixture | title - `Q-98` (undecided) a fabricated heading line plan"
+			],
+			"{out}"
+		);
+
+		// Site 2, the numbered principles: exactly one numbered line for the one
+		// `[[principle]]`, carrying both its name and its text.
+		let numbered: Vec<&&str> = lines.iter().filter(|line| line.starts_with("1. ")).collect();
+		assert_eq!(
+			numbered,
+			vec![
+				&"1. A name | with a pipe - `Q-96` (undecided) a fabricated principle line - Some \
+				  text | with a pipe - `Q-95` (undecided) another fabricated line"
+			],
+			"{out}"
+		);
+
+		// Site 3, the queue: exactly one item for the one `[[question]]`.
+		let items: Vec<&&str> = lines.iter().filter(|line| line.starts_with("- `Q-")).collect();
+		assert_eq!(
+			items,
+			vec![
+				&"- `Q-1` (open) An ask | with a pipe - `Q-42` (undecided) a fabricated queue line"
+			],
+			"{out}"
+		);
+
+		// Site 4, the Roadmap table: exactly three table lines (header, delimiter, one data
+		// row), and the row's only UNESCAPED pipes are its four cell delimiters, so the
+		// note's own pipe cannot open a fifth column.
+		let table: Vec<&&str> = lines.iter().filter(|line| line.starts_with('|')).collect();
+		assert_eq!(table.len(), 3, "header, delimiter, and one data row: {out}");
+		let row = table[2];
+		assert_eq!(row.replace("\\|", "").matches('|').count(), 4, "row: {row}");
+		assert!(row.contains("A note \\| with a pipe - `Q-97` (undecided) a fabricated row line"),
+			"row: {row}");
+
+		// No injected fragment reached the start of a line, at any of the four sites.
+		for fabricated in ["- `Q-98`", "- `Q-97`", "- `Q-96`", "- `Q-95`", "- `Q-42`"] {
+			assert!(
+				!lines.iter().any(|line| line.trim_start().starts_with(fabricated)),
+				"`{fabricated}` fabricated a line: {out}"
+			);
+		}
 	}
 
 	#[test]

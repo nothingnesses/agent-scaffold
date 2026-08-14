@@ -1449,7 +1449,7 @@ risk_class = "risky"
 [[step]]
 slug = "ship-v0-0-2"
 title = "fix the two audit defects, reserve `agent-flow`, and publish `agent-scaffold` 0.0.2 (`Q-71`, `Q-74`)"
-status = "next"
+status = "complete"
 order = 98
 blocked_by = []
 folds = []

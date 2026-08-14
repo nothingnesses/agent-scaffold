@@ -421,7 +421,7 @@ enum Command {
 	Checks(ChecksArgs),
 	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
 	Render(RenderArgs),
-	/// Advisory: build a static code-value report of code that may not be earning its keep (dead-code and unused-dependency suspicions, plus author-declared suppression reasons that are not candidates), leading with a mandatory "not evidence of absence" caveat. Read-mostly: it writes ONLY its own report (`docs/plans/<task>.code-value-report.md`, or --out) and NEVER edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything; a human decides each candidate. With --json it prints the machine intermediate to stdout and writes no file.
+	/// Advisory: build a static code-value report of code that may not be earning its keep (author-declared suppression reasons that are not candidates), leading with a mandatory "not evidence of absence" caveat. Read-mostly: it writes ONLY its own report (`docs/plans/<task>.code-value-report.md`, or --out) and NEVER edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything; a human decides each candidate. With --json it prints the machine intermediate to stdout and writes no file.
 	Audit(AuditArgs),
 }
 

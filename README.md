@@ -267,7 +267,7 @@ agent-scaffold status --source /elsewhere/docs/plans/their-task.plan.toml \
 
 ### Auditing code value
 
-`audit` builds an advisory, static report of code that may not be earning its keep: dead-code and unused-dependency suspicions, plus author-declared suppression reasons (an `#[allow(dead_code)]` with its stated rationale) that are shown as fences rather than proposed for removal. It is read-mostly: it writes only its own report, `docs/plans/<task>.code-value-report.md` (or `--out`), and never edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything. A human reads the report and decides each candidate; nothing is removed automatically. This first increment ships the schema, the projection, and the caveat with an empty report; the signal harvests are later increments.
+`audit` builds an advisory, static report of code that may not be earning its keep: author-declared suppression reasons (an `#[allow(dead_code)]` with its stated rationale) that are shown as fences rather than proposed for removal. It is read-mostly: it writes only its own report, `docs/plans/<task>.code-value-report.md` (or `--out`), and never edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything. A human reads the report and decides each candidate; nothing is removed automatically.
 
 Every report leads with a mandatory caveat: a passing audit is necessary but not sufficient and is only relative to the named signal set, so "nothing flagged" is never proof the codebase has no dead code. The report is projected from a typed intermediate, which `--json` prints to stdout (writing no file) for another tool to consume:
 

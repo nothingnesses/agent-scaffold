@@ -883,6 +883,7 @@ mod tests {
 				".agents/user-prompts/pause.md",
 				".agents/user-prompts/compaction-prep.md",
 				".agents/user-prompts/resume.md",
+				".agents/user-prompts/audit.md",
 			]
 		);
 	}

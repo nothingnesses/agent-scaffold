@@ -187,6 +187,11 @@ source = "user-prompts/resume.md"
 dest = ".agents/user-prompts/resume.md"
 ownership = "reference"
 
+[[asset]]
+source = "user-prompts/audit.md"
+dest = ".agents/user-prompts/audit.md"
+ownership = "reference"
+
 # The `checks` module (opt in with `--module checks`). Its assets are tagged
 # `module = "checks"`, so they drop only when the module is selected and the
 # module-free default scaffold stays byte-identical.

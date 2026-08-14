@@ -226,8 +226,8 @@ fn run_git_init(dir: &Path) -> io::Result<()> {
 /// an empty set rather than a failure.
 #[derive(Debug)]
 enum PrinciplesError {
-	/// The file is present and could not be read: a containment refusal, or an
-	/// unreadable file. Distinct from `Parse` because the file never became text, so
+	/// The read did not produce text: a containment refusal, or an unreadable path.
+	/// Distinct from `Parse` because the file never became text, so
 	/// telling the user it did not parse would name the wrong step.
 	Read(manifest::ReadError),
 	/// The file was read and is not a valid `principles.toml`.

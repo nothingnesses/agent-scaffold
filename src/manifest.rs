@@ -522,8 +522,7 @@ impl PackSource<'_> {
 	/// a refusal being spelled the same way as an absence.
 	///
 	/// It does not make swallowing impossible, and nothing in Rust can: a caller may
-	/// still write `.unwrap_or_default()` on this too, and a caller that does passes
-	/// `cargo clippy --all-targets -- -D warnings`. What it buys is that the correct
+	/// still write `.unwrap_or_default()` on this too. What it buys is that the correct
 	/// optional-read primitive exists and is the obvious one to reach for. The
 	/// invariant is held by review, not by the compiler.
 	pub fn read_optional(

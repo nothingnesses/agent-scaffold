@@ -2292,7 +2292,28 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 				}
 			};
 			let out_dest = format!("{stem}.md");
-			plan::write_rendered(&args.output_dir.join(&out_dest), &rendered)?;
+			let out_path = args.output_dir.join(&out_dest);
+			// The generated view is not a manifest asset, so the two-tier ownership rule
+			// that protects a working file never reached it. A project scaffolded by 0.0.1
+			// carries a `docs/plans/TEMPLATE.md` that WAS a create-if-absent working file
+			// there, so overwriting it here destroys hand-authored content the tool had
+			// told the user was theirs (Principle 3, safe on existing projects). Refuse
+			// instead: a file already present whose bytes are not what this version
+			// generates is left exactly as it is, and the run says what to do about it. A
+			// view this version generated is byte-identical to a fresh render, so a normal
+			// re-scaffold is unaffected.
+			let existing = fs::read_to_string(&out_path).ok();
+			if existing.is_some_and(|committed| committed != rendered) {
+				println!("{:>16}  {out_dest}", "keep (edited)");
+				eprintln!(
+					"{out_dest} already exists and differs from what this version generates, so it \
+					 was left untouched. It is now a generated view of {}: move your copy aside and \
+					 run `agent-scaffold render {}` to produce the current one.",
+					asset.dest, asset.dest
+				);
+				continue;
+			}
+			plan::write_rendered(&out_path, &rendered)?;
 			println!("{:>16}  {out_dest}", "render");
 		}
 		let changed = outcomes.iter().filter(|o| !matches!(o, Outcome::SkippedExisting)).count();

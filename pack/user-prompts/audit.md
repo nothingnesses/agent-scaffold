@@ -21,15 +21,15 @@ Part 1, fix the criteria before you measure, and commit them. Write a pre-regist
 - For each hypothesis, what result would falsify it, not only what would confirm it.
 - What you commit not to do. At least: not to revise this file after seeing data, and not to treat the project's own narrative record as evidence of what happened.
 
-Write it from structure alone (the directory layout, the field names in the log, the record and commit counts), before you read any of the project's accounts of itself, so that the existing story cannot influence the criteria. If you later need a measure the pre-registration did not name, add it, and say in the report that you added it and what you would have concluded without it.
+Write it from structure alone (the directory layout, the field names in the log, the record and commit counts), in a fresh agent that has not read the project's accounts of itself, so that the existing story cannot influence the criteria. If you later need a measure the pre-registration did not name, add it in the report, and say that you added it and what you would have concluded without it.
 
-Part 2, give the measuring to agents that do not benefit from the answer. Spawn [how many] independent agents, one question each, each in its own isolated copy and read-only against the material under audit. Do not tell any of them which answer would be convenient, and do not let the party whose work is under audit do the measuring. Brief each one:
+Part 2, give the measuring to agents that do not benefit from the answer. Spawn one independent agent per pre-registered measure, each in its own isolated copy and read-only against the material under audit. Do not tell any of them which answer would be convenient, and do not let the party whose work is under audit do the measuring. Brief each one:
 
 - Treat the project's own prose, its ledger, plans, status notes, and earlier write-ups, as hypotheses to test rather than facts to repeat. Prefer the primary sources, the history, the logs, the data, and the code itself, wherever the two disagree.
 - Give the exact command or query behind every number, so that I can re-run it.
 - Before dating any change with a measure, check when the field or the record that measure reads was first written. A measure that is structurally zero before its schema existed shows a step change on that date whatever the behaviour did, so its early era is a schema gap and not a finding.
 - Do not let the activity under audit supply its own denominator. Check that the material you measure over excludes the output that activity itself produces. If it does not, the ratio is near-tautological and will confirm whatever it was pointed at.
-- Test a dated claim under several binnings, and against dropping the single largest contributor. If the date moves, report a gradual change rather than a turn.
+- Test a dated claim under several binnings, and against dropping the single largest contributing item. If the date moves by more than one bin, report a gradual change rather than a turn.
 - Name the items wherever they can be named, rather than reporting a count.
 
 Where several agents agree, check whether they measured overlapping quantities on the same series before reading that agreement as corroboration. On a series that only ever climbs, independent agents converge on similar dates whether or not anything turned.

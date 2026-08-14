@@ -4,6 +4,12 @@
 
 A small command-line tool that scaffolds a repeatable agent workflow into a project: front-load context, write a structured plan, review it, implement in small steps, then review the work. It drops a canonical `AGENTS.md`, a planning-document template, and a few reusable prompts, so the structure does not have to be hand-rolled for every repository.
 
+## The `agent-flow` rename
+
+This project is being renamed to `agent-flow`, and that crate name is reserved at <https://crates.io/crates/agent-flow>. Releases move there once the rename lands. Until then `agent-scaffold` is the crate to install, and every published `agent-scaffold` version stays installable.
+
+The `agent-scaffold` name is then free for whoever wants to reclaim it. To ask for it, open an issue on <https://github.com/nothingnesses/agent-scaffold>, the repository that will carry the `agent-flow` rename.
+
 ## Motivations
 
 - Setting the workflow up by hand for each project is repetitive: the same planning skeleton, the same guidance and principles, the same reusable prompts. This tool drops them in one command.
@@ -261,7 +267,7 @@ agent-scaffold status --source /elsewhere/docs/plans/their-task.plan.toml \
 
 ### Auditing code value
 
-`audit` builds an advisory, static report of code that may not be earning its keep: dead-code and unused-dependency suspicions, plus author-declared suppression reasons (an `#[allow(dead_code)]` with its stated rationale) that are shown as fences rather than proposed for removal. It is read-mostly: it writes only its own report, `docs/plans/<task>.code-value-report.md` (or `--out`), and never edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything. A human reads the report and decides each candidate; nothing is removed automatically. This first increment ships the schema, the projection, and the caveat with an empty report; the signal harvests are later increments.
+`audit` builds an advisory, static report of code that may not be earning its keep: author-declared suppression reasons (an `#[allow(dead_code)]` with its stated rationale) that are shown as fences rather than proposed for removal. It is read-mostly: it writes only its own report, `docs/plans/<task>.code-value-report.md` (or `--out`), and never edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything. A human reads the report and decides each candidate; nothing is removed automatically.
 
 Every report leads with a mandatory caveat: a passing audit is necessary but not sufficient and is only relative to the named signal set, so "nothing flagged" is never proof the codebase has no dead code. The report is projected from a typed intermediate, which `--json` prints to stdout (writing no file) for another tool to consume:
 
@@ -315,6 +321,8 @@ default = "my-project"   # optional; omit `default` to make the variable require
 [[var]]
 name = "author"          # required: must be supplied with --var author=...
 ```
+
+Every file a pack reads must live inside the pack directory, and that is enforced rather than assumed: an `[[asset]]`'s `source`, a `[[module]]`'s `guidance`, and the `pack.toml`, `principles.toml` and `instrument.md` the tool reads by name are each refused if the path is absolute, carries a `..` component, or lands outside the pack once symbolic links are followed. The refusal is loud, names the file, and writes nothing. This is the same trade the metrics and ledger boundary above takes: a loud refusal beats silently reading a file the pack did not ship. A link INSIDE the pack is fine, and so is pointing `--template` at a link to the pack directory itself; what is refused is a link whose target is outside. If your pack is assembled by a tool that links each file to somewhere else, such as GNU stow, home-manager or a nix profile, point `--template` at the real directory when the files all resolve into one, and otherwise materialise the pack into real files (`cp -rL`, or a clone rather than a link).
 
 Rendering does minimal `{{name}}` substitution (there is no template engine). `{{principles}}`, `{{instrument}}`, and `{{modules}}` are built-in variables the tool computes itself; all three are reserved, so a pack may neither declare them nor set them with `--var`. `{{principles}}` is computed from the selection. `{{instrument}}` is filled from the pack's optional `instrument.md` render fragment when `--instrument` is set (empty otherwise); like `principles.toml`, that fragment is read directly and inlined, not dropped as its own asset. `{{modules}}` is the concatenated guidance of the enabled modules (see Optional modules below), empty when none is enabled. Setting a variable the pack does not declare, or leaving a required variable unset, is an error and nothing is written.
 

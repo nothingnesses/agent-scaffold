@@ -21,6 +21,7 @@ mod next;
 mod pack;
 mod plan;
 mod recommendation_rule;
+mod safe_path;
 mod tui;
 mod workflow;
 mod workflow_spec;
@@ -220,15 +221,50 @@ fn run_git_init(dir: &Path) -> io::Result<()> {
 	}
 }
 
+/// Why the active pack's principle set could not be resolved. ABSENCE is not in
+/// here: a pack that ships no `principles.toml` has no principles to select, which is
+/// an empty set rather than a failure.
+#[derive(Debug)]
+enum PrinciplesError {
+	/// The read did not produce text: a containment refusal, or an unreadable path.
+	/// Distinct from `Parse` because the file never became text, so
+	/// telling the user it did not parse would name the wrong step.
+	Read(manifest::ReadError),
+	/// The file was read and is not a valid `principles.toml`.
+	Parse(toml::de::Error),
+}
+
+impl std::fmt::Display for PrinciplesError {
+	fn fmt(
+		&self,
+		f: &mut std::fmt::Formatter<'_>,
+	) -> std::fmt::Result {
+		match self {
+			PrinciplesError::Read(problem) =>
+				write!(f, "could not read the pack's principles.toml: {problem}"),
+			PrinciplesError::Parse(error) =>
+				write!(f, "could not parse the pack's principles.toml: {error}"),
+		}
+	}
+}
+
 /// The active pack's principle set: parse its `principles.toml`, or an empty set
-/// when the pack ships none. A malformed `principles.toml` is a parse error. For
-/// the built-in pack this reads the same embedded file the drop uses, so the
-/// selection and the dropped `principles.toml` stay consistent.
-fn pack_principles(source: &manifest::PackSource) -> Result<Vec<pack::Principle>, toml::de::Error> {
-	match source.read("principles.toml") {
-		Ok(toml) => pack::parse_principles(&toml),
+/// when the pack ships none. A malformed `principles.toml` is a parse error, and one
+/// the pack ships but the tool refuses to read is a read error; only a file the pack
+/// does not ship at all is the empty set. For the built-in pack this reads the same
+/// embedded file the drop uses, so the selection and the dropped `principles.toml`
+/// stay consistent.
+fn pack_principles(
+	source: &manifest::PackSource
+) -> Result<Vec<pack::Principle>, PrinciplesError> {
+	// `read_optional`, not `read`: only a pack that ships NO principles.toml yields the
+	// empty set. A refusal arrives as an `Err` and is reported, rather than being
+	// spelled the same way as an absence and silently producing a principle-free
+	// `AGENTS.md`.
+	match source.read_optional("principles.toml").map_err(PrinciplesError::Read)? {
+		Some(toml) => pack::parse_principles(&toml).map_err(PrinciplesError::Parse),
 		// A pack that ships no principles.toml simply has no principles to select.
-		Err(_) => Ok(Vec::new()),
+		None => Ok(Vec::new()),
 	}
 }
 
@@ -253,9 +289,21 @@ fn build_assets(
 	let mut builtin: HashMap<String, String> = HashMap::new();
 	builtin.insert("principles".to_string(), pack::render_principles(selected, detail));
 	// A pack that ships no instrument.md renders nothing, exactly as a pack
-	// without principles.toml renders no principles.
-	let instrument_block =
-		if instrument { source.read("instrument.md").unwrap_or_default() } else { String::new() };
+	// without principles.toml renders no principles. `read_optional`, not `read`: that
+	// absence is the only silent outcome, and a fragment the pack DOES ship but the
+	// tool refuses to read is reported rather than rendered as an empty block, which
+	// would drop the whole instrumentation contract out of `AGENTS.md` at exit 0.
+	let instrument_block = if instrument {
+		source
+			.read_optional("instrument.md")
+			.map_err(|problem| manifest::LoadError::UnreadablePackFile {
+				rel: "instrument.md".to_string(),
+				problem,
+			})?
+			.unwrap_or_default()
+	} else {
+		String::new()
+	};
 	builtin.insert("instrument".to_string(), instrument_block);
 	// The `{{workflow_control}}` block: the generated statement of the workflow's
 	// convergence constants (required clean-round count per risk class, total-round
@@ -373,7 +421,7 @@ enum Command {
 	Checks(ChecksArgs),
 	/// Render a `<task>.plan.toml` skeleton plus its Markdown sidecars into the generated `<task>.md`. Strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing. With --check, re-render in memory and compare against the committed `<task>.md` without writing (warn on mismatch by default; --strict exits non-zero on mismatch, for CI or a pre-commit hook).
 	Render(RenderArgs),
-	/// Advisory: build a static code-value report of code that may not be earning its keep (dead-code and unused-dependency suspicions, plus author-declared suppression reasons that are not candidates), leading with a mandatory "not evidence of absence" caveat. Read-mostly: it writes ONLY its own report (`docs/plans/<task>.code-value-report.md`, or --out) and NEVER edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything; a human decides each candidate. With --json it prints the machine intermediate to stdout and writes no file.
+	/// Advisory: build a static code-value report of code that may not be earning its keep (author-declared suppression reasons that are not candidates), leading with a mandatory "not evidence of absence" caveat. Read-mostly: it writes ONLY its own report (`docs/plans/<task>.code-value-report.md`, or --out) and NEVER edits `src/`, `Cargo.toml`, the plan, or the metrics log, and never deletes anything; a human decides each candidate. With --json it prints the machine intermediate to stdout and writes no file.
 	Audit(AuditArgs),
 }
 
@@ -2061,7 +2109,17 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 
 	// The active pack: the built-in one, or an external directory via --template.
 	let source = match &args.template {
-		Some(path) => manifest::PackSource::Directory(path.clone()),
+		Some(path) => {
+			// A failure of the --template ROOT belongs to the root, not to the first file
+			// inside it a run happens to read. This is the only site that knows the
+			// difference. `is_dir` follows links and answers false on any error, so one
+			// predicate covers a plain file, a link loop and a path that is not there.
+			if !path.is_dir() {
+				eprintln!("error: --template `{}` must name a directory", path.display());
+				std::process::exit(2);
+			}
+			manifest::PackSource::Directory(path.clone())
+		}
 		None => manifest::builtin(),
 	};
 
@@ -2084,8 +2142,11 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 	// external pack's own principles.toml under --template.
 	let principles = match pack_principles(&source) {
 		Ok(principles) => principles,
+		// The message comes from the error, which distinguishes a file that would not
+		// parse from one the tool refused to read. Printing "could not parse" for a
+		// containment refusal would name a step that never ran.
 		Err(error) => {
-			eprintln!("error: could not parse the pack's principles.toml: {error}");
+			eprintln!("error: {error}");
 			std::process::exit(2);
 		}
 	};
@@ -2231,7 +2292,28 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 				}
 			};
 			let out_dest = format!("{stem}.md");
-			plan::write_rendered(&args.output_dir.join(&out_dest), &rendered)?;
+			let out_path = args.output_dir.join(&out_dest);
+			// The generated view is not a manifest asset, so the two-tier ownership rule
+			// that protects a working file never reached it. A project scaffolded by 0.0.1
+			// carries a `docs/plans/TEMPLATE.md` that WAS a create-if-absent working file
+			// there, so overwriting it here destroys hand-authored content the tool had
+			// told the user was theirs (Principle 3, safe on existing projects). Refuse
+			// instead: a file already present whose bytes are not what this version
+			// generates is left exactly as it is, and the run says what to do about it. A
+			// view this version generated is byte-identical to a fresh render, so a normal
+			// re-scaffold is unaffected.
+			let existing = fs::read_to_string(&out_path).ok();
+			if existing.is_some_and(|committed| committed != rendered) {
+				println!("{:>16}  {out_dest}", "keep (edited)");
+				eprintln!(
+					"{out_dest} already exists and differs from what this version generates, so it \
+					 was left untouched. It is now a generated view of {}: move your copy aside and \
+					 run `agent-scaffold render {}` to produce the current one.",
+					asset.dest, asset.dest
+				);
+				continue;
+			}
+			plan::write_rendered(&out_path, &rendered)?;
 			println!("{:>16}  {out_dest}", "render");
 		}
 		let changed = outcomes.iter().filter(|o| !matches!(o, Outcome::SkippedExisting)).count();

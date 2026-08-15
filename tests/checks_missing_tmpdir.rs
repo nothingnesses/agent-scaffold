@@ -41,7 +41,7 @@ fn checks_with_tmpdir(
 	dir: &Path,
 	tmpdir: &Path,
 ) -> Option<i32> {
-	Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.arg("checks")
 		.current_dir(dir)
 		.env("TMPDIR", tmpdir)
@@ -54,7 +54,7 @@ fn checks_with_tmpdir(
 #[test]
 fn checks_runs_under_a_tmpdir_that_does_not_exist_yet() {
 	let dir =
-		std::env::temp_dir().join(format!("agent-scaffold-missingtmp-{}", std::process::id()));
+		std::env::temp_dir().join(format!("agent-flow-missingtmp-{}", std::process::id()));
 	let _ = fs::remove_dir_all(&dir);
 	fs::create_dir_all(&dir).unwrap();
 	git(&dir, &["init", "-q"]);

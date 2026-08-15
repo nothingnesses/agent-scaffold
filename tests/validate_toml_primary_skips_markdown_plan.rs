@@ -56,12 +56,12 @@ fn validate(
 	dir: &Path,
 	args: &[&str],
 ) -> (Option<i32>, String, String) {
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.arg("validate")
 		.args(args)
 		.current_dir(dir)
 		.output()
-		.expect("run agent-scaffold validate");
+		.expect("run agent-flow validate");
 	(
 		output.status.code(),
 		String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -72,7 +72,7 @@ fn validate(
 #[test]
 fn toml_primary_skips_the_markdown_plan_validator_but_markdown_mode_still_fails() {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-validate-projection-{}-{}",
+		"agent-flow-validate-projection-{}-{}",
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));

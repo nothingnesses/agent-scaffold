@@ -79,12 +79,12 @@ fn validate(
 	dir: &Path,
 	args: &[&str],
 ) -> (Option<i32>, String, String) {
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.arg("validate")
 		.args(args)
 		.current_dir(dir)
 		.output()
-		.expect("run agent-scaffold validate");
+		.expect("run agent-flow validate");
 	(
 		output.status.code(),
 		String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -95,7 +95,7 @@ fn validate(
 #[test]
 fn workflow_on_a_toml_source_runs_without_a_markdown_plan() {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-validate-toml-only-{}-{}",
+		"agent-flow-validate-toml-only-{}-{}",
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));
@@ -127,7 +127,7 @@ fn workflow_on_a_toml_source_runs_without_a_markdown_plan() {
 #[test]
 fn workflow_with_no_plan_source_hard_errors_instead_of_skipping() {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-validate-workflow-no-source-{}-{}",
+		"agent-flow-validate-workflow-no-source-{}-{}",
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));
@@ -188,7 +188,7 @@ fn workflow_with_no_plan_source_hard_errors_instead_of_skipping() {
 #[test]
 fn workflow_with_no_metrics_log_hard_errors_instead_of_skipping() {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-validate-workflow-no-log-{}-{}",
+		"agent-flow-validate-workflow-no-log-{}-{}",
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));
@@ -285,7 +285,7 @@ fn a_round_log_that_cannot_be_checked_is_not_reported_as_missing() {
 	use std::os::unix::fs::PermissionsExt;
 
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-validate-workflow-opaque-log-{}-{}",
+		"agent-flow-validate-workflow-opaque-log-{}-{}",
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
 	));

@@ -3,7 +3,7 @@
 # data edit (reviewed like a plan edit) rather than a code change. This file
 # holds ONLY constants, no logic and no orderings: the transition arithmetic (the
 # streak/cap computation) stays in the tool. It is a tool-owned reference asset,
-# the same for every scaffolded project; agent-scaffold's own repo dogfoods its
+# the same for every scaffolded project; agent-flow's own repo dogfoods its
 # scaffolded copy at `.agents/workflow.toml`.
 #
 # `WorkflowSpec::builtin()` mirrors these values exactly, and a drift-guard test

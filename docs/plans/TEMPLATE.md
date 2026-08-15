@@ -1,4 +1,4 @@
-<!-- GENERATED FILE - do not hand-edit. Source: TEMPLATE.plan.toml, TEMPLATE.steps/, TEMPLATE.questions/, and the [meta].sidecars prose (front/tail). Regenerate with `agent-scaffold render TEMPLATE.plan.toml`; hand edits are overwritten and caught by `agent-scaffold render --check`. -->
+<!-- GENERATED FILE - do not hand-edit. Source: TEMPLATE.plan.toml, TEMPLATE.steps/, TEMPLATE.questions/, and the [meta].sidecars prose (front/tail). Regenerate with `agent-flow render TEMPLATE.plan.toml`; hand edits are overwritten and caught by `agent-flow render --check`. -->
 
 # <title> plan
 
@@ -14,7 +14,7 @@ Status: not started. <One paragraph on the current state of the work, updated as
 
 ## Documentation Protocol
 
-<How this plan is kept current during the work. The structured `<task>.plan.toml` is the single source of truth: the Roadmap status lives in each `[[step]].status`, the human-decision queue in the `[[question]]` entries, and the numbered principles in `[[principle]]`. Edit the TOML and the prose sidecars, then run `agent-scaffold render` to regenerate this `<task>.md`, and `agent-scaffold render --check` before committing both together. Never hand-edit the generated view; edits are overwritten by the next render.>
+<How this plan is kept current during the work. The structured `<task>.plan.toml` is the single source of truth: the Roadmap status lives in each `[[step]].status`, the human-decision queue in the `[[question]]` entries, and the numbered principles in `[[principle]]`. Edit the TOML and the prose sidecars, then run `agent-flow render` to regenerate this `<task>.md`, and `agent-flow render --check` before committing both together. Never hand-edit the generated view; edits are overwritten by the next render.>
 
 ## Repository Layout and Current Architecture
 

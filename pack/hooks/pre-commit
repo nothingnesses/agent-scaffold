@@ -1,5 +1,5 @@
 #!/bin/sh
-# Inert, opt-in pre-commit hook for the agent-scaffold checks module.
+# Inert, opt-in pre-commit hook for the agent-flow checks module.
 #
 # This file is scaffolded to .agents/hooks/pre-commit and is NOT installed into
 # .git/hooks by scaffolding, so it changes no git behaviour until you activate it
@@ -9,7 +9,7 @@
 #   - symlink it yourself: ln -s ../../.agents/hooks/pre-commit .git/hooks/pre-commit
 #
 # It is a SECONDARY, mechanical backstop to the review-integrated checks-reviewer,
-# which is the authoritative gate. It DELEGATES to `agent-scaffold checks --staged`
+# which is the authoritative gate. It DELEGATES to `agent-flow checks --staged`
 # rather than inlining any command, so it never drifts from .agents/checks.toml
 # (one source of truth). That runs the lint and format-check commands over the
 # STAGED tree, in an isolated worktree, and fails the commit on any violation. It
@@ -20,11 +20,11 @@ set -eu
 # If the tool is not installed, SKIP rather than block the commit. This hook is a
 # convenience backstop, not the authoritative gate (the checks-reviewer is), so a
 # missing binary must not stop a developer from committing; failing here would only
-# train `git commit --no-verify`. Install agent-scaffold to enable the gate.
-if ! command -v agent-scaffold >/dev/null 2>&1; then
-	echo "pre-commit: agent-scaffold is not on PATH; skipping the checks gate." >&2
-	echo "pre-commit: install agent-scaffold to run .agents/checks.toml on commit." >&2
+# train `git commit --no-verify`. Install agent-flow to enable the gate.
+if ! command -v agent-flow >/dev/null 2>&1; then
+	echo "pre-commit: agent-flow is not on PATH; skipping the checks gate." >&2
+	echo "pre-commit: install agent-flow to run .agents/checks.toml on commit." >&2
 	exit 0
 fi
 
-exec agent-scaffold checks --staged
+exec agent-flow checks --staged

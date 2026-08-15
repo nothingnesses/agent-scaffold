@@ -1,10 +1,10 @@
 [package]
-name = "agent-scaffold"
-version = "0.0.2"
+name = "agent-flow"
+version = "0.0.3"
 edition = "2021"
 rust-version = "1.88"
 license = "BlueOak-1.0.0"
-description = "Scaffold the agent workflow into a project."
+description = "Validate a structured agent workflow, project its state, and scaffold one to start."
 repository = "https://github.com/nothingnesses/agent-scaffold"
 readme = "README.md"
 keywords = ["agent", "workflow", "ai", "scaffold", "template"]

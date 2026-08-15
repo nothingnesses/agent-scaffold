@@ -1,14 +1,14 @@
-# agent-scaffold
+# agent-flow
 
-[![crates.io](https://img.shields.io/crates/v/agent-scaffold.svg)](https://crates.io/crates/agent-scaffold) [![GitHub License](https://img.shields.io/github/license/nothingnesses/agent-scaffold?color=blue)](https://github.com/nothingnesses/agent-scaffold/blob/main/LICENSE)
+[![crates.io](https://img.shields.io/crates/v/agent-flow.svg)](https://crates.io/crates/agent-flow) [![GitHub License](https://img.shields.io/github/license/nothingnesses/agent-scaffold?color=blue)](https://github.com/nothingnesses/agent-scaffold/blob/main/LICENSE)
 
 A small command-line tool that scaffolds a repeatable agent workflow into a project: front-load context, write a structured plan, review it, implement in small steps, then review the work. It drops a canonical `AGENTS.md`, a planning-document template, and a few reusable prompts, so the structure does not have to be hand-rolled for every repository.
 
 ## The `agent-flow` rename
 
-This project is being renamed to `agent-flow`, and that crate name is reserved at <https://crates.io/crates/agent-flow>. Releases move there once the rename lands. Until then `agent-scaffold` is the crate to install, and every published `agent-scaffold` version stays installable.
+This project was published as `agent-scaffold` up to 0.0.2. From 0.0.3 it is published as `agent-flow` at <https://crates.io/crates/agent-flow>, and that is the crate to install. The binary is called `agent-flow` too, so every command below that once read `agent-scaffold <verb>` now reads `agent-flow <verb>`; the subcommands and their flags are unchanged. `agent-scaffold` stops at 0.0.2, and every published `agent-scaffold` version stays installable and un-yanked, so anything already depending on it keeps working.
 
-The `agent-scaffold` name is then free for whoever wants to reclaim it. To ask for it, open an issue on <https://github.com/nothingnesses/agent-scaffold>, the repository that will carry the `agent-flow` rename.
+The `agent-scaffold` name is free for whoever wants to reclaim it. To ask for it, open an issue on <https://github.com/nothingnesses/agent-scaffold>, this project's repository.
 
 ## Motivations
 
@@ -55,7 +55,7 @@ The plan template is a structured `TEMPLATE.plan.toml` skeleton plus Markdown pr
 
 ## How it's used
 
-agent-scaffold is used at two moments, by two audiences:
+agent-flow is used at two moments, by two audiences:
 
 - You (the human) run it once to set a project up. Choose which principles apply (in the selector, or with `--principles`), review the plan, and write the assets, then commit them to version control. To then start a task, see the "Getting started, for the human" section of the scaffolded `AGENTS.md`, which points you at the kickoff prompt to copy and explains your ongoing part in the decisions the workflow brings back to you.
 - Agents then work inside the scaffolded project. They read `AGENTS.md` (the canonical, harness-agnostic guidance) and follow the workflow it describes: front-load context, draft a plan under `docs/plans/`, review the plan, implement in small steps, then review the work. The workflow separates roles (an orchestrator drives it, with a planner, independent reviewers, a separate triager, and an implementer), and `.agents/prompts/` carries one prompt per role. Agents consume these assets; they do not normally run the tool.
@@ -103,10 +103,10 @@ flowchart TB
 
 ## Installation
 
-agent-scaffold is a standalone Rust binary that runs without Nix. Install the latest release from crates.io:
+agent-flow is a standalone Rust binary that runs without Nix. Install the latest release from crates.io:
 
 ```sh
-cargo install agent-scaffold
+cargo install agent-flow
 ```
 
 Or build from source with a recent Rust toolchain (Rust 1.88 or newer):
@@ -115,12 +115,12 @@ Or build from source with a recent Rust toolchain (Rust 1.88 or newer):
 git clone https://github.com/nothingnesses/agent-scaffold
 cd agent-scaffold
 
-# Install the `agent-scaffold` binary into ~/.cargo/bin:
+# Install the `agent-flow` binary into ~/.cargo/bin:
 cargo install --path .
 
 # ...or just build it and use the produced binary:
 cargo build --release
-# ./target/release/agent-scaffold
+# ./target/release/agent-flow
 ```
 
 If you use Nix, a development shell with the pinned toolchain and helpers is provided by the flake:
@@ -131,11 +131,11 @@ nix develop        # or: direnv allow, if you use direnv
 
 ## Usage
 
-Every action is a subcommand. Bare `agent-scaffold` (with no subcommand) prints the list of subcommands and exits; scaffolding runs under the `scaffold` verb.
+Every action is a subcommand. Bare `agent-flow` (with no subcommand) prints the list of subcommands and exits; scaffolding runs under the `scaffold` verb.
 
 Writes are off unless confirmed, and a scaffold run always prints a plan of what it would do (one line per asset: `create`, `refresh`, `skip (exists)`, or `overwrite`).
 
-On an interactive terminal, running `agent-scaffold scaffold` with no flags opens the two-pane selector; choosing Save in its confirmation modal writes the scaffold (Cancel or quit writes nothing). For non-interactive use:
+On an interactive terminal, running `agent-flow scaffold` with no flags opens the two-pane selector; choosing Save in its confirmation modal writes the scaffold (Cancel or quit writes nothing). For non-interactive use:
 
 - `--write` applies the changes directly (using `--principles`), skipping the selector. Off a terminal, this is the only way writes happen.
 - `--dry-run` prints the plan and exits without writing and without opening the selector.
@@ -144,13 +144,13 @@ On an interactive terminal, running `agent-scaffold scaffold` with no flags open
 Open the selector for the current directory:
 
 ```sh
-agent-scaffold scaffold
+agent-flow scaffold
 ```
 
 Apply directly, without the selector (into a specific directory):
 
 ```sh
-agent-scaffold scaffold --output-dir path/to/project --write
+agent-flow scaffold --output-dir path/to/project --write
 ```
 
 Re-running is safe and idempotent: reference assets are refreshed and existing working files are left untouched. Pass `--force` to overwrite working files too (`--force` decides overwrite-versus-skip; `--write` decides whether to write at all, so the two combine).
@@ -171,20 +171,20 @@ Tokens combine and are de-duplicated by first occurrence, so a bare id list keep
 
 ```sh
 # List the default principles and exit, without scaffolding:
-agent-scaffold scaffold --list-principles
+agent-flow scaffold --list-principles
 
 # List every principle:
-agent-scaffold scaffold --principles all --list-principles
+agent-flow scaffold --principles all --list-principles
 
 # Scaffold a specific, ordered selection:
-agent-scaffold scaffold --principles kiss,verify-dont-trust,tag:fp
+agent-flow scaffold --principles kiss,verify-dont-trust,tag:fp
 ```
 
 `--principle-detail` controls how much of each principle is rendered: `name`, `summary` (the default), or `full` (name, rationale, and references).
 
 ### Interactive selection
 
-On a terminal, `agent-scaffold scaffold` opens the two-pane selector by default (seeded from `--principles`); pass `--write` or `--dry-run` to skip it:
+On a terminal, `agent-flow scaffold` opens the two-pane selector by default (seeded from `--principles`); pass `--write` or `--dry-run` to skip it:
 
 - Left pane lists available principles; right pane lists the included ones in order.
 - `i` / `a` move the highlighted principle to the other pane, inserting it before (`i`) or after (`a`) the cursor.
@@ -200,13 +200,13 @@ A plan is a structured `<task>.plan.toml` skeleton (its Roadmap `[[step]]` entri
 
 ```sh
 # Generate <task>.md from the skeleton and its sidecars:
-agent-scaffold render docs/plans/my-task.plan.toml
+agent-flow render docs/plans/my-task.plan.toml
 
 # Re-render in memory and compare against the committed <task>.md (warn on drift):
-agent-scaffold render --check docs/plans/my-task.plan.toml
+agent-flow render --check docs/plans/my-task.plan.toml
 
 # Fail (exit non-zero) on drift, for CI or a pre-commit hook:
-agent-scaffold render --check --strict docs/plans/my-task.plan.toml
+agent-flow render --check --strict docs/plans/my-task.plan.toml
 ```
 
 `render` is strict: a schema violation, an unresolved cross-reference, or a missing sidecar exits non-zero and writes nothing, so a broken source never yields a partial plan. `render --check` catches both a hand-edit of the generated file and a stale render after a source edit; it warns locally (so a forgotten re-render never blocks an in-flight step) and, with `--strict`, fails hard. Scaffolding a new project renders the dropped `TEMPLATE.plan.toml` into `TEMPLATE.md` for you.
@@ -219,19 +219,19 @@ agent-scaffold render --check --strict docs/plans/my-task.plan.toml
 
 ```sh
 # Validate the default metrics log (docs/metrics/workflow.jsonl):
-agent-scaffold validate
+agent-flow validate
 
 # Validate a TOML plan skeleton (its schema and internal cross-references):
-agent-scaffold validate --source docs/plans/my-task.plan.toml
+agent-flow validate --source docs/plans/my-task.plan.toml
 
 # Cross-reference a TOML-primary plan's status against the round log (no --plan needed):
-agent-scaffold validate --source docs/plans/my-task.plan.toml --workflow
+agent-flow validate --source docs/plans/my-task.plan.toml --workflow
 
 # The Markdown path still works when a project keeps a Markdown plan:
-agent-scaffold validate --plan docs/plans/my-task.md --workflow
+agent-flow validate --plan docs/plans/my-task.md --workflow
 
 # Pointing --workflow at a log outside the plan's own project is refused (exit 1):
-agent-scaffold validate --source /elsewhere/docs/plans/their-task.plan.toml \
+agent-flow validate --source /elsewhere/docs/plans/their-task.plan.toml \
   --metrics docs/metrics/workflow.jsonl --workflow
 # --workflow would join /elsewhere/docs/plans/their-task.plan.toml against
 # docs/metrics/workflow.jsonl, which is not under the plan's project root /elsewhere;
@@ -239,7 +239,7 @@ agent-scaffold validate --source /elsewhere/docs/plans/their-task.plan.toml \
 # `--source` and `--plan` pair
 ```
 
-The round log is resolved FROM THE PLAN, not from the directory you happen to be standing in. With no `--metrics`, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of `--source` (else of `--plan`), or the source's own directory when it has no such ancestor, so a plan at a project root with no `docs/plans` still reads that root's log. So `agent-scaffold validate --source /elsewhere/docs/plans/their-task.plan.toml --workflow` checks THEIR plan against THEIR log, rather than joining their plan to yours. `status`, `status --resume` and `next` resolve the same way, and the ledger those two read is `<task>.ledger.md` beside the plan source. An explicit `--metrics` (or `--ledger-fragment`) is used verbatim, and a run with neither `--source` nor `--plan` has nothing to anchor to, so it keeps the current-directory-relative `docs/metrics/workflow.jsonl`. The rule is textual: it never consults `.git`, so it works the same in a nested repository, outside a repository, and in an unpacked tarball. One consequence to know about: a bare filename run from inside `docs/plans` (`cd docs/plans && agent-scaffold validate --source my-task.plan.toml --workflow`) has no parent directories to derive a root from, so it looks for `docs/metrics/workflow.jsonl` beneath `docs/plans` and fails, naming the log it looked for; run it from the project root instead.
+The round log is resolved FROM THE PLAN, not from the directory you happen to be standing in. With no `--metrics`, the log is `docs/metrics/workflow.jsonl` under the project root derived from the plan source: the nearest `<root>/docs/plans/` ancestor of `--source` (else of `--plan`), or the source's own directory when it has no such ancestor, so a plan at a project root with no `docs/plans` still reads that root's log. So `agent-flow validate --source /elsewhere/docs/plans/their-task.plan.toml --workflow` checks THEIR plan against THEIR log, rather than joining their plan to yours. `status`, `status --resume` and `next` resolve the same way, and the ledger those two read is `<task>.ledger.md` beside the plan source. An explicit `--metrics` (or `--ledger-fragment`) is used verbatim, and a run with neither `--source` nor `--plan` has nothing to anchor to, so it keeps the current-directory-relative `docs/metrics/workflow.jsonl`. The rule is textual: it never consults `.git`, so it works the same in a nested repository, outside a repository, and in an unpacked tarball. One consequence to know about: a bare filename run from inside `docs/plans` (`cd docs/plans && agent-flow validate --source my-task.plan.toml --workflow`) has no parent directories to derive a root from, so it looks for `docs/metrics/workflow.jsonl` beneath `docs/plans` and fails, naming the log it looked for; run it from the project root instead.
 
 Anchoring changes where the DEFAULT log resolves; it does nothing about a log you name explicitly, so a second rule sits on top of it. Every one of these commands that reads a plan checks that the log (and, for the ledger readers, the ledger) it is about to read lives under the project root of THAT plan, resolving both through their real on-disk locations so a symlink cannot disguise one as the other. Where no plan is read, which is always so for `status --resume` and is so for `status` and `next` whenever neither a TOML-primary `--source` nor a readable `--plan` resolves, those three take their roots from the anchors instead: every `--source` or `--plan` you gave THAT IS ON DISK yields one and the artifact must be under all of them, so a `--source` and a `--plan` naming two different projects reject each other's artifacts. An anchor that is not on disk yields a root only when NO anchor you gave is on disk, derived from the path itself resolved as far as the filesystem allows, and a `note:` on stderr tells you the anchor is not there; what the anchor's own directory owns is still read, so a plan file you have not written yet still reads its own project's log. Beside an anchor that IS on disk it yields nothing and the one on disk decides, so naming a plan file you have not written does not withhold the other anchor's own log and ledger. ON DISK means the existence check answered yes: an anchor the check cannot answer for at all (a directory above it this process cannot traverse, a symlink loop, a name the kernel rejects) is grouped with the anchors that are not on disk rather than with the ones that are, so a path the tool could not check never becomes the one that decides, and its `note:` says the check failed rather than that the path is missing. With NEITHER anchor there is nothing to pair against, so no root is derived, no containment check fires, and the current-directory-relative defaults described above stand. `validate --workflow` has no such fallback and needs none: with no plan resolved there is nothing for it to check, so it refuses on that ground (`--workflow requested but no plan source resolved`) without ever reaching containment. Where a checked artifact IS outside the root, `validate --workflow` refuses as above, while `status` and `next` LEAVE THAT PART OUT with a reason in its place and still exit 0 (see the `status` paragraph below). Two consequences are worth knowing. A layout where `docs/plans` or `docs/metrics` is a symlink pointing somewhere the other one is not under will now be refused by `validate --workflow` and left out by the projections, even though it worked before; the trade taken is that a loud refusal beats silently reading the wrong file. And a setup that deliberately points one project's `--metrics` at a log outside its own root now exits non-zero under `--workflow`. The rule is CONTAINMENT, not identity: it can tell that a log outside the plan's tree is not the plan's, but a foreign log copied INSIDE that tree still looks like the plan's own, because the round records carry no project of their own to check.
 
@@ -249,16 +249,16 @@ Anchoring changes where the DEFAULT log resolves; it does nothing about a log yo
 
 ```sh
 # Human-readable summary (from a TOML-primary plan skeleton):
-agent-scaffold status --source docs/plans/my-task.plan.toml
+agent-flow status --source docs/plans/my-task.plan.toml
 
 # Or from a Markdown plan:
-agent-scaffold status --plan docs/plans/my-task.md
+agent-flow status --plan docs/plans/my-task.md
 
 # Machine-readable projection:
-agent-scaffold status --source docs/plans/my-task.plan.toml --json
+agent-flow status --source docs/plans/my-task.plan.toml --json
 
 # A log that cannot be paired with the plan is left out, with a reason, at exit 0:
-agent-scaffold status --source /elsewhere/docs/plans/their-task.plan.toml \
+agent-flow status --source /elsewhere/docs/plans/their-task.plan.toml \
   --metrics docs/metrics/workflow.jsonl --json
 # {
 #   "plan": { ... },
@@ -275,13 +275,13 @@ Every report leads with a mandatory caveat: a passing audit is necessary but not
 
 ```sh
 # Write the Markdown report to docs/plans/my-task.code-value-report.md:
-agent-scaffold audit --source docs/plans/my-task.plan.toml
+agent-flow audit --source docs/plans/my-task.plan.toml
 
 # Print the machine intermediate instead of writing a file:
-agent-scaffold audit --source docs/plans/my-task.plan.toml --json
+agent-flow audit --source docs/plans/my-task.plan.toml --json
 
 # Audit a crate elsewhere and write the report to a chosen path:
-agent-scaffold audit --dir path/to/crate --out reports/code-value.md
+agent-flow audit --dir path/to/crate --out reports/code-value.md
 ```
 
 ## Bring your own pack
@@ -289,7 +289,7 @@ agent-scaffold audit --dir path/to/crate --out reports/code-value.md
 By default the tool uses its built-in pack. Point `--template` at a directory to scaffold from your own pack instead:
 
 ```sh
-agent-scaffold scaffold --template path/to/my-pack --var project=my-service
+agent-flow scaffold --template path/to/my-pack --var project=my-service
 ```
 
 A pack is a directory with a `pack.toml` manifest that declares its assets and any variables:
@@ -355,7 +355,7 @@ name = "diagram_title"
 module = "diagrams"      # required here, but only demanded when `diagrams` is selected
 ```
 
-An entry with no `module` tag is core: it is always applied. A tagged entry is applied only when you select its module with the repeatable `--module <name>` flag (`agent-scaffold scaffold --module diagrams`). With no module selected, every tagged asset is dropped and every tagged variable is skipped entirely: its default does not apply, it is not required, and a `--var` naming it is rejected as undeclared, exactly as if the pack never declared it. A selected module's variables behave like core ones (a default applies, or the variable is required if it has none). Because core output does not depend on any module, scaffolding with no `--module` is byte-identical to a pack that declares no modules at all.
+An entry with no `module` tag is core: it is always applied. A tagged entry is applied only when you select its module with the repeatable `--module <name>` flag (`agent-flow scaffold --module diagrams`). With no module selected, every tagged asset is dropped and every tagged variable is skipped entirely: its default does not apply, it is not required, and a `--var` naming it is rejected as undeclared, exactly as if the pack never declared it. A selected module's variables behave like core ones (a default applies, or the variable is required if it has none). Because core output does not depend on any module, scaffolding with no `--module` is byte-identical to a pack that declares no modules at all.
 
 A module may declare an optional `guidance` fragment: when the module is enabled, that fragment (read from the pack like `instrument.md`, not dropped as its own asset) is concatenated, in `[[module]]` declaration order, into the reserved `{{modules}}` render slot. A module may also declare `requires`, the modules it auto-enables when selected: selecting a module enables everything it requires, transitively, so a module can depend on another without you naming both. A `requires` cycle is tolerated (the expansion is a fixed point), so it neither loops nor errors.
 

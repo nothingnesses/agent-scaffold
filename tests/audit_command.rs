@@ -1,4 +1,4 @@
-//! End-to-end tests for `agent-scaffold audit` through the real binary entry point
+//! End-to-end tests for `agent-flow audit` through the real binary entry point
 //! (`main` -> `run_audit`), covering the two behaviours a unit test cannot observe: that
 //! `--json` prints the machine intermediate and writes NO file, and that the report path
 //! is derived from the plan-source filename (`docs/plans/<task>.code-value-report.md`) or
@@ -17,7 +17,7 @@ use std::{
 /// A unique scratch directory under the system temp dir for one test.
 fn scratch(name: &str) -> PathBuf {
 	let dir =
-		std::env::temp_dir().join(format!("agent-scaffold-audit-{}-{}", std::process::id(), name));
+		std::env::temp_dir().join(format!("agent-flow-audit-{}-{}", std::process::id(), name));
 	let _ = fs::remove_dir_all(&dir);
 	dir
 }
@@ -28,7 +28,7 @@ fn audit(
 	dir: &Path,
 	args: &[&str],
 ) -> (bool, String) {
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.arg("audit")
 		.args(args)
 		.current_dir(dir)
@@ -96,7 +96,7 @@ fn json_and_out_conflict_is_rejected() {
 	// `--json` writes no file and `--out` names a file to write, so requesting both is an
 	// impossible combination. clap rejects it at parse time (fail fast and loudly) rather
 	// than silently ignoring `--out`, so the run fails and writes nothing.
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.arg("audit")
 		.args(["--source", "docs/plans/demo.plan.toml", "--json", "--out", "custom/report.md"])
 		.current_dir(&dir)

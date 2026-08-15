@@ -89,13 +89,13 @@ use {
 };
 
 /// The file-name prefix of a runner's temporary worktree directory under the
-/// system temp dir: `agent-scaffold-checks-run-{pid}-{nanos}-{seq}` (built in
+/// system temp dir: `agent-flow-checks-run-{pid}-{nanos}-{seq}` (built in
 /// exactly one place, `reserve_runner_worktree`, which documents each component).
 /// The startup prune (see `prune_orphan_worktrees`) matches this prefix among a
 /// repo's registered worktrees to identify a reclaimable runner orphan; the `-run-`
-/// segment keeps it distinct from the test fixtures' `agent-scaffold-checks-test-`
+/// segment keeps it distinct from the test fixtures' `agent-flow-checks-test-`
 /// prefix so the two never collide.
-const RUNNER_PREFIX: &str = "agent-scaffold-checks-run-";
+const RUNNER_PREFIX: &str = "agent-flow-checks-run-";
 
 /// The kind of a check: a closed enum (parse-don't-validate), so a `kind` value
 /// outside this set is rejected at the config boundary rather than mishandled
@@ -553,7 +553,7 @@ fn reserve_runner_worktree_with(
 }
 
 /// Parse the owning pid out of a runner worktree directory name of the form
-/// `agent-scaffold-checks-run-{pid}-{nanos}-{seq}` (see `reserve_runner_worktree`).
+/// `agent-flow-checks-run-{pid}-{nanos}-{seq}` (see `reserve_runner_worktree`).
 /// Only the first `-`-separated segment after the prefix is read, so appending
 /// further components never changes what this returns. Returns `None` when the name
 /// does not carry a parseable pid, so the caller can skip reclamation
@@ -694,13 +694,13 @@ fn isolation_commit(
 				repo,
 				&[
 					"-c",
-					"user.name=agent-scaffold",
+					"user.name=agent-flow",
 					"-c",
-					"user.email=agent-scaffold@invalid",
+					"user.email=agent-flow@invalid",
 					"commit-tree",
 					&tree,
 					"-m",
-					"agent-scaffold checks --staged: index snapshot",
+					"agent-flow checks --staged: index snapshot",
 				],
 			)?;
 			if !commit_out.status.success() {
@@ -1036,7 +1036,7 @@ mod tests {
 	/// A unique scratch directory under the system temp dir for one test.
 	fn scratch(name: &str) -> PathBuf {
 		let dir = std::env::temp_dir().join(format!(
-			"agent-scaffold-checks-test-{}-{}",
+			"agent-flow-checks-test-{}-{}",
 			std::process::id(),
 			name
 		));

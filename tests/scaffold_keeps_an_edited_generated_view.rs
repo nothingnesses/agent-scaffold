@@ -23,7 +23,7 @@ use std::{
 /// A unique scratch root for one test, removed and recreated so a rerun starts clean.
 fn scratch(name: &str) -> PathBuf {
 	let dir = std::env::temp_dir()
-		.join(format!("agent-scaffold-keepview-{}-{name}", std::process::id()));
+		.join(format!("agent-flow-keepview-{}-{name}", std::process::id()));
 	let _ = fs::remove_dir_all(&dir);
 	fs::create_dir_all(&dir).unwrap();
 	dir
@@ -31,7 +31,7 @@ fn scratch(name: &str) -> PathBuf {
 
 /// Run `scaffold --write` into `out`, returning stdout and stderr joined.
 fn scaffold(out: &Path) -> (bool, String) {
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--output-dir"])
 		.arg(out)
 		.args(["--vcs", "none", "--write"])
@@ -68,7 +68,7 @@ fn an_edited_plan_view_is_kept_and_the_run_says_what_to_do() {
 	assert!(text.contains("docs/plans/TEMPLATE.md"), "the run must name the file: {text}");
 	assert!(text.contains("left untouched"), "the run must say it was kept: {text}");
 	assert!(
-		text.contains("agent-scaffold render docs/plans/TEMPLATE.plan.toml"),
+		text.contains("agent-flow render docs/plans/TEMPLATE.plan.toml"),
 		"the run must give the command that produces the current view: {text}"
 	);
 	let _ = fs::remove_dir_all(&out);

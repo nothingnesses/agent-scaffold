@@ -143,7 +143,7 @@ mod tests {
 	/// beside it, so an escape target stays inside the test's own directory.
 	fn scratch(name: &str) -> PathBuf {
 		let root = std::env::temp_dir()
-			.join(format!("agent-scaffold-safepath-{}-{name}", std::process::id()));
+			.join(format!("agent-flow-safepath-{}-{name}", std::process::id()));
 		let _ = fs::remove_dir_all(&root);
 		fs::create_dir_all(root.join("pack/sub")).unwrap();
 		fs::write(root.join("outside.md"), "outside\n").unwrap();

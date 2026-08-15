@@ -15,4 +15,4 @@
 [[check]]
 name = "render-check"
 kind = "lint"
-command = "agent-scaffold render --check docs/plans/agent-scaffold.plan.toml --strict"
+command = "agent-flow render --check docs/plans/agent-scaffold.plan.toml --strict"

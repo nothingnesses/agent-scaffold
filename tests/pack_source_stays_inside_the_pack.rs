@@ -34,7 +34,7 @@ use std::{
 /// A unique scratch root for one test, removed and recreated so a rerun starts clean.
 fn scratch(name: &str) -> PathBuf {
 	let dir = std::env::temp_dir()
-		.join(format!("agent-scaffold-packsource-{}-{name}", std::process::id()));
+		.join(format!("agent-flow-packsource-{}-{name}", std::process::id()));
 	let _ = fs::remove_dir_all(&dir);
 	fs::create_dir_all(&dir).unwrap();
 	dir
@@ -64,7 +64,7 @@ fn scaffold(
 	out: &Path,
 	mode: &str,
 ) -> Output {
-	Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(pack)
 		.arg("--output-dir")
@@ -151,7 +151,7 @@ fn scaffold_with_module(
 	out: &Path,
 	mode: &str,
 ) -> Output {
-	Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(pack)
 		.arg("--output-dir")
@@ -334,7 +334,7 @@ fn a_linked_instrument_fragment_is_reported_not_silently_dropped() {
 	let out = root.join("out");
 	fs::create_dir_all(&out).unwrap();
 
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(&pack)
 		.arg("--output-dir")
@@ -359,7 +359,7 @@ fn a_linked_principles_file_is_reported_not_silently_dropped() {
 	let out = root.join("out");
 	fs::create_dir_all(&out).unwrap();
 
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(&pack)
 		.arg("--output-dir")
@@ -423,7 +423,7 @@ fn a_pack_shipping_neither_optional_literal_still_scaffolds() {
 	let out = root.join("out");
 	fs::create_dir_all(&out).unwrap();
 
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(&pack)
 		.arg("--output-dir")

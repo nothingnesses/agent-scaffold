@@ -1,4 +1,4 @@
-//! agent-flow: scaffold the agent workflow into a project.
+//! agent-flow: validate a structured agent workflow, project its state, and scaffold one to start.
 //!
 //! Two-tier ownership from the spec:
 //!

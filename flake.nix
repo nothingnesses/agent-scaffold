@@ -1,5 +1,5 @@
 {
-  description = "agent-flow: scaffold the agent workflow into a project";
+  description = "agent-flow: validate a structured agent workflow, project its state, and scaffold one to start";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";

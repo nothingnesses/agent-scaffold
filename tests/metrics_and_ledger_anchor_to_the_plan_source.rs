@@ -62,7 +62,7 @@ fn resume_block(which: &str) -> String {
 /// requires to be outside a git repository).
 fn scratch(name: &str) -> PathBuf {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-anchor-{}-{}-{}",
+		"agent-flow-anchor-{}-{}-{}",
 		name,
 		std::process::id(),
 		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -121,11 +121,11 @@ fn run(
 	dir: &Path,
 	args: &[&str],
 ) -> (Option<i32>, String, String) {
-	let output = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let output = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(args)
 		.current_dir(dir)
 		.output()
-		.expect("run agent-scaffold");
+		.expect("run agent-flow");
 	(
 		output.status.code(),
 		String::from_utf8_lossy(&output.stdout).into_owned(),

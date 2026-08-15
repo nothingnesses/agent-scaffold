@@ -1,4 +1,4 @@
-# Default principle pack for agent-scaffold.
+# Default principle pack for agent-flow.
 #
 # Each [[principle]] is one entry. Fields:
 #   id               stable slug (kebab-case); used in flags, config, and the selection record.

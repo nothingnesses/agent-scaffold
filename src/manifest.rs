@@ -817,7 +817,7 @@ mod tests {
 	/// A unique scratch directory under the system temp dir for one test.
 	fn scratch(name: &str) -> PathBuf {
 		let dir = std::env::temp_dir().join(format!(
-			"agent-scaffold-manifest-{}-{}",
+			"agent-flow-manifest-{}-{}",
 			std::process::id(),
 			name
 		));

@@ -12,7 +12,7 @@ use std::{
 /// A unique scratch directory under the system temp dir for one test.
 fn scratch(name: &str) -> PathBuf {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-e2ehook-{}-{}",
+		"agent-flow-e2ehook-{}-{}",
 		std::process::id(),
 		name
 	));
@@ -25,7 +25,7 @@ fn scaffold_with_precommit_hook_without_checks_module_exits_2() {
 	// The coherence usage error: requesting the hook without `--module checks` is a
 	// usage error (exit 2), and nothing is written.
 	let out = scratch("coherence");
-	let status = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let status = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args([
 			"scaffold",
 			"--with-precommit-hook",
@@ -51,7 +51,7 @@ fn scaffold_with_precommit_hook_installs_it_create_if_absent() {
 	// --with-precommit-hook --write` initialises the repo, drops the assets, and
 	// installs an executable, delegating `.git/hooks/pre-commit` (none existed).
 	let out = scratch("install");
-	let result = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let result = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args([
 			"scaffold",
 			"--module",
@@ -93,7 +93,7 @@ fn scaffold_preview_for_a_fresh_repo_does_not_over_promise_the_hook() {
 	// "(create-if-absent)" that the action could contradict. A dry run into a fresh,
 	// non-repo dir exercises the `InitPlan::Init` preview without writing.
 	let out = scratch("preview-init");
-	let result = Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	let result = Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args([
 			"scaffold",
 			"--module",

@@ -1,4 +1,4 @@
-//! The advisory `agent-scaffold next` projection (workflow-driver Stage 1).
+//! The advisory `agent-flow next` projection (workflow-driver Stage 1).
 //!
 //! `next` is read-only and stateless: for the single active review loop it
 //! recomputes the loop state from the durable files (the plan source, the round

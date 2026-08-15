@@ -397,7 +397,7 @@ fn round_log_consistency_problems(rounds: &[Round]) -> Vec<String> {
 /// The peak consecutive-clean streak over a set of round records: the maximum
 /// logged `consecutive_clean` value, or `0` when the slice is empty. This is the
 /// convergence arithmetic W3 checks a `complete` increment against, extracted so the
-/// forward `agent-scaffold next` projection and this backward check run the SAME
+/// forward `agent-flow next` projection and this backward check run the SAME
 /// computation over the same records rather than two copies that could drift
 /// (Principle 16). `consecutive_clean` is one running per-loop counter spanning the
 /// artifacts an increment's rounds name, so the peak (not the terminal value) is
@@ -511,7 +511,7 @@ pub(crate) fn w3_problems(
 			// single peak to reach the class count.
 			//
 			// Peak, not terminal (T9): see `peak_consecutive_clean`, which owns this
-			// computation so `agent-scaffold next` runs the identical arithmetic.
+			// computation so `agent-flow next` runs the identical arithmetic.
 			let peak = peak_consecutive_clean(records);
 			if peak < required {
 				// Exempt this increment iff an increment-level waiver covers it, judged by

@@ -31,7 +31,7 @@ fn git(
 /// Run the built binary's `checks --staged` in `dir` with a pre-commit hook's git
 /// environment set, returning its exit code.
 fn checks_staged_under_hook_env(dir: &Path) -> Option<i32> {
-	Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["checks", "--staged"])
 		.current_dir(dir)
 		// The variables git exports to a hook. A relative GIT_DIR plus GIT_INDEX_FILE
@@ -48,7 +48,7 @@ fn checks_staged_under_hook_env(dir: &Path) -> Option<i32> {
 #[test]
 fn checks_staged_runs_under_a_hook_environment() {
 	let dir = std::env::temp_dir().join(format!(
-		"agent-scaffold-hookenv-{}-{}",
+		"agent-flow-hookenv-{}-{}",
 		std::process::id(),
 		"staged"
 	));

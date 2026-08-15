@@ -1,5 +1,5 @@
 {
-  description = "agent-scaffold: scaffold the agent workflow into a project";
+  description = "agent-flow: scaffold the agent workflow into a project";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
@@ -38,7 +38,7 @@
 
           treefmtEval = inputs.treefmt-nix.lib.evalModule pkgs {
             projectRootFile = "flake.nix";
-            # The render golden fixtures are byte-exact `agent-scaffold render`
+            # The render golden fixtures are byte-exact `agent-flow render`
             # output (Markdown + TOML + prose sidecars), not formatter output, so
             # prettier/taplo must not touch them or `render --check` would diverge.
             # This project's own plan is now a render artifact too (generated from

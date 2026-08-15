@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - 2026-08-15
+
+### Changed
+
+- BREAKING: the crate and the binary are renamed from `agent-scaffold` to `agent-flow`. The new name describes what the tool became, a structured workflow validator and advisory driver, with `scaffold` as one bootstrap subcommand beside `validate`, `status`, `next`, `checks`, `render` and `audit`. TO UPGRADE FROM 0.0.2, run `cargo uninstall agent-scaffold`, then `cargo install agent-flow`, then replace `agent-scaffold` with `agent-flow` everywhere you invoke it: scripts, CI jobs, the `command` of a `[[check]]` in `.agents/checks.toml`, and any `.git/hooks/pre-commit` you installed. Nothing else changes. Every subcommand, flag, option, pack format and scaffolded file layout is the same as 0.0.2, and the only content change in the scaffolded assets is the command name inside their prose, so a project scaffolded by 0.0.2 needs no migration beyond the command name. Re-scaffolding with `agent-flow scaffold --force` refreshes the tool-owned `.agents/` copies that name the command in their prose, while `.agents/checks.toml` and an installed hook are yours and are never rewritten for you. crates.io has no in-place rename, so `agent-flow` is a NEW crate rather than a redirect. `agent-scaffold` stops at 0.0.2, every published `agent-scaffold` version stays installable and un-yanked, and the `agent-scaffold` name is free for whoever wants to reclaim it. The README's "The `agent-flow` rename" section is the authoritative statement, including the contact route.
+- The `checks` runner names its throwaway worktree `agent-flow-checks-run-<pid>-<nanos>-<seq>`, where 0.0.2 used `agent-scaffold-checks-run-<pid>-<nanos>-<seq>`, and the startup prune matches the new prefix. An orphan worktree that a 0.0.2 run left behind is therefore not reclaimed by 0.0.3. Clear one with `git worktree prune`, or with `git worktree remove` while its directory still exists.
+
 ## [0.0.2] - 2026-08-13
 
 ### Deprecated

@@ -1,4 +1,4 @@
-//! The advisory `agent-scaffold audit` code-value report (Tier-0, Q-52).
+//! The advisory `agent-flow audit` code-value report (Tier-0, Q-52).
 //!
 //! `audit` is read-mostly and advisory: it builds a machine-readable intermediate of
 //! code that MAY not be earning its keep (dead-code and unused-dependency suspicions,

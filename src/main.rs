@@ -1,4 +1,4 @@
-//! agent-scaffold: scaffold the agent workflow into a project.
+//! agent-flow: scaffold the agent workflow into a project.
 //!
 //! Two-tier ownership from the spec:
 //!
@@ -396,7 +396,7 @@ fn scaffold(
 /// surface rather than triggering a default action.
 #[derive(Parser)]
 #[command(
-	name = "agent-scaffold",
+	name = "agent-flow",
 	version,
 	about = "Scaffold the agent workflow into a project, and validate or project its state.",
 	arg_required_else_help = true
@@ -703,7 +703,7 @@ fn run_render(args: RenderArgs) -> io::Result<()> {
 					)
 				} else {
 					format!(
-						"{out} does not exist; run `agent-scaffold render {}` to generate it",
+						"{out} does not exist; run `agent-flow render {}` to generate it",
 						args.plan.display()
 					)
 				};
@@ -712,7 +712,7 @@ fn run_render(args: RenderArgs) -> io::Result<()> {
 					std::process::exit(1);
 				} else {
 					eprintln!(
-						"warning: {detail}; re-render with `agent-scaffold render {}`",
+						"warning: {detail}; re-render with `agent-flow render {}`",
 						args.plan.display()
 					);
 					Ok(())
@@ -1886,7 +1886,7 @@ const CHECKS_MODULE: &str = "checks";
 /// drifts (one source of truth). `git rev-parse --show-toplevel` resolves the repo
 /// root at hook-run time, so the hook works from any subdirectory.
 const PRECOMMIT_DELEGATE: &str = "#!/bin/sh\n\
-	# Installed by `agent-scaffold scaffold --with-precommit-hook` (create-if-absent).\n\
+	# Installed by `agent-flow scaffold --with-precommit-hook` (create-if-absent).\n\
 	# Delegates to the tracked, single-source hook so the real logic lives in one\n\
 	# place and never drifts. Remove this file to disable the checks commit gate.\n\
 	exec \"$(git rev-parse --show-toplevel)/.agents/hooks/pre-commit\"\n";
@@ -2308,7 +2308,7 @@ fn run_scaffold(args: ScaffoldArgs) -> io::Result<()> {
 				eprintln!(
 					"{out_dest} already exists and differs from what this version generates, so it \
 					 was left untouched. It is now a generated view of {}: move your copy aside and \
-					 run `agent-scaffold render {}` to produce the current one.",
+					 run `agent-flow render {}` to produce the current one.",
 					asset.dest, asset.dest
 				);
 				continue;
@@ -2359,7 +2359,7 @@ mod tests {
 	/// A unique scratch directory under the system temp dir for one test.
 	fn scratch(name: &str) -> PathBuf {
 		let dir = std::env::temp_dir().join(format!(
-			"agent-scaffold-poc-{}-{}",
+			"agent-flow-poc-{}-{}",
 			std::process::id(),
 			name
 		));

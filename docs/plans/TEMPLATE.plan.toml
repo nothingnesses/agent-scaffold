@@ -1,8 +1,8 @@
-# Starter `<task>.plan.toml` skeleton dropped by `agent-scaffold`. It is the
+# Starter `<task>.plan.toml` skeleton dropped by `agent-flow`. It is the
 # structured single source of truth for the plan: the Roadmap (`[[step]]`), the
 # Open-Questions queue (`[[question]]`), and the numbered Project Principles
 # (`[[principle]]`). Edit this file and the prose sidecars it references, then run
-# `agent-scaffold render <task>.plan.toml` to (re)generate the committed
+# `agent-flow render <task>.plan.toml` to (re)generate the committed
 # `<task>.md`; never hand-edit that generated view. Copy this template to a
 # task-named file (for example `docs/plans/my-task.plan.toml`) to start a plan, and
 # rename its sidecar directories and files to match.

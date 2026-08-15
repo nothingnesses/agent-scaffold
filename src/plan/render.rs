@@ -340,8 +340,8 @@ fn banner(task: &str) -> String {
 	format!(
 		"<!-- GENERATED FILE - do not hand-edit. Source: {task}{PLAN_TOML_SUFFIX}, {task}.steps/, \
 		 {task}.questions/, and the [meta].sidecars prose (front/tail). Regenerate with \
-		 `agent-scaffold render {task}{PLAN_TOML_SUFFIX}`; hand edits are overwritten and caught by \
-		 `agent-scaffold render --check`. -->"
+		 `agent-flow render {task}{PLAN_TOML_SUFFIX}`; hand edits are overwritten and caught by \
+		 `agent-flow render --check`. -->"
 	)
 }
 
@@ -662,7 +662,7 @@ mod tests {
 	/// A scratch directory for a single test that writes files, kept off the live tree.
 	fn scratch(name: &str) -> PathBuf {
 		let dir = std::env::temp_dir()
-			.join(format!("agent-scaffold-render-{}-{name}", std::process::id()));
+			.join(format!("agent-flow-render-{}-{name}", std::process::id()));
 		let _ = fs::remove_dir_all(&dir);
 		fs::create_dir_all(&dir).unwrap();
 		dir

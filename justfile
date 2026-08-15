@@ -37,7 +37,7 @@ fmt:
 # `AGENTS.md`, `.agents/`, and plan template stay in sync with the pack (dogfooding).
 # `--instrument` is on because we dogfood the workflow instrumentation: the rendered
 # `AGENTS.md` carries the metrics-logging block, and this project logs its own review
-# rounds to `docs/metrics/workflow.jsonl` (validated with `agent-scaffold validate`).
+# rounds to `docs/metrics/workflow.jsonl` (validated with `agent-flow validate`).
 # The raw render is not formatter-clean (prettier owns Markdown wrapping via
 # proseWrap=never), so run the repo-wide formatter afterwards to normalise the
 # generated files. `nix fmt` formats the whole tree, not just the generated files;

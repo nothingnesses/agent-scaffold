@@ -1,4 +1,4 @@
-<!-- GENERATED FILE - do not hand-edit. Source: render-fixture.plan.toml, render-fixture.steps/, render-fixture.questions/, and the [meta].sidecars prose (front/tail). Regenerate with `agent-scaffold render render-fixture.plan.toml`; hand edits are overwritten and caught by `agent-scaffold render --check`. -->
+<!-- GENERATED FILE - do not hand-edit. Source: render-fixture.plan.toml, render-fixture.steps/, render-fixture.questions/, and the [meta].sidecars prose (front/tail). Regenerate with `agent-flow render render-fixture.plan.toml`; hand edits are overwritten and caught by `agent-flow render --check`. -->
 
 # Render fixture plan
 

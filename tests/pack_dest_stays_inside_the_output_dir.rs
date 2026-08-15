@@ -26,7 +26,7 @@ use std::{
 /// A unique scratch root for one test, removed and recreated so a rerun starts clean.
 fn scratch(name: &str) -> PathBuf {
 	let dir = std::env::temp_dir()
-		.join(format!("agent-scaffold-packdest-{}-{name}", std::process::id()));
+		.join(format!("agent-flow-packdest-{}-{name}", std::process::id()));
 	let _ = fs::remove_dir_all(&dir);
 	fs::create_dir_all(&dir).unwrap();
 	dir
@@ -55,7 +55,7 @@ fn scaffold(
 	out: &Path,
 	mode: &str,
 ) -> Output {
-	Command::new(env!("CARGO_BIN_EXE_agent-scaffold"))
+	Command::new(env!("CARGO_BIN_EXE_agent-flow"))
 		.args(["scaffold", "--template"])
 		.arg(pack)
 		.arg("--output-dir")

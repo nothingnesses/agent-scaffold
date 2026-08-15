@@ -1153,7 +1153,7 @@ decisions = ["Q-64"]
 [[step]]
 slug = "rename-to-agent-flow"
 title = "rename the crate and binary from agent-scaffold to `agent-flow` at a stable, release-ready state (`Q-65`)"
-status = "deferred"
+status = "complete"
 order = 100
 blocked_by = ["audit-user-prompt"]
 folds = []

@@ -1,5 +1,5 @@
 //! Whole-file drift guard for scaffold files this repo dogfoods: the generated
-//! `AGENTS.md`, its tool-owned copy `.agents/AGENTS.reference.md`, and the role prompts
+//! `AGENTS.md`, its tool-owned copy `.agents/AGENTS.reference.md`, and the prompt copies
 //! the COVERAGE block at the end of this comment defines. Read that block before relying
 //! on what is and is not guarded; it is the one place in this file that states coverage,
 //! and the rest of the file cites it rather than restating it.
@@ -42,8 +42,8 @@
 //!
 //! 1. The committed root `AGENTS.md` against its fresh render.
 //! 2. The committed `.agents/AGENTS.reference.md` against its fresh render.
-//! 3. For each rendered asset whose `dest` starts with `PROMPT_DEST_PREFIX`: that asset
-//!    against the file committed at the same relative path under `CARGO_MANIFEST_DIR`.
+//! 3. For each rendered asset whose `dest` starts with one of `PROMPT_DEST_PREFIXES`: that
+//!    asset against the file committed at the same relative path under `CARGO_MANIFEST_DIR`.
 //!
 //! The render in each case is the pinned self-scaffold config (see `self_scaffold_assets`),
 //! and both sides of each comparison go through `assert_no_unprotected_construct` and then
@@ -56,31 +56,33 @@
 //!
 //! COMPLEMENT, AS A RULE. Anything else the scaffold emits, or the repo commits, is
 //! unguarded by this module. A rule rather than an inventory, because an inventory carries
-//! an obligation to stay complete that prose reliably fails; the `.agents/user-prompts/`
-//! copies, `.agents/LEDGER.template.md`, the `.toml` copies under `.agents/`, and the
-//! `docs/plans/TEMPLATE` family illustrate the rule and do not bound it. Leaving them
-//! uncovered is a scope call whose cost is uneven: widening to the Markdown asset copies is a
-//! small change to check 3's filter, since they are prose under the same prettier settings
-//! and already satisfy the precondition, while the TOML copies need a comparison of their
-//! own, since `.agents/principles.toml` carries lines outside canonical whitespace form
-//! (indented multi-line array continuations among them) that
-//! `assert_no_unprotected_construct` rejects, and `normalize_wrapping` is a Markdown prose
-//! transform with no business canonicalizing TOML.
+//! an obligation to stay complete that prose reliably fails; `.agents/LEDGER.template.md`,
+//! the `.toml` copies under `.agents/`, and the `docs/plans/TEMPLATE` family illustrate the
+//! rule and do not bound it. Leaving them uncovered is a scope call whose cost is uneven:
+//! widening to a further Markdown asset copy is a small change to `PROMPT_DEST_PREFIXES`,
+//! since such a copy is prose under the same prettier settings and already satisfies the
+//! precondition, while the TOML copies need a comparison of their own, since
+//! `.agents/principles.toml` carries lines outside canonical whitespace form (indented
+//! multi-line array continuations among them) that `assert_no_unprotected_construct`
+//! rejects, and `normalize_wrapping` is a Markdown prose transform with no business
+//! canonicalizing TOML. That first cost is the route by which the `.agents/user-prompts/`
+//! copies joined the guarded set, so they are guarded rather than illustrations of this
+//! rule.
 //!
 //! R1, THE DERIVED-SET RESIDUAL (accepted, not a defect to fix here). Check 3 maps render
-//! -> committed and asserts nothing in the other direction, so a committed file under the
-//! prefix that the pinned render does not emit is invisible to it. Reached by deleting an
-//! asset row from `pack/pack.toml`, by module-tagging one (the pinned config selects no
+//! -> committed and asserts nothing in the other direction, so a committed file under one of
+//! the prefixes that the pinned render does not emit is invisible to it. Reached by deleting
+//! an asset row from `pack/pack.toml`, by module-tagging one (the pinned config selects no
 //! modules, so a tagged row is not rendered), by changing a row's `dest`, or by hand-placing
-//! a stale extra file in `.agents/prompts/`.
+//! a stale extra file under one of the prefixes.
 //! The mirror case is harmless, since an unregistered file never ships: a file sitting in
-//! `pack/prompts/` with no manifest row is neither rendered nor guarded, and has no
-//! committed copy that could go stale. The standing benign instance is
+//! `pack/prompts/` or `pack/user-prompts/` with no manifest row is neither rendered nor
+//! guarded, and has no committed copy that could go stale. The standing benign instance is
 //! `.agents/prompts/checks-reviewer.md`, whose row is module-gated in `pack/pack.toml`, so
 //! the pinned render omits it, check 3 omits it, and the repo commits no copy for it to
 //! drift from; it needs no explicit exclusion and has none. The non-vacuity assertion in the
-//! prompt test catches check 3 collapsing entirely (the filter matching nothing at all), not
-//! a partial collapse.
+//! prompt test runs per prefix, so it catches one prefix matching nothing at all, not a
+//! partial collapse within a prefix.
 //!
 //! R2, THE CROSS-LINE JOIN RESIDUAL (accepted, not a defect to fix here).
 //! `assert_no_unprotected_construct` inspects one line at a time and asserts nothing about
@@ -119,10 +121,11 @@ mod tests {
 	/// the same generated guidance.
 	const COMMITTED_REFERENCE: &str = include_str!("../.agents/AGENTS.reference.md");
 
-	/// The `dest` prefix check 3 filters the rendered asset set by. What that makes
-	/// guarded, what the complement rule leaves out, and the R1 residual it carries are in
-	/// the COVERAGE block of the module doc.
-	const PROMPT_DEST_PREFIX: &str = ".agents/prompts/";
+	/// The `dest` prefixes check 3 filters the rendered asset set by: the role prompts the
+	/// orchestrator hands to the agents it spawns, and the copies a human pastes by hand.
+	/// What that makes guarded, what the complement rule leaves out, and the R1 residual it
+	/// carries are in the COVERAGE block of the module doc.
+	const PROMPT_DEST_PREFIXES: [&str; 2] = [".agents/prompts/", ".agents/user-prompts/"];
 
 	/// Re-render the self-scaffold asset set. This replicates the exact
 	/// `just scaffold-self` invocation (`scaffold --principles default --instrument`):
@@ -412,29 +415,34 @@ mod tests {
 	}
 
 	#[test]
-	fn the_committed_role_prompts_match_a_fresh_render() {
+	fn the_committed_prompt_copies_match_a_fresh_render() {
 		// Check 3 of COVERAGE. Before it, the prompt copies appeared in the test suite as
 		// destination strings in the manifest's expected-asset list, which asserts what the
 		// scaffold EMITS and never that the committed copy still matches it, so editing a
-		// `pack/prompts/<role>.md` and forgetting to regenerate shipped a stale prompt with
-		// the suite green.
+		// `pack/prompts/<role>.md` or a `pack/user-prompts/<name>.md` and forgetting to
+		// regenerate shipped a stale prompt with the suite green.
 		//
 		// Two-way in CONTENT: because it compares a fresh render against the committed
 		// bytes, a pack edit with a stale copy and a hand edit of the copy with the pack
 		// left alone both fail, and the fix in either direction is to edit the pack source
 		// and run `just scaffold-self`. One-way in SET MEMBERSHIP, which is residual R1.
-		let prompts: Vec<_> = self_scaffold_assets()
-			.into_iter()
-			.filter(|asset| asset.dest.starts_with(PROMPT_DEST_PREFIX))
-			.collect();
+		let assets = self_scaffold_assets();
+		let mut prompts: Vec<&manifest::Asset> = Vec::new();
+		for prefix in PROMPT_DEST_PREFIXES {
+			let matched: Vec<_> =
+				assets.iter().filter(|asset| asset.dest.starts_with(prefix)).collect();
 
-		// A derived set can go vacuously empty (the prompts move, the manifest renames the
-		// destination directory) and a guard over an empty set passes silently, which is
-		// worse than no guard because it reads as coverage. Pin that the filter matched.
-		assert!(
-			!prompts.is_empty(),
-			"the self-scaffold render dropped no asset under {PROMPT_DEST_PREFIX}, so this guard checked nothing; if the role prompts moved, point PROMPT_DEST_PREFIX at their new destination"
-		);
+			// A derived set can go vacuously empty (the prompts move, the manifest renames
+			// the destination directory) and a guard over an empty set passes silently,
+			// which is worse than no guard because it reads as coverage. Pinned per prefix,
+			// so one prefix going empty cannot hide behind the other still matching.
+			assert!(
+				!matched.is_empty(),
+				"the self-scaffold render dropped no asset under {prefix}, so this guard checked nothing there; if those prompts moved, point PROMPT_DEST_PREFIXES at their new destination"
+			);
+
+			prompts.extend(matched);
+		}
 
 		for asset in prompts {
 			let dest = asset.dest.as_str();
@@ -450,7 +458,7 @@ mod tests {
 			assert_eq!(
 				normalize_wrapping(&asset.contents),
 				normalize_wrapping(&committed),
-				"{dest} has drifted from a fresh render of the pack's prompts (ignoring prettier wrapping): either its `pack/prompts/` source was edited without regenerating, or the committed copy was hand edited. Edit the pack source, not the copy, then run `just scaffold-self`"
+				"{dest} has drifted from a fresh render of the pack's prompts (ignoring prettier wrapping): either its source under `pack/` was edited without regenerating, or the committed copy was hand edited. Edit the pack source, not the copy, then run `just scaffold-self`"
 			);
 		}
 	}

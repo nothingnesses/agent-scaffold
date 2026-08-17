@@ -1509,7 +1509,7 @@ findings = ["workflow-calibration.explorations/2026-08-13-audit-when-the-loop-tu
 [[step]]
 slug = "user-prompts-pointer-and-drift-coverage"
 title = "name `audit.md` in the shipped getting-started prompt list, distinguish it there and in the `audit` help text from the `agent-flow audit` subcommand, and widen the whole-file drift guard to the `.agents/user-prompts/` copies"
-status = "not-started"
+status = "complete"
 order = 102
 blocked_by = []
 folds = []

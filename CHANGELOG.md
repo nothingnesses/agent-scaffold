@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+CORRECTION TO 0.0.3. The 0.0.3 section below is left exactly as published, so that this file and the immutable crates.io tarball keep saying the same thing, and the correction is made here instead. That section states that "Every subcommand, flag, option, pack format and scaffolded file layout is the same as 0.0.2". The scaffolded file layout was not: 0.0.3 added one file to it, `.agents/user-prompts/audit.md`, which the Added entry below records. The `dest` set of `pack/pack.toml` at the two tags differs by that one addition and by nothing else, so this corrects the scaffolded-file-layout clause alone. The subcommand, flag, option and pack format clauses are not re-checked here.
+
+### Added
+
+- The `audit.md` user prompt (`.agents/user-prompts/audit.md`), which 0.0.3 shipped and which no entry recorded. Paste it to an agent when you want a measured verdict on something you believe about your own project, rather than a summary of how the work is going. It is self-contained: it carries a three-part method of its own, which pre-registers each measure and commits it before any measurement runs, hands the measuring to independent agents that do not benefit from the answer, and reports against the pre-registration including the claims the audit falsified on the auditing side. It triggers nothing defined in `AGENTS.md`, and it adds no role and no phase to the workflow.
+
+### Changed
+
+- The scaffolded getting-started guidance names `.agents/user-prompts/audit.md` in the list of prompts you invoke by hand. It was the one human-invoked prompt the guidance did not name, so a user whose only entry point was the shipped guidance could not discover it from there. The same sentence states that the prompt is unrelated to the `agent-flow audit` subcommand. This changes what `agent-flow scaffold` emits: the tool-owned `.agents/AGENTS.reference.md` is refreshed on every run, and the root `AGENTS.md` is a working file, so `agent-flow scaffold --force` is what rewrites it.
+- The `agent-flow audit` subcommand's help text states that it is unrelated to the `.agents/user-prompts/audit.md` user prompt, and says in one clause what that prompt is for. The two share the word `audit` and nothing else: no machinery, no input, no output. Neither name says which of the two it means, so a reader of `agent-flow --help` had the word alone to go on. The sentence is appended to the existing paragraph rather than starting a new one, because clap derives the short `about` from the first paragraph only, so a second paragraph would reach `agent-flow audit --help` and never the subcommand list in `agent-flow --help`.
+
 ## [0.0.3] - 2026-08-15
 
 ### Changed

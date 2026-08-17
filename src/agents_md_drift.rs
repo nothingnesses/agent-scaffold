@@ -65,9 +65,8 @@
 //! `.agents/principles.toml` carries lines outside canonical whitespace form (indented
 //! multi-line array continuations among them) that `assert_no_unprotected_construct`
 //! rejects, and `normalize_wrapping` is a Markdown prose transform with no business
-//! canonicalizing TOML. That first cost is the route by which the `.agents/user-prompts/`
-//! copies joined the guarded set, so they are guarded rather than illustrations of this
-//! rule.
+//! canonicalizing TOML. The `.agents/user-prompts/` copies took that first route, which is
+//! why they are in the guarded set above rather than in this complement.
 //!
 //! R1, THE DERIVED-SET RESIDUAL (accepted, not a defect to fix here). Check 3 maps render
 //! -> committed and asserts nothing in the other direction, so a committed file under one of

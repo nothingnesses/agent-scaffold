@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.4] - 2026-08-18
 
 CORRECTION TO 0.0.3. The 0.0.3 section below is left exactly as published, so that this file and the immutable crates.io tarball keep saying the same thing, and the correction is made here instead. That section states that "Every subcommand, flag, option, pack format and scaffolded file layout is the same as 0.0.2". The scaffolded file layout was not: 0.0.3 added one file to it, `.agents/user-prompts/audit.md`, which the Added entry below records. The `dest` set of `pack/pack.toml` at the two tags differs by that one addition and by nothing else, so this corrects the scaffolded-file-layout clause alone. The subcommand, flag, option and pack format clauses are not re-checked here.
 

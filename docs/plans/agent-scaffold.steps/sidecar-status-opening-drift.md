@@ -1,6 +1,6 @@
-### `sidecar-status-opening-drift`: correct the 21 step sidecars whose opening status token contradicts the step's declared `status` (`Q-78-statusdrift`)
+### `sidecar-status-opening-drift`: correct the 21 step sidecars whose opening contradicts the step's declared `status` (`Q-78-statusdrift`)
 
-ONE CLASS OF EDIT, ENUMERATED BY A COMMAND RATHER THAN BY A READING. A step's `status` lives in `docs/plans/agent-scaffold.plan.toml` and is the single source of truth for it. Forty-five of the 101 step sidecars ALSO open by naming a state in prose, and that second copy was never maintained: 21 of the 45 now name a state their step is not in. This step makes each of those 21 openings state the step's actual state. It changes nothing else about any step.
+ONE FILE SET, SELECTED BY A COMMAND RATHER THAN BY A READING; ONE OBLIGATION, WHICH IS A READING. A step's `status` lives in `docs/plans/agent-scaffold.plan.toml` and is the single source of truth for it. Forty-five of the 101 step sidecars ALSO open by naming a state in prose, and that second copy was never maintained: 21 of the 45 now name a state their step is not in. Those 21 files are the scope, and a command selects them so the set cannot be argued about. Inside each of the 21, the obligation is the whole opening LINE, and meeting it takes a reading rather than a substitution, for reasons measured under WHAT THE FIX IS below. It changes nothing else about any step.
 
 THE HUMAN'S DECISION THIS IMPLEMENTS. `Q-78-statusdrift` (human, 2026-08-18) chose to fix this now as its own step, over folding it into the `Q-78` design pass and over flipping the affected statuses to `not-started` instead. Its `type:"decision"` receipt is in `docs/metrics/workflow.jsonl` with `q_id:"Q-78-statusdrift"`, carried by commit `e8b2992`, which adds exactly two lines to that file and touches nothing else.
 
@@ -8,7 +8,7 @@ WHY THAT RECEIPT IS NOT IN `[step.provenance].decisions`, RECORDED SO THE ABSENC
 
 ### THE DRIFT, MEASURED
 
-THE METHOD, so the number is reproducible rather than asserted. For each of the 101 Roadmap steps, take the first line of `docs/plans/agent-scaffold.steps/<slug>.md` that is neither blank nor a Markdown heading, and read its leading word or phrase. When that leading token is one of the seven Roadmap status labels (`not started`, `in progress`, `complete`, `skipped`, `next`, `optional`, `deferred`), compare it against the step's declared `status`. Report every pair that disagrees. The 101st step is this one, whose opening carries no such token.
+THE METHOD, so the number is reproducible rather than asserted. For each of the 101 Roadmap steps, take the first line of `docs/plans/agent-scaffold.steps/<slug>.md` that is neither blank nor a Markdown heading, and read its leading word or phrase. When that leading token is one of the seven Roadmap status labels (`not started`, `in progress`, `complete`, `skipped`, `next`, `optional`, `deferred`), compare it against the step's declared `status`. Report every pair that disagrees. The 101st step is this one, whose opening carries no such token. THIS TEST SELECTS THE FILES AND DOES NOT DEFINE THE FIX: it reads the leading token only, while the obligation under WHAT THE FIX IS covers the whole opening line. Keeping the two apart is deliberate, because a selector has to be mechanical and the obligation cannot be.
 
 TWO PAIRS DISAGREE ON THE TOKEN AND AGREE ON THE FACT, so they are exempt and the exemption is stated rather than silent. `optional` and `deferred` say nothing about whether work has started, so an opening of "Not started" alongside either adds information without contradicting it. Four sidecars are exempt on that ground: `git-url-fetch` (`deferred`, and its opening names both, "Not started (deferred)."), and `greenfield-flake`, `later-enhancements` and `tui-authoring` (all `optional`). No other pair is exempt: `complete` and `in progress` both assert that work happened, so an opening of "Not started", "Next" or "Deferred" on either contradicts the declared status outright.
 
@@ -30,7 +30,31 @@ THE OTHER 19 NEED NO SUCH DERIVATION, because they are `complete` steps and a `c
 
 ### WHAT THE FIX IS, AND WHAT IT IS NOT
 
-THE FIX IS THE TOKEN AND THE CLAUSE THAT DEPENDS ON IT. Replace the stale opening state claim with the step's actual state, which for 19 of the 21 is `complete` and for 2 is `in progress`. Where the stale token carries a dependent clause that is false with it, that clause goes too: `workflow-driver`'s "with no increments declared yet" is the one measured instance, and `instrument-flag`'s "The design is decided below; the build is deferred" is the second, since the build is not deferred on a `complete` step. Where the rest of the opening sentence stays true once the token is corrected, leave it exactly as it is.
+"THE OPENING" MEANS THE WHOLE OPENING LINE, AND THAT IS THE UNIT EVERYWHERE IN THIS STEP. These sidecars are not hard-wrapped, so the opening line IS the opening paragraph; measured, all 21 openings are exactly one line. Criterion 1 already reads the first non-blank, non-heading LINE, and criterion 4 bounds the diff per LINE, so the line is the unit the method and the criteria already use, and it is the unit the obligation below uses too. An earlier draft of this paragraph scoped the obligation to the opening SENTENCE while directing an edit inside `instrument-flag`'s SECOND sentence, which is the inconsistency this paragraph exists to remove.
+
+THE OBLIGATION IS SEMANTIC, NOT LEXICAL. After the fix, the opening line of each of the 21 files must contain no claim that the step's declared `status` contradicts. Correcting the leading status token is necessary and is nowhere near sufficient, which is DEMONSTRATED rather than argued below.
+
+THE DEMONSTRATION, run on a throwaway copy of `docs/` and reproducible. Take three of the 21 and replace ONLY the leading token, leaving the rest of the line: `workflow-driver` "Not started;" to "In progress;", `optional-modules` "Not started;" to "Complete;", `workflow-calibration` "Not started (deferred)." to "In progress.". Criterion 1 then prints 18 rows instead of 21, so it certifies all three as clean while they read:
+
+- "In progress; the build-start is a separate pending human decision, so this umbrella step stays `not-started` with no increments declared yet".
+- "Complete; a design-questions pass is needed before implementing (as with `git-url-fetch`)".
+- "In progress. ... This is deliberately deferred: ... so nothing here blocks earlier work".
+
+WORKED EXAMPLES, MEASURED, AND THIS LIST IS A FLOOR RATHER THAN A SET. Each is a claim in the opening line that the declared `status` contradicts. NOTHING HERE CLAIMS THEY ARE THE ONLY ONES, and an earlier draft of this paragraph did claim exactly that, named two, and was wrong; a later count of five was also short. The implementer reads each of the 21 opening lines whole and disposes of what it finds, using criterion 9 as the starting list.
+
+- `workflow-driver`: "so this umbrella step stays `not-started` with no increments declared yet". False twice over on an `in-progress` step that declares three increments.
+- `workflow-calibration`: "This is deliberately deferred: ... so nothing here blocks earlier work". Same class as the front-matter contradiction excluded below, inside the very line being edited.
+- `optional-modules`: "a design-questions pass is needed before implementing". False on a `complete` step, and note that this one carries no status vocabulary at all, so no keyword scan finds it. That is why criterion 9 is a disposition list rather than an oracle.
+- `instrument-flag`: "The design is decided below; the build is deferred". The build is not deferred on a `complete` step.
+- `decision-folder-currency`: "FOUR passages are still out of step with the rule, three of them in `pack/prompts/orchestrator.md` and one in `pack/AGENTS.md`". Measured at HEAD, all four now name the planner: `pack/prompts/orchestrator.md:27` ("which is the planner's job and which you route to it rather than author yourself"), `:31` ("you route to the planner to author rather than editing the plan yourself"), `:33` ("and the planner authors that fold when it is non-trivial") and `pack/AGENTS.md:63` (the same clause). `decision-folder-currency` is the step that fixed them, and it is `complete`, so "are still out of step" is false of the tree its own sidecar sits in.
+
+ONE THING THAT IS DRIFT BUT IS NOT THIS CLASS, so it is not corrected as though it were. `instrument-flag` opens "Not started; optional.", and correcting only the token gives "Complete; optional.", which is NOT self-contradictory under this step's own semantics: the exemption argument above turns on `optional` saying nothing about whether work started, so a complete step can be an optional one. It is still drift, because `optional` is a `status` value the TOML does not carry for that step, and it is the implementer's to dispose of under criterion 9 rather than to treat as a contradiction.
+
+THREE BORDERLINE CASES, RULED HERE SO THE IMPLEMENTER DOES NOT HAVE TO GUESS.
+
+- `state-schema` opens with the compound "Deferred and non-blocking (`Q-11`);". Its correction is AUTHORED, not substituted, because "Complete and non-blocking" is not what the sentence means; say what the step's state is and keep the non-blocking fact if it is still true.
+- `reviewer-reproducible-evidence` opens "Next (built first, before resuming the paused `code-value-audit-static` step 86)." The parenthetical is a historical statement about build order and it stays; `code-value-audit-static` is still `in-progress`. Only the leading token is stale.
+- `checks-runner-worktree-name-collision` closes its opening "The human's call (2026-07-28) was to TRACK it here rather than schedule it now." That is a dated record of a past decision, so it stays as history; the leading "Deferred." is what is stale.
 
 THE WORDING IS THE IMPLEMENTER'S, subject to one constraint: the opening must not become a second hand-maintained copy of a field that will drift again in a different way. Naming the state plainly ("Complete.") is what the two sidecars that already do this use, `task-entry-regrounding` ("Complete (2026-07-20), built in two increments") and `waiver-model` ("Complete (merged into main by fast-forward `7be5c2a`, 2026-07-18; RISKY, five rounds)"), so there is an in-repo form to follow rather than one to invent.
 
@@ -38,7 +62,8 @@ NOT IN SCOPE, EACH CONSIDERED AND EXCLUDED SO THE ABSENCE IS A CHOICE.
 
 - WHAT ANY OF THESE 21 STEPS SHOULD SAY. This step corrects a stale claim about state. It does not review, re-scope, re-title or rewrite a single step, and it changes no step's `status`, which is the orchestrator's.
 - THE FRONT MATTER. `docs/plans/agent-scaffold._status-narrative.md` lists `workflow-calibration` under "Still optional/deferred", which is the same contradiction in the plan's most-read paragraph. It is left alone deliberately: that file is a long historical accretion whose currency is a separate and much larger question, and correcting one clause inside it invites the rewrite this step exists to avoid. It is recorded here so it is a named exclusion rather than a miss.
-- ANY SIDECAR SENTENCE THAT IS NOT THE OPENING, with the single exception specified as item `B` below. No sweep was run for stale non-opening claims across the other 100 sidecars, so nothing here says there are none.
+- ANY SIDECAR TEXT BELOW THE OPENING LINE, with the single exception specified as item `B` below. No sweep was run for stale claims below the opening line, in these 21 files or in the other 80, so nothing here says there are none.
+- `pack-rebuild-tracking`, WHICH IS A REAL INSTANCE OF THE UNDERLYING PROBLEM AND IS STILL EXCLUDED. Its opening reads "To be done before the golden sync-test in `ledger-template`" on a `complete` step whose named successor `ledger-template` is also `complete`. It is excluded because this step's first line commits to one class of edit ENUMERATED BY A COMMAND, and "To be done" is not a Roadmap status label, so criterion 1 does not print it and no mechanical rule reaches it. Admitting an instance that only a reading finds would replace a reproducible enumeration with a judgement, and would break criterion 1 (which would stay silent on it) and criterion 3 (which pins the changed set at 22 paths). THIS IS NOT A CLAIM THAT IT IS THE ONLY ONE OF ITS CLASS: no sweep for openings that are stale without using status vocabulary was run, and the `optional-modules` example above shows the class is not keyword-reachable. Whether that wider class is worth a sweep is a question for the `Q-78` pass, alongside item (g).
 - THE RULE THAT WOULD PREVENT RECURRENCE. See the next paragraph.
 
 THE RECURRENCE QUESTION IS ROUTED AND NOT DECIDED HERE. Correcting 21 openings restores 21 hand-maintained copies of a field the TOML owns, which is the mechanism that produced the drift in the first place. The alternative, that a sidecar never restates a TOML field and these openings lose their state token entirely, is a design question about which facts belong in the schema and which in the prose, and that is exactly what `Q-78` commissions a design pass to settle; it is registered there as design-space item (g). This step deliberately takes the human's chosen direction, state the actual state, and leaves the rule to the pass. THE COST OF THAT ORDER, stated so it is weighed: if the pass later rules that the token goes, these 21 openings are edited a second time. That second edit is a deletion of one token per file against 21 files that are open anyway, so the cost of doing it twice is small, and the alternative is leaving 21 false statements standing for as long as the pass takes.
@@ -67,13 +92,15 @@ while IFS=$(printf '\t') read -r slug status; do
 done
 ```
 
-The empty output is the oracle, not the pipeline's exit status. MEASURED before the fix, this command parses all 101 Roadmap rows and prints exactly the 21 rows listed above, so it is known to detect the condition rather than merely to stay silent.
+The empty output is the oracle for the LEADING TOKEN, not the pipeline's exit status, and it is a bash snippet, so run it through the project's bash prefix rather than in nu; it uses no process substitution. MEASURED before the fix, it parses all 101 Roadmap rows and prints exactly the 21 rows listed above, so it detects the condition rather than merely staying silent.
+
+CRITERION 1 IS NECESSARY AND NOT SUFFICIENT, WHICH IS MEASURED. On the three-file demonstration above it prints 18 rows while all three of those lines contradict themselves. Criterion 9 is what covers the rest of the line, and on that same fixture it still flags all three. Do not read an empty criterion 1 as the step being done.
 
 2. RED THEN GREEN, demonstrated rather than asserted. Revert one corrected opening to its stale token, show criterion 1 prints that one row, restore it, show criterion 1 prints nothing again. The red output lands as evidence in the outcome.
 
 3. EXACTLY 21 SIDECARS CHANGE, plus `docs/plans/agent-scaffold.md`. `git diff --name-only` over the step's change lists 22 paths: the 21 files under `docs/plans/agent-scaffold.steps/` named above, and the regenerated `docs/plans/agent-scaffold.md`. No file under `src/`, `pack/` or `tests/` appears, `docs/plans/agent-scaffold.plan.toml` does not appear (no `status` is flipped, and the step's own entry is authored by this planning pass rather than by the implementation), and `docs/metrics/workflow.jsonl` does not appear.
 
-4. THE CHANGE IS CONFINED TO THE OPENING, WITH ONE NAMED EXCEPTION. For each of the 21 files, `git diff --numstat` reports at most 2 added and 2 removed lines, since each opening is one line in an unwrapped file. The exception is `docs/plans/agent-scaffold.steps/workflow-calibration.md`, which carries item `B` as well and so reports at most 4 and 4.
+4. THE CHANGE IS CONFINED TO THE OPENING LINE, WITH ONE NAMED EXCEPTION, AND ADDS NO PARAGRAPH. For each of the 21 files, `git diff --numstat` reports at most 2 added and 2 removed lines, since each opening is one line in an unwrapped file and the fix rewrites that line in place rather than splitting it. The exception is `docs/plans/agent-scaffold.steps/workflow-calibration.md`, which carries item `B` as well and so reports at most 4 and 4.
 
 5. ITEM `B` MAKES NO FALSE CLAIM. In `workflow-calibration.md`, every `.md` or `.tsv` filename the audit-records paragraph names exists in `docs/plans/workflow-calibration.explorations/`, and the paragraph either names all 12 entries of that directory or makes no exhaustive claim about its contents (no "the directory currently holds X, Y and Z" form).
 
@@ -82,6 +109,28 @@ The empty output is the oracle, not the pipeline's exit status. MEASURED before 
 7. THE VALIDATORS AND THE SUITE STAY GREEN. `./target/debug/agent-flow validate --source docs/plans/agent-scaffold.plan.toml --metrics docs/metrics/workflow.jsonl` and `./target/debug/agent-flow validate --source docs/plans/agent-scaffold.plan.toml --workflow` both exit 0, and `cargo test` passes. None of the three reads sidecar prose, so they are the no-regression check rather than the oracle for this step. Criterion 1 is the oracle.
 
 8. ASCII ONLY. `LC_ALL=C grep -cP '[^\t\x20-\x7e]' <file>` prints 0 for every changed file. Use that pattern rather than `[^ -~]`, which matches every hard tab. Note `grep -c` exits 1 when the count is 0, so it breaks an `&&` chain.
+
+9. EVERY ROW OF THE DISPOSITION LIST IS DISPOSED OF. This is NOT a pass-or-fail oracle and its empty output is not the target; a whole-line keyword scan cannot be one, because several matches are legitimate prose (`reviewer-harness-field` describes an "OPTIONAL `harness` string", `workflow-invariants` records that the `ledger-parse` keystone was SKIPPED). It is a bounded worklist over the same 21 files, carrying the slugs literally so it keeps working after criterion 1 goes empty. Run it under bash; it uses no process substitution.
+
+```
+sed -n 's/^| `\([a-z0-9-]*\)` | \([a-z ]*\) |.*/\1\t\2/p' docs/plans/agent-scaffold.md |
+while IFS=$(printf '\t') read -r slug status; do
+  case " state-schema optional-modules workflow-calibration instrument-flag session-preflight round-log-core workflow-invariants decision-receipt structured-skeleton reviewer-harness-field reviewer-diversity review-mode workflow-driver doc-redundancy-cleanup doc-currency-guidance human-input-gate-reinforce reviewer-reproducible-evidence planner-folds-decisions decision-folder-currency prompt-drift-guard checks-runner-worktree-name-collision " in
+    *" $slug "*) ;;
+    *) continue ;;
+  esac
+  line=$(sed -e '/^#/d' -e '/^[[:space:]]*$/d' "docs/plans/agent-scaffold.steps/$slug.md" | head -1)
+  hits=$(printf '%s' "$line" |
+    grep -o -i -E 'not started|not-started|in progress|in-progress|complete|skipped|next|optional|deferred|to be done|still|pending|not yet|before implementing' |
+    tr 'A-Z' 'a-z' | sed 's/-/ /' | sort -u |
+    grep -v -x "$status" | tr '\n' ' ')
+  [ -n "$hits" ] && printf '%s\t[%s]\t%s\n' "$slug" "$status" "$hits"
+done
+```
+
+MEASURED before the fix, it prints 21 rows, one per file, because each still carries its own stale leading token. THE OBLIGATION: the outcome records, for every row this prints after the fix, either the correction made or the reason that match is legitimate prose. A row left with neither is the step not finished. The scan is a FLOOR and not a census: `optional-modules`' false clause carries no status vocabulary and this command does not flag it, which is why criterion 10 exists.
+
+10. EVERY OPENING LINE WAS READ WHOLE. The outcome states, for each of the 21 files, that its opening line was read end to end against the step's declared `status`, and records what that reading found beyond what criterion 9 flagged. This is the criterion that is a judgement rather than a command, and it is here because the measured evidence says no command covers the class: the demonstration under criterion 1 shows a token-only fix passing, and `optional-modules` shows a false clause with no keyword to catch it.
 
 ### DOCUMENTATION IMPACT
 

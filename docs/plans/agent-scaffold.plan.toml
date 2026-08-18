@@ -1522,7 +1522,7 @@ commits = ["a5bb7ee"]
 
 [[step]]
 slug = "sidecar-status-opening-drift"
-title = "correct the 21 step sidecars whose opening status token contradicts the step's declared `status` (`Q-78-statusdrift`)"
+title = "correct the 21 step sidecars whose opening contradicts the step's declared `status` (`Q-78-statusdrift`)"
 status = "not-started"
 order = 103
 blocked_by = []
